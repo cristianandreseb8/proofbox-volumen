@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>ProofBox Volumen</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@500;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/mqtt@4.3.7/dist/mqtt.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#0f0e0c;--surface:#1a1815;--border:#2e2b26;--amber:#d4820e;--amber-l:#f0a832;--amber-d:#7a4a08;--red:#c0392b;--green:#27ae60;--text:#e8e2d6;--muted:#7a7268}
+body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-height:100vh}
+.app{max-width:400px;margin:0 auto;padding:16px 12px 48px}
+.header{display:flex;align-items:center;justify-content:space-between;padding:8px 0 18px}
+.logo{font-family:'Syne',sans-serif;font-size:20px;font-weight:700;letter-spacing:.04em}
+.logo span{color:var(--amber)}
+.status-row{display:flex;align-items:center;gap:6px;font-size:11px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--red)}
+.dot.ok{background:var(--green);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 3px rgba(39,174,96,.2)}50%{box-shadow:0 0 0 6px rgba(39,174,96,.1)}}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:12px}
+.card-label{font-size:10px;letter-spacing:.12em;color:var(--muted);text-transform:uppercase;margin-bottom:10px}
+.mode-toggle{display:grid;grid-template-columns:1fr 1fr;gap:4px;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:4px;margin-bottom:12px}
+.mode-btn{padding:8px;border:none;border-radius:7px;background:transparent;color:var(--muted);font-family:'DM Mono',monospace;font-size:12px;cursor:pointer}
+.mode-btn.active{background:var(--surface);color:var(--amber-l);border:1px solid var(--amber-d)}
+.track{height:10px;background:var(--bg);border-radius:5px;overflow:hidden;border:1px solid var(--border)}
+.fill{height:100%;border-radius:5px;background:linear-gradient(90deg,var(--amber-d),var(--amber-l));transition:width .8s ease}
+.fill.done{background:linear-gradient(90deg,#1a6b3a,var(--green))}
+.marks{display:flex;justify-content:space-between;margin-top:4px}
+.marks span{font-size:9px;color:var(--muted)}
+.rise-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px}
+.rise-val{font-family:'Syne',sans-serif;font-size:30px;font-weight:700;color:var(--amber-l)}
+.rise-x{font-size:14px;color:var(--amber)}
+.cal-btn{width:100%;padding:10px;margin-top:10px;background:var(--amber-d);border:none;border-radius:8px;color:var(--text);font-family:'DM Mono',monospace;font-size:12px;cursor:pointer}
+.meta-big{font-family:'Syne',sans-serif;font-size:52px;font-weight:700;text-align:center;color:var(--amber-l);line-height:1;margin:8px 0 2px}
+.meta-big span{font-size:22px;color:var(--amber)}
+.meta-ratio-row{display:flex;justify-content:center;gap:16px;margin-bottom:10px;font-size:12px}
+.cm-grown{text-align:center;font-size:13px;color:var(--muted);margin-bottom:10px}
+.goal-tabs{display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;margin-bottom:10px}
+.gtab{padding:7px 4px;border:1px solid var(--border);border-radius:7px;background:var(--bg);color:var(--muted);font-family:'DM Mono',monospace;font-size:10px;cursor:pointer;text-align:center}
+.gtab.active{border-color:var(--amber);color:var(--amber-l);background:rgba(212,130,14,.08)}
+.input-row{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+.num-input{flex:1;background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:8px 10px;color:var(--text);font-family:'DM Mono',monospace;font-size:14px;outline:none}
+.num-input:focus{border-color:var(--amber)}
+.unit-lbl{font-size:12px;color:var(--muted);min-width:24px}
+.mark-btn{padding:9px 14px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;font-size:12px;cursor:pointer;white-space:nowrap}
+.mark-btn:active{background:var(--amber-d);border-color:var(--amber)}
+.mark-btn.done{border-color:var(--green);color:var(--green)}
+.grams-row{display:flex;gap:8px;align-items:center;margin-bottom:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px}
+.reset-small{background:transparent;border:1px solid var(--border);border-radius:7px;padding:6px 10px;color:var(--muted);font-family:'DM Mono',monospace;font-size:10px;cursor:pointer;margin-top:10px;width:100%}
+.sensor-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.sensor-item{text-align:center;padding:10px 4px;background:var(--bg);border-radius:8px;border:1px solid var(--border)}
+.sensor-val{font-size:13px;font-weight:500;color:var(--text);margin-bottom:2px}
+.sensor-lbl{font-size:9px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase}
+.reset-btn{width:100%;padding:8px;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--muted);font-family:'DM Mono',monospace;font-size:11px;cursor:pointer;margin-top:8px}
+.toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);background:var(--green);color:#fff;padding:14px 24px;border-radius:12px;font-size:14px;font-weight:500;z-index:999;display:none;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,.4);max-width:320px}
+.toast.show{display:block;animation:toastIn .3s ease}
+@keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(-10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+.offset-row{display:flex;gap:8px;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}
+</style>
+</head>
+<body>
+<div class="toast" id="toast"></div>
+<div class="app">
+  <div class="header">
+    <div class="logo">Proof<span>Box</span> Vol</div>
+    <div class="status-row">
+      <div class="dot" id="dot"></div>
+      <span id="status-txt" style="color:var(--red)">Conectando...</span>
+    </div>
+  </div>
+  <div class="mode-toggle">
+    <button class="mode-btn active" id="mode-ratio" onclick="setDMode('ratio')">📈 Modo Ratio ×</button>
+    <button class="mode-btn" id="mode-meta" onclick="setDMode('meta')">🎯 Modo Meta</button>
+  </div>
+  <div id="panel-ratio" class="card">
+    <div class="rise-head">
+      <div class="card-label" style="margin:0">Crecimiento</div>
+      <div><span class="rise-val" id="rise">--</span><span class="rise-x">×</span></div>
+    </div>
+    <div class="track"><div class="fill" id="bar-ratio" style="width:0%"></div></div>
+    <div class="marks"><span>1×</span><span>1.5×</span><span>2×</span><span>2.5×</span><span>3×</span></div>
+    <button class="cal-btn" onclick="sendCmd({cmd:'calibrate'})">⬛ Calibrar punto cero</button>
+  </div>
+  <div id="panel-meta" style="display:none">
+    <div class="card">
+      <div class="card-label">Progreso</div>
+      <div class="meta-big" id="meta-pct">--<span>%</span></div>
+      <div class="meta-ratio-row">
+        <span style="color:var(--text)">Ahora: <b id="meta-ratio-now">--×</b></span>
+        <span style="color:var(--muted)">Meta: <b id="meta-ratio-goal">--×</b></span>
+      </div>
+      <div class="cm-grown">Crecido: <b id="cm-grown">--cm</b></div>
+      <div class="track"><div class="fill" id="bar-meta" style="width:0%"></div></div>
+      <div class="marks"><span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span></div>
+    </div>
+    <div class="card">
+      <div class="card-label">Definir inicio</div>
+      <div class="grams-row">
+        <span style="font-size:11px;color:var(--muted);flex:1">Gramos <span style="color:var(--amber)">(opcional)</span></span>
+        <input class="num-input" type="number" id="input-grams" placeholder="100" style="width:70px;flex:none">
+        <span class="unit-lbl">g</span>
+      </div>
+      <button class="mark-btn" id="btn-start" onclick="markStart()" style="width:100%">📏 Marcar inicio</button>
+      <div id="start-status" style="font-size:11px;color:var(--muted);margin-top:8px;text-align:center"></div>
+    </div>
+    <div class="card">
+      <div class="card-label">Definir meta</div>
+      <div class="goal-tabs">
+        <button class="gtab active" id="gtab-finger" onclick="setGoalTab('finger')">🖐 Dedo</button>
+        <button class="gtab" id="gtab-ratio" onclick="setGoalTab('ratio')">✖️ Ratio</button>
+        <button class="gtab" id="gtab-cm" onclick="setGoalTab('cm')">📐 cm</button>
+      </div>
+      <div id="goal-finger">
+        <button class="mark-btn" id="btn-goal-finger" onclick="setGoalFinger()" style="width:100%">🖐 Marcar meta con el dedo</button>
+      </div>
+      <div id="goal-ratio" style="display:none">
+        <div class="input-row">
+          <input class="num-input" type="number" id="input-ratio" placeholder="2.7" step="0.1" min="1.1" max="5">
+          <span class="unit-lbl">×</span>
+          <button class="mark-btn" onclick="setGoalRatio()">Aplicar</button>
+        </div>
+      </div>
+      <div id="goal-cm" style="display:none">
+        <div class="input-row">
+          <input class="num-input" type="number" id="input-cm" placeholder="5" step="0.5" min="0.5">
+          <span class="unit-lbl">cm</span>
+          <button class="mark-btn" onclick="setGoalCm()">Aplicar</button>
+        </div>
+      </div>
+      <div id="goal-status" style="font-size:11px;color:var(--muted);margin-top:8px;text-align:center"></div>
+      <button class="reset-small" onclick="resetMeta()">↺ Resetear meta</button>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-label">Sensor</div>
+    <div class="sensor-row">
+      <div class="sensor-item"><div class="sensor-val" id="dist">--</div><div class="sensor-lbl">Distancia</div></div>
+      <div class="sensor-item"><div class="sensor-val" id="uptime">--</div><div class="sensor-lbl">Tiempo</div></div>
+      <div class="sensor-item"><div class="sensor-val" id="rssi">--</div><div class="sensor-lbl">WiFi</div></div>
+    </div>
+    <div class="offset-row">
+      <span style="font-size:11px;color:var(--muted);flex:1">Offset calibración</span>
+      <input class="num-input" type="number" id="input-offset" placeholder="49" style="width:60px;flex:none">
+      <span class="unit-lbl">mm</span>
+      <button class="mark-btn" onclick="setOffset()">Aplicar</button>
+    </div>
+    <button class="reset-btn" onclick="if(confirm('¿Resetear WiFi?'))sendCmd({cmd:'resetwifi'})">⚙ Cambiar red WiFi</button>
+  </div>
+</div>
+<script>
+const DEVICE_ID   = 'proofbox-vol01';
+const CMD_SECRET  = 'pb-vol-b3ccb5';
+const BROKER_URL  = 'wss://broker.hivemq.com:8884/mqtt';
+const TOPIC_STATUS = `proofboxvol/${DEVICE_ID}/status`;
+const TOPIC_CMD    = `proofboxvol/${DEVICE_ID}/cmd`;
+const TOPIC_NOTIFY = `proofboxvol/${DEVICE_ID}/notify`;
+let mqttClient=null, lastMeta=0;
+function fmt(n,d=1){return parseFloat(n).toFixed(d);}
+function showToast(msg,dur=6000){
+  const t=document.getElementById('toast');
+  t.textContent=msg;t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),dur);
+}
+function setDMode(mode){
+  document.getElementById('panel-ratio').style.display=mode==='ratio'?'block':'none';
+  document.getElementById('panel-meta').style.display=mode==='meta'?'block':'none';
+  document.getElementById('mode-ratio').className='mode-btn'+(mode==='ratio'?' active':'');
+  document.getElementById('mode-meta').className='mode-btn'+(mode==='meta'?' active':'');
+}
+function setGoalTab(tab){
+  ['finger','ratio','cm'].forEach(t=>{
+    document.getElementById('goal-'+t).style.display=t===tab?'block':'none';
+    document.getElementById('gtab-'+t).className='gtab'+(t===tab?' active':'');
+  });
+}
+function updateUI(d){
+  document.getElementById('dist').textContent=Math.round(d.dist)+'mm';
+  document.getElementById('rssi').textContent=d.rssi+'dB';
+  const s=Math.floor(d.uptime),h=Math.floor(s/3600),m=Math.floor((s%3600)/60);
+  document.getElementById('uptime').textContent=h+'h'+String(m).padStart(2,'0');
+  document.getElementById('rise').textContent=fmt(d.rise);
+  document.getElementById('bar-ratio').style.width=Math.min(100,Math.max(0,((d.rise-1)/2)*100))+'%';
+  const mp=d.metaProgress||0;
+  document.getElementById('meta-pct').innerHTML=fmt(mp,0)+'<span>%</span>';
+  document.getElementById('bar-meta').style.width=mp+'%';
+  document.getElementById('bar-meta').className='fill'+(mp>=100?' done':'');
+  document.getElementById('meta-ratio-now').textContent=d.metaStartSet?fmt(d.metaRatioCurr)+'×':'--×';
+  document.getElementById('meta-ratio-goal').textContent=d.metaGoalSet?fmt(d.metaRatioGoal)+'×':'--×';
+  document.getElementById('cm-grown').textContent=fmt(d.cmGrown||0)+'cm';
+  if(mp>=100&&lastMeta<100&&d.metaGoalSet){
+    showToast('🎉 ¡La masa llegó a la meta! '+fmt(d.metaRatioCurr)+'×',10000);
+    if('vibrate'in navigator)navigator.vibrate([300,100,300,100,300]);
+  }
+  lastMeta=mp;
+  if(d.metaStartSet){
+    const g=d.metaGrams>0?` · ${d.metaGrams}g`:'';
+    document.getElementById('start-status').textContent='✓ Inicio marcado'+g;
+    document.getElementById('btn-start').className='mark-btn done';
+  }else{
+    document.getElementById('start-status').textContent='';
+    document.getElementById('btn-start').className='mark-btn';
+  }
+  if(d.metaGoalSet){
+    document.getElementById('goal-status').textContent='✓ Meta: '+fmt(d.metaRatioGoal)+'×';
+    document.getElementById('btn-goal-finger').className='mark-btn done';
+  }else{
+    document.getElementById('goal-status').textContent='';
+    document.getElementById('btn-goal-finger').className='mark-btn';
+  }
+  document.getElementById('dot').className='dot ok';
+  document.getElementById('status-txt').textContent='Conectado';
+  document.getElementById('status-txt').style.color='var(--green)';
+}
+function sendCmd(payload){
+  if(mqttClient&&mqttClient.connected)
+    mqttClient.publish(TOPIC_CMD,JSON.stringify({...payload,secret:CMD_SECRET}));
+}
+function markStart(){
+  const g=parseFloat(document.getElementById('input-grams').value)||0;
+  sendCmd({cmd:'metaSetStart',grams:g});
+  document.getElementById('start-status').textContent='⏳ Marcando...';
+}
+function setGoalFinger(){sendCmd({cmd:'metaSetGoalFinger'});document.getElementById('goal-status').textContent='⏳ Leyendo...';}
+function setGoalRatio(){
+  const r=parseFloat(document.getElementById('input-ratio').value);
+  if(!r||r<=1||r>10){document.getElementById('goal-status').textContent='⚠️ Ratio entre 1.1 y 10';return;}
+  sendCmd({cmd:'metaSetGoalRatio',ratio:r});document.getElementById('goal-status').textContent='⏳ Aplicando...';
+}
+function setGoalCm(){
+  const cm=parseFloat(document.getElementById('input-cm').value);
+  if(!cm||cm<=0){document.getElementById('goal-status').textContent='⚠️ Escribe los cm';return;}
+  sendCmd({cmd:'metaSetGoalCm',cm});document.getElementById('goal-status').textContent='⏳ Aplicando...';
+}
+function resetMeta(){if(confirm('¿Resetear inicio y meta?'))sendCmd({cmd:'metaReset'});}
+function setOffset(){
+  const o=parseFloat(document.getElementById('input-offset').value);
+  if(isNaN(o)){return;}
+  sendCmd({cmd:'setOffset',offset:o});
+}
+function connect(){
+  const cid='pbvol-app-'+Math.random().toString(16).substr(2,8);
+  mqttClient=mqtt.connect(BROKER_URL,{clientId:cid,clean:true,reconnectPeriod:3000});
+  mqttClient.on('connect',()=>{mqttClient.subscribe(TOPIC_STATUS);mqttClient.subscribe(TOPIC_NOTIFY);});
+  mqttClient.on('message',(t,msg)=>{
+    if(t===TOPIC_NOTIFY){
+      try{const n=JSON.parse(msg.toString());
+        if(n.event==='meta_reached')showToast('🎉 ¡Meta alcanzada! '+fmt(n.ratio)+'×',10000);
+      }catch(e){}
+    }else{
+      try{updateUI(JSON.parse(msg.toString()));}catch(e){}
+    }
+  });
+  mqttClient.on('disconnect',()=>{
+    document.getElementById('dot').className='dot';
+    document.getElementById('status-txt').textContent='Sin conexión';
+    document.getElementById('status-txt').style.color='var(--red)';
+  });
+}
+connect();
+</script>
+</body>
+</html>
