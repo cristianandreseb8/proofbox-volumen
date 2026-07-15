@@ -33,7 +33,8 @@ VL53L0X      laser;
 
 // ─── ESTADO DEL SENSOR ────────────────────────────────────────
 float distanceMM   = 0;
-bool  laserOk      = false;
+bool  laserInit    = false;  // el chip respondió a init()
+bool  laserOk      = false;  // hay lecturas válidas ahora mismo
 int   laserFails   = 0;
 
 // ─── MODO RATIO ───────────────────────────────────────────────
@@ -65,26 +66,29 @@ const unsigned long PUBLISH_INTERVAL = 1000;
 
 // ─── LECTURA VL53L0X ───────────────────────────────────────────
 float readDistanceRaw() {
-  if (!laserOk) return distanceMM + sensorOffset;
-
   const int N = 3;
   uint16_t readings[N];
   int valid = 0;
 
-  for (int i = 0; i < N; i++) {
-    uint16_t d = laser.readRangeSingleMillimeters();
-    if (!laser.timeoutOccurred() && d > 0 && d < 8190) {
-      readings[valid++] = d;
+  if (laserInit) {
+    for (int i = 0; i < N; i++) {
+      uint16_t d = laser.readRangeSingleMillimeters();
+      if (!laser.timeoutOccurred() && d > 0 && d < 8190) {
+        readings[valid++] = d;
+      }
     }
   }
 
   if (valid == 0) {
     laserFails++;
+    // ~1s sin una sola lectura válida: el sensor está caído, que la app lo diga.
+    if (laserFails >= 3) laserOk = false;
     if (laserFails > 10) {
       laserFails = 0;
       Serial.println("⚠️ Sensor no responde — reiniciando I2C...");
       Wire.begin(PIN_SDA, PIN_SCL);
-      if (laser.init()) {
+      laserInit = laser.init();
+      if (laserInit) {
         laser.setMeasurementTimingBudget(20000);
         Serial.println("✅ Sensor recuperado");
       }
@@ -92,6 +96,7 @@ float readDistanceRaw() {
     return distanceMM + sensorOffset;
   }
   laserFails = 0;
+  laserOk = true;
 
   // Ordenar y tomar mediana
   for (int i = 0; i < valid-1; i++)
@@ -259,14 +264,16 @@ void setup() {
   for (int i = 0; i < 3; i++) {
     if (laser.init()) {
       laser.setMeasurementTimingBudget(20000);
-      laserOk = true;
+      laserInit = true;
       Serial.println("✅ VL53L0X listo");
       break;
     }
     Serial.printf("VL53L0X intento %d fallido...\n", i+1);
     delay(200);
   }
-  if (!laserOk) Serial.println("❌ VL53L0X no encontrado — verifica SDA/SCL");
+  // Aunque falle aquí, readDistanceRaw() reintenta init() cada ~3s: si el sensor
+  // aparece más tarde (o se vuelve a enchufar), se recupera solo.
+  if (!laserInit) Serial.println("❌ VL53L0X no encontrado — verifica SDA/SCL");
 
   // WiFi
   WiFiManager wm;

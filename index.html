@@ -17,7 +17,12 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
 .status-row{display:flex;align-items:center;gap:6px;font-size:11px}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--red)}
 .dot.ok{background:var(--green);animation:pulse 2s infinite}
+.dot.stale{background:var(--amber);animation:blink 1s step-end infinite}
 @keyframes pulse{0%,100%{box-shadow:0 0 0 3px rgba(39,174,96,.2)}50%{box-shadow:0 0 0 6px rgba(39,174,96,.1)}}
+@keyframes blink{50%{opacity:.25}}
+.dim{opacity:.3;transition:opacity .4s}
+.warn{display:none;background:rgba(192,57,43,.12);border:1px solid var(--red);border-radius:8px;padding:9px 10px;font-size:11px;color:#e8867a;margin-bottom:10px;text-align:center}
+.warn.show{display:block}
 .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:12px}
 .card-label{font-size:10px;letter-spacing:.12em;color:var(--muted);text-transform:uppercase;margin-bottom:10px}
 .mode-toggle{display:grid;grid-template-columns:1fr 1fr;gap:4px;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:4px;margin-bottom:12px}
@@ -134,7 +139,9 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
   </div>
   <div class="card">
     <div class="card-label">Sensor</div>
-    <div class="sensor-row">
+    <div class="warn" id="warn-link">📡 Sin señal del ProofBox — última lectura hace <b id="warn-age">--</b></div>
+    <div class="warn" id="warn-laser">⚠️ El sensor láser no responde — revisa el cableado</div>
+    <div class="sensor-row" id="sensor-row">
       <div class="sensor-item"><div class="sensor-val" id="dist">--</div><div class="sensor-lbl">Distancia</div></div>
       <div class="sensor-item"><div class="sensor-val" id="uptime">--</div><div class="sensor-lbl">Tiempo</div></div>
       <div class="sensor-item"><div class="sensor-val" id="rssi">--</div><div class="sensor-lbl">WiFi</div></div>
@@ -156,6 +163,10 @@ const TOPIC_STATUS = `proofboxvol/${DEVICE_ID}/status`;
 const TOPIC_CMD    = `proofboxvol/${DEVICE_ID}/cmd`;
 const TOPIC_NOTIFY = `proofboxvol/${DEVICE_ID}/notify`;
 let mqttClient=null, lastMeta=0;
+// El ESP32 publica status cada 1s. Si pasan STALE_MS sin uno nuevo, lo que se ve
+// en pantalla está congelado: puede ser el retained del broker o una caída.
+const STALE_MS=5000;
+let lastStatusMs=0, brokerUp=false, laserOk=true;
 function fmt(n,d=1){return parseFloat(n).toFixed(d);}
 function showToast(msg,dur=6000){
   const t=document.getElementById('toast');
@@ -208,10 +219,49 @@ function updateUI(d){
     document.getElementById('goal-status').textContent='';
     document.getElementById('btn-goal-finger').className='mark-btn';
   }
-  document.getElementById('dot').className='dot ok';
-  document.getElementById('status-txt').textContent='Conectado';
-  document.getElementById('status-txt').style.color='var(--green)';
+  lastStatusMs=Date.now();
+  laserOk=d.laserOk!==false;
+  refreshHealth();
 }
+
+function fmtAge(ms){
+  const s=Math.round(ms/1000);
+  if(s<60)return s+'s';
+  const m=Math.floor(s/60);
+  return m<60?m+'min':Math.floor(m/60)+'h'+String(m%60).padStart(2,'0');
+}
+
+// Único sitio que decide el estado del indicador. Verde exige las dos cosas:
+// socket abierto al broker Y datos recientes del ESP32.
+function refreshHealth(){
+  const age=lastStatusMs?Date.now()-lastStatusMs:Infinity;
+  const stale=age>STALE_MS;
+  const dot=document.getElementById('dot'), txt=document.getElementById('status-txt');
+
+  if(!brokerUp){
+    dot.className='dot';
+    txt.textContent='Sin conexión';
+    txt.style.color='var(--red)';
+  }else if(stale){
+    dot.className='dot stale';
+    txt.textContent=lastStatusMs?'Sin señal':'Esperando...';
+    txt.style.color='var(--amber-l)';
+  }else{
+    dot.className='dot ok';
+    txt.textContent='Conectado';
+    txt.style.color='var(--green)';
+  }
+
+  const frozen=!brokerUp||stale;
+  ['panel-ratio','panel-meta','sensor-row'].forEach(id=>
+    document.getElementById(id).classList.toggle('dim',frozen));
+
+  const wl=document.getElementById('warn-link');
+  wl.classList.toggle('show',frozen&&lastStatusMs>0);
+  if(frozen&&lastStatusMs>0)document.getElementById('warn-age').textContent=fmtAge(age);
+  document.getElementById('warn-laser').classList.toggle('show',!frozen&&!laserOk);
+}
+setInterval(refreshHealth,1000);
 function sendCmd(payload){
   if(mqttClient&&mqttClient.connected)
     mqttClient.publish(TOPIC_CMD,JSON.stringify({...payload,secret:CMD_SECRET}));
@@ -241,7 +291,7 @@ function setOffset(){
 function connect(){
   const cid='pbvol-app-'+Math.random().toString(16).substr(2,8);
   mqttClient=mqtt.connect(BROKER_URL,{clientId:cid,clean:true,reconnectPeriod:3000});
-  mqttClient.on('connect',()=>{mqttClient.subscribe(TOPIC_STATUS);mqttClient.subscribe(TOPIC_NOTIFY);});
+  mqttClient.on('connect',()=>{brokerUp=true;mqttClient.subscribe(TOPIC_STATUS);mqttClient.subscribe(TOPIC_NOTIFY);refreshHealth();});
   mqttClient.on('message',(t,msg)=>{
     if(t===TOPIC_NOTIFY){
       try{const n=JSON.parse(msg.toString());
@@ -251,13 +301,11 @@ function connect(){
       try{updateUI(JSON.parse(msg.toString()));}catch(e){}
     }
   });
-  mqttClient.on('disconnect',()=>{
-    document.getElementById('dot').className='dot';
-    document.getElementById('status-txt').textContent='Sin conexión';
-    document.getElementById('status-txt').style.color='var(--red)';
-  });
+  // MQTT.js emite close/offline/error al perder el broker; 'disconnect' solo existe en MQTT 5.
+  ['close','offline','error'].forEach(ev=>mqttClient.on(ev,()=>{brokerUp=false;refreshHealth();}));
 }
 connect();
+refreshHealth();
 </script>
 </body>
 </html>
