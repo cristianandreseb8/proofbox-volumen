@@ -158,16 +158,17 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
   </div>
 
   <div class="card">
-    <div class="card-label">Registro (cada 10 min)</div>
+    <div class="card-label">Historial en la nube · crecimiento ×</div>
     <div class="log-row">
-      <div>Guardados: <b id="log-count">0</b></div>
+      <div>Puntos: <b id="log-count">0</b></div>
       <div style="color:var(--muted)">último: <b id="log-last">--</b></div>
     </div>
-    <div class="log-btns">
-      <button class="mark-btn" onclick="downloadCsv()" style="flex:1">⬇ Descargar CSV</button>
-      <button class="reset-small" onclick="clearLog()" style="margin-top:0;width:auto;padding:9px 14px">🗑 Borrar</button>
+    <div id="log-chart"></div>
+    <div class="log-btns" style="margin-top:10px">
+      <button class="mark-btn" onclick="fetchHistory()" style="flex:1">↻ Actualizar</button>
+      <button class="mark-btn" onclick="downloadCsv()" style="flex:1">⬇ CSV</button>
     </div>
-    <div style="font-size:10px;color:var(--muted);margin-top:8px;line-height:1.4">Solo se guarda mientras esta pantalla esté abierta. Los datos quedan en este dispositivo.</div>
+    <div style="font-size:10px;color:var(--muted);margin-top:8px;line-height:1.4">Se guarda solo cada 10 min en la nube, aunque cierres la app o apagues el teléfono.</div>
   </div>
 </div>
 <script>
@@ -196,39 +197,56 @@ function smoothDist(rawDist){
   return distBuf.length ? s/distBuf.length : rawDist;
 }
 
-// Registro persistente en el dispositivo (localStorage), un punto cada 10 min.
-const LOG_INTERVAL_MS=600000;
-let lastLogMs=parseInt(localStorage.getItem('pbvol-lastlog')||'0',10)||0;
-function loadLog(){try{return JSON.parse(localStorage.getItem('pbvol-log')||'[]');}catch(e){return[];}}
-function saveLog(a){localStorage.setItem('pbvol-log',JSON.stringify(a));}
-function refreshLogUI(){
-  const a=loadLog();
-  document.getElementById('log-count').textContent=a.length;
-  document.getElementById('log-last').textContent=a.length
-    ? new Date(a[a.length-1].t).toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'}) : '--';
+// Registro en la NUBE: un proceso en Supabase guarda una lectura cada 10 min,
+// aunque la app esté cerrada o el teléfono apagado. Aquí solo LEEMOS ese histórico.
+const SUPA_URL='https://blqcppmjejtnvoqlhshp.supabase.co';
+const SUPA_KEY='sb_publishable_7AiXScdSAxipUu_Mi8Fulg_jFCZoKYJ';
+let history=[];
+function fetchHistory(){
+  fetch(`${SUPA_URL}/rest/v1/proofbox_readings?device_id=eq.${DEVICE_ID}&order=logged_at.asc&limit=500`,
+    {headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY}})
+    .then(r=>{if(!r.ok)throw new Error(r.status);return r.json();})
+    .then(rows=>{history=rows;renderHistory();})
+    .catch(()=>{document.getElementById('log-last').textContent='error';});
 }
-function maybeLog(rec){
-  const now=Date.now();
-  if(now-lastLogMs<LOG_INTERVAL_MS) return;
-  lastLogMs=now; localStorage.setItem('pbvol-lastlog',String(now));
-  const a=loadLog(); a.push(rec);
-  if(a.length>2000) a.splice(0,a.length-2000);  // ~2 semanas a 10 min
-  saveLog(a); refreshLogUI();
+function renderHistory(){
+  const n=history.length;
+  document.getElementById('log-count').textContent=n;
+  document.getElementById('log-last').textContent=n
+    ? new Date(history[n-1].logged_at).toLocaleString('es',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})
+    : '--';
+  drawChart(history);
+}
+function drawChart(rows){
+  const box=document.getElementById('log-chart');
+  if(!rows.length){box.innerHTML='<div style="color:var(--muted);font-size:11px;text-align:center;padding:24px 0">Aún sin datos guardados.<br>El primero llega en unos minutos.</div>';return;}
+  const W=340,H=90,p=6;
+  const xs=rows.map(r=>new Date(r.logged_at).getTime());
+  const ys=rows.map(r=>r.rise==null?1:r.rise);
+  const x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(...ys,1),y1=Math.max(...ys,1.1);
+  const sx=t=>p+(x1===x0?0:(t-x0)/(x1-x0))*(W-2*p);
+  const sy=v=>H-p-(y1===y0?0:(v-y0)/(y1-y0))*(H-2*p);
+  const line=rows.map((r,i)=>(i?'L':'M')+sx(xs[i]).toFixed(1)+' '+sy(ys[i]).toFixed(1)).join(' ');
+  const area=`M${sx(x0).toFixed(1)} ${H-p} `+rows.map((r,i)=>'L'+sx(xs[i]).toFixed(1)+' '+sy(ys[i]).toFixed(1)).join(' ')+` L${sx(x1).toFixed(1)} ${H-p} Z`;
+  box.innerHTML=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:${H}px;display:block">
+    <path d="${area}" fill="rgba(212,130,14,.12)"/>
+    <path d="${line}" fill="none" stroke="var(--amber-l)" stroke-width="1.5" stroke-linejoin="round"/>
+  </svg>
+  <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--muted);margin-top:2px">
+    <span>${new Date(x0).toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'})}</span>
+    <span style="color:var(--amber)">máx ${Math.max(...ys).toFixed(2)}×</span>
+    <span>${new Date(x1).toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'})}</span>
+  </div>`;
 }
 function downloadCsv(){
-  const a=loadLog();
-  if(!a.length){showToast('Aún no hay datos guardados');return;}
+  if(!history.length){showToast('Aún no hay datos guardados');return;}
   const head='fecha,ratio,progreso_%,crecido_cm,distancia_mm,gramos';
-  const rows=a.map(r=>[new Date(r.t).toISOString(),r.rise,r.mp,r.cm,r.dist,r.grams].join(','));
+  const rows=history.map(r=>[r.logged_at,r.rise,r.meta_progress,r.cm_grown,r.dist_mm,r.grams].join(','));
   const blob=new Blob([head+'\n'+rows.join('\n')],{type:'text/csv'});
   const url=URL.createObjectURL(blob), link=document.createElement('a');
   link.href=url; link.download='proofbox-'+new Date().toISOString().slice(0,16).replace(/[:T]/g,'-')+'.csv';
   document.body.appendChild(link); link.click(); link.remove();
   setTimeout(()=>URL.revokeObjectURL(url),1000);
-}
-function clearLog(){
-  if(!confirm('¿Borrar todo el registro guardado?'))return;
-  saveLog([]); lastLogMs=0; localStorage.removeItem('pbvol-lastlog'); refreshLogUI();
 }
 function fmt(n,d=1){return parseFloat(n).toFixed(d);}
 function showToast(msg,dur=6000){
@@ -283,10 +301,6 @@ function updateUI(d){
     if('vibrate'in navigator)navigator.vibrate([300,100,300,100,300]);
   }
   lastMeta=mp;
-
-  // Registro cada 10 min (valores suavizados).
-  maybeLog({t:Date.now(),dist:Math.round(raw),rise:+riseS.toFixed(2),
-            mp:+mp.toFixed(1),cm:+cmS.toFixed(1),grams:d.metaGrams||0});
   if(d.metaStartSet){
     const g=d.metaGrams>0?` · ${d.metaGrams}g`:'';
     document.getElementById('start-status').textContent='✓ Inicio marcado'+g;
@@ -389,7 +403,8 @@ function connect(){
 }
 connect();
 refreshHealth();
-refreshLogUI();
+fetchHistory();
+setInterval(fetchHistory,60000);
 </script>
 </body>
 </html>
