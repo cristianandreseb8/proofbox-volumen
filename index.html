@@ -62,6 +62,8 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
 .toast.show{display:block;animation:toastIn .3s ease}
 @keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(-10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
 .offset-row{display:flex;gap:8px;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}
+.log-row{display:flex;justify-content:space-between;align-items:center;font-size:12px;margin-bottom:10px}
+.log-btns{display:flex;gap:8px}
 </style>
 </head>
 <body>
@@ -154,6 +156,19 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
     </div>
     <button class="reset-btn" onclick="if(confirm('¿Resetear WiFi?'))sendCmd({cmd:'resetwifi'})">⚙ Cambiar red WiFi</button>
   </div>
+
+  <div class="card">
+    <div class="card-label">Registro (cada 10 min)</div>
+    <div class="log-row">
+      <div>Guardados: <b id="log-count">0</b></div>
+      <div style="color:var(--muted)">último: <b id="log-last">--</b></div>
+    </div>
+    <div class="log-btns">
+      <button class="mark-btn" onclick="downloadCsv()" style="flex:1">⬇ Descargar CSV</button>
+      <button class="reset-small" onclick="clearLog()" style="margin-top:0;width:auto;padding:9px 14px">🗑 Borrar</button>
+    </div>
+    <div style="font-size:10px;color:var(--muted);margin-top:8px;line-height:1.4">Solo se guarda mientras esta pantalla esté abierta. Los datos quedan en este dispositivo.</div>
+  </div>
 </div>
 <script>
 const DEVICE_ID   = 'proofbox-vol01';
@@ -167,6 +182,54 @@ let mqttClient=null, lastMeta=0;
 // en pantalla está congelado: puede ser el retained del broker o una caída.
 const STALE_MS=5000;
 let lastStatusMs=0, brokerUp=false, laserOk=true;
+
+// La distancia se muestra cruda (rápida). El crecimiento (ratio/%/cm) se promedia
+// sobre una ventana móvil para que no salte cada segundo. Re-derivamos todo de la
+// distancia suavizada, así ratio, % y cm quedan consistentes entre sí.
+const SMOOTH_MS=30000;   // ventana de promediado del crecimiento
+let distBuf=[];          // {t, v} distancias crudas recientes
+function smoothDist(rawDist){
+  const now=Date.now();
+  distBuf.push({t:now,v:rawDist});
+  while(distBuf.length && now-distBuf[0].t>SMOOTH_MS) distBuf.shift();
+  let s=0; for(const p of distBuf) s+=p.v;
+  return distBuf.length ? s/distBuf.length : rawDist;
+}
+
+// Registro persistente en el dispositivo (localStorage), un punto cada 10 min.
+const LOG_INTERVAL_MS=600000;
+let lastLogMs=parseInt(localStorage.getItem('pbvol-lastlog')||'0',10)||0;
+function loadLog(){try{return JSON.parse(localStorage.getItem('pbvol-log')||'[]');}catch(e){return[];}}
+function saveLog(a){localStorage.setItem('pbvol-log',JSON.stringify(a));}
+function refreshLogUI(){
+  const a=loadLog();
+  document.getElementById('log-count').textContent=a.length;
+  document.getElementById('log-last').textContent=a.length
+    ? new Date(a[a.length-1].t).toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'}) : '--';
+}
+function maybeLog(rec){
+  const now=Date.now();
+  if(now-lastLogMs<LOG_INTERVAL_MS) return;
+  lastLogMs=now; localStorage.setItem('pbvol-lastlog',String(now));
+  const a=loadLog(); a.push(rec);
+  if(a.length>2000) a.splice(0,a.length-2000);  // ~2 semanas a 10 min
+  saveLog(a); refreshLogUI();
+}
+function downloadCsv(){
+  const a=loadLog();
+  if(!a.length){showToast('Aún no hay datos guardados');return;}
+  const head='fecha,ratio,progreso_%,crecido_cm,distancia_mm,gramos';
+  const rows=a.map(r=>[new Date(r.t).toISOString(),r.rise,r.mp,r.cm,r.dist,r.grams].join(','));
+  const blob=new Blob([head+'\n'+rows.join('\n')],{type:'text/csv'});
+  const url=URL.createObjectURL(blob), link=document.createElement('a');
+  link.href=url; link.download='proofbox-'+new Date().toISOString().slice(0,16).replace(/[:T]/g,'-')+'.csv';
+  document.body.appendChild(link); link.click(); link.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+function clearLog(){
+  if(!confirm('¿Borrar todo el registro guardado?'))return;
+  saveLog([]); lastLogMs=0; localStorage.removeItem('pbvol-lastlog'); refreshLogUI();
+}
 function fmt(n,d=1){return parseFloat(n).toFixed(d);}
 function showToast(msg,dur=6000){
   const t=document.getElementById('toast');
@@ -186,24 +249,44 @@ function setGoalTab(tab){
   });
 }
 function updateUI(d){
-  document.getElementById('dist').textContent=Math.round(d.dist)+'mm';
+  // Distancia: cruda, exacta y rápida.
+  const raw=d.dist;
+  document.getElementById('dist').textContent=Math.round(raw)+'mm';
   document.getElementById('rssi').textContent=d.rssi+'dB';
   const s=Math.floor(d.uptime),h=Math.floor(s/3600),m=Math.floor((s%3600)/60);
   document.getElementById('uptime').textContent=h+'h'+String(m).padStart(2,'0');
-  document.getElementById('rise').textContent=fmt(d.rise);
-  document.getElementById('bar-ratio').style.width=Math.min(100,Math.max(0,((d.rise-1)/2)*100))+'%';
-  const mp=d.metaProgress||0;
+
+  // Crecimiento: re-derivado de la distancia suavizada. Como ratio ∝ 1/distancia,
+  // basta escalar los valores del firmware por (crudo/suavizado).
+  const ds=Math.max(1,smoothDist(raw));
+  const scale=raw/ds;
+  const riseS=d.rise*scale;
+  const mrcS=(d.metaRatioCurr||1)*scale;
+  const cmS=(d.cmGrown||0)+(raw-ds)/10;
+  let mp=0;
+  if(d.metaStartSet&&d.metaGoalSet){
+    const start=(d.metaRatioCurr||1)*raw;            // reconstruido: metaRatioCurr = inicio/crudo
+    const goal=d.metaRatioGoal>0?start/d.metaRatioGoal:0;
+    if(start>goal) mp=Math.min(100,Math.max(0,(start-ds)/(start-goal)*100));
+  }
+
+  document.getElementById('rise').textContent=fmt(riseS);
+  document.getElementById('bar-ratio').style.width=Math.min(100,Math.max(0,((riseS-1)/2)*100))+'%';
   document.getElementById('meta-pct').innerHTML=fmt(mp,0)+'<span>%</span>';
   document.getElementById('bar-meta').style.width=mp+'%';
   document.getElementById('bar-meta').className='fill'+(mp>=100?' done':'');
-  document.getElementById('meta-ratio-now').textContent=d.metaStartSet?fmt(d.metaRatioCurr)+'×':'--×';
+  document.getElementById('meta-ratio-now').textContent=d.metaStartSet?fmt(mrcS)+'×':'--×';
   document.getElementById('meta-ratio-goal').textContent=d.metaGoalSet?fmt(d.metaRatioGoal)+'×':'--×';
-  document.getElementById('cm-grown').textContent=fmt(d.cmGrown||0)+'cm';
+  document.getElementById('cm-grown').textContent=fmt(cmS)+'cm';
   if(mp>=100&&lastMeta<100&&d.metaGoalSet){
-    showToast('🎉 ¡La masa llegó a la meta! '+fmt(d.metaRatioCurr)+'×',10000);
+    showToast('🎉 ¡La masa llegó a la meta! '+fmt(mrcS)+'×',10000);
     if('vibrate'in navigator)navigator.vibrate([300,100,300,100,300]);
   }
   lastMeta=mp;
+
+  // Registro cada 10 min (valores suavizados).
+  maybeLog({t:Date.now(),dist:Math.round(raw),rise:+riseS.toFixed(2),
+            mp:+mp.toFixed(1),cm:+cmS.toFixed(1),grams:d.metaGrams||0});
   if(d.metaStartSet){
     const g=d.metaGrams>0?` · ${d.metaGrams}g`:'';
     document.getElementById('start-status').textContent='✓ Inicio marcado'+g;
@@ -306,6 +389,7 @@ function connect(){
 }
 connect();
 refreshHealth();
+refreshLogUI();
 </script>
 </body>
 </html>
