@@ -64,6 +64,8 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
 .offset-row{display:flex;gap:8px;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}
 .log-row{display:flex;justify-content:space-between;align-items:center;font-size:12px;margin-bottom:10px}
 .log-btns{display:flex;gap:8px}
+.new-dough{width:100%;padding:12px;margin-bottom:12px;background:var(--surface);border:1px solid var(--amber-d);border-radius:10px;color:var(--amber-l);font-family:'DM Mono',monospace;font-size:13px;cursor:pointer}
+.new-dough:active{background:var(--amber-d);color:var(--text)}
 .interval-row{display:flex;gap:8px;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}
 #interval-sel{color:var(--text);font-family:'DM Mono',monospace;font-size:13px;outline:none}
 </style>
@@ -82,6 +84,9 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
     <button class="mode-btn active" id="mode-ratio" onclick="setDMode('ratio')">📈 Modo Ratio ×</button>
     <button class="mode-btn" id="mode-meta" onclick="setDMode('meta')">🎯 Modo Meta</button>
   </div>
+
+  <button class="new-dough" onclick="newDough()">🆕 Nueva masa · empezar de cero</button>
+
   <div id="panel-ratio" class="card">
     <div class="rise-head">
       <div class="card-label" style="margin:0">Crecimiento</div>
@@ -220,14 +225,15 @@ const SUPA_KEY='sb_publishable_7AiXScdSAxipUu_Mi8Fulg_jFCZoKYJ';
 const SUPA_JWT='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJscWNwcG1qZWp0bnZvcWxoc2hwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM0MDc3NTIsImV4cCI6MjA5ODk4Mzc1Mn0.uxFYd7kTc7tl1v6C7e3OzBgSdlFNxx8scGrD6MzQw8U';
 let history=[];
 let fastTimer=null;
+let sessionStart=null;   // solo se grafica lo registrado desde el inicio de la masa actual
 
 // Intervalo de registro. >=60s lo hace la nube 24/7; <60s solo mientras la app
 // está abierta (la nube no puede bajar de 1 min con el teléfono apagado).
 function fetchConfig(){
-  fetch(`${SUPA_URL}/rest/v1/proofbox_config?device_id=eq.${DEVICE_ID}&select=log_interval_seconds`,
+  fetch(`${SUPA_URL}/rest/v1/proofbox_config?device_id=eq.${DEVICE_ID}&select=log_interval_seconds,session_start`,
     {headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY}})
     .then(r=>r.json())
-    .then(rows=>{ if(rows[0]) applyInterval(rows[0].log_interval_seconds); })
+    .then(rows=>{ if(rows[0]){ applyInterval(rows[0].log_interval_seconds); sessionStart=rows[0].session_start||null; fetchHistory(); } })
     .catch(()=>{});
 }
 function applyInterval(sec){
@@ -251,6 +257,31 @@ function setInterval2(sec){
     .catch(()=>showToast('No se pudo guardar la frecuencia'));
   applyInterval(sec);
 }
+// Empezar una masa nueva: reinicia el crecimiento a 1×, borra la meta anterior
+// y arranca el gráfico desde cero (los datos viejos quedan guardados en la nube).
+function newDough(){
+  if(!confirm('¿Empezar una masa nueva?\n\nSe pone el crecimiento en 1×, se borra la meta anterior y el gráfico empieza de cero.'))return;
+  if(!(mqttClient&&mqttClient.connected)){
+    showToast('Conecta el ProofBox antes de empezar');
+    return;
+  }
+  sendCmd({cmd:'metaReset'});
+  sendCmd({cmd:'calibrate'});
+  const now=new Date().toISOString();
+  fetch(`${SUPA_URL}/rest/v1/proofbox_config?device_id=eq.${DEVICE_ID}`,{
+    method:'PATCH',
+    headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY,'Content-Type':'application/json',Prefer:'return=minimal'},
+    body:JSON.stringify({session_start:now})
+  }).catch(()=>{});
+  sessionStart=now; history=[]; renderHistory();
+  showToast('🆕 Masa nueva — empezando de cero');
+  // Un punto base cuando el ESP32 ya recalibró (~2s después).
+  setTimeout(()=>{
+    fetch(`${SUPA_URL}/functions/v1/proofbox-logger`,{method:'POST',headers:{Authorization:'Bearer '+SUPA_JWT}})
+      .then(()=>fetchHistory()).catch(()=>{});
+  },2500);
+}
+
 // Modo rápido (solo app abierta): dispara el logger de la nube cada N seg.
 function updateFastTimer(sec){
   if(fastTimer){clearInterval(fastTimer);fastTimer=null;}
@@ -264,7 +295,8 @@ function updateFastTimer(sec){
   }
 }
 function fetchHistory(){
-  fetch(`${SUPA_URL}/rest/v1/proofbox_readings?device_id=eq.${DEVICE_ID}&order=logged_at.asc&limit=500`,
+  const flt = sessionStart ? `&logged_at=gte.${encodeURIComponent(sessionStart)}` : '';
+  fetch(`${SUPA_URL}/rest/v1/proofbox_readings?device_id=eq.${DEVICE_ID}${flt}&order=logged_at.asc&limit=500`,
     {headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY}})
     .then(r=>{if(!r.ok)throw new Error(r.status);return r.json();})
     .then(rows=>{history=rows;renderHistory();})
