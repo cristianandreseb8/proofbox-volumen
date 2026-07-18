@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>ProofBox Volumen</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@500;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/mqtt@4.3.7/dist/mqtt.min.js"></script>
@@ -296,10 +299,12 @@ function updateFastTimer(sec){
 }
 function fetchHistory(){
   const flt = sessionStart ? `&logged_at=gte.${encodeURIComponent(sessionStart)}` : '';
-  fetch(`${SUPA_URL}/rest/v1/proofbox_readings?device_id=eq.${DEVICE_ID}${flt}&order=logged_at.asc&limit=500`,
+  // Traemos los MÁS RECIENTES (desc) para que los nuevos siempre aparezcan, y
+  // los damos vuelta a orden cronológico para el gráfico.
+  fetch(`${SUPA_URL}/rest/v1/proofbox_readings?device_id=eq.${DEVICE_ID}${flt}&order=logged_at.desc&limit=2000`,
     {headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY}})
     .then(r=>{if(!r.ok)throw new Error(r.status);return r.json();})
-    .then(rows=>{history=rows;renderHistory();})
+    .then(rows=>{history=rows.reverse();renderHistory();})
     .catch(()=>{document.getElementById('log-last').textContent='error';});
 }
 function renderHistory(){
@@ -331,10 +336,26 @@ function drawChart(rows){
     <span>${new Date(x1).toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'})}</span>
   </div>`;
 }
-function downloadCsv(){
-  if(!history.length){showToast('Aún no hay datos guardados');return;}
+async function downloadCsv(){
+  showToast('Preparando CSV...');
+  // El servidor devuelve máx 1000 filas por consulta: paginamos hasta traer
+  // la sesión completa (solo desde el inicio de la masa actual).
+  const flt = sessionStart ? `&logged_at=gte.${encodeURIComponent(sessionStart)}` : '';
+  let all=[], from=0;
+  try{
+    while(true){
+      const r=await fetch(`${SUPA_URL}/rest/v1/proofbox_readings?device_id=eq.${DEVICE_ID}${flt}&order=logged_at.asc&limit=1000&offset=${from}`,
+        {headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY}});
+      const page=await r.json();
+      all=all.concat(page);
+      if(page.length<1000) break;
+      from+=1000;
+      if(from>100000) break;  // tope de seguridad
+    }
+  }catch(e){ showToast('No se pudo bajar el CSV'); return; }
+  if(!all.length){showToast('Aún no hay datos guardados');return;}
   const head='fecha,ratio,progreso_%,crecido_cm,distancia_mm,gramos';
-  const rows=history.map(r=>[r.logged_at,r.rise,r.meta_progress,r.cm_grown,r.dist_mm,r.grams].join(','));
+  const rows=all.map(r=>[r.logged_at,r.rise,r.meta_progress,r.cm_grown,r.dist_mm,r.grams].join(','));
   const blob=new Blob([head+'\n'+rows.join('\n')],{type:'text/csv'});
   const url=URL.createObjectURL(blob), link=document.createElement('a');
   link.href=url; link.download='proofbox-'+new Date().toISOString().slice(0,16).replace(/[:T]/g,'-')+'.csv';
