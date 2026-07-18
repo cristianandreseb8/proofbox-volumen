@@ -257,7 +257,9 @@ function updateFastTimer(sec){
   if(sec<60){
     fastTimer=setInterval(()=>{
       if(brokerUp) fetch(`${SUPA_URL}/functions/v1/proofbox-logger`,
-        {method:'POST',headers:{Authorization:'Bearer '+SUPA_JWT}}).catch(()=>{});
+        {method:'POST',headers:{Authorization:'Bearer '+SUPA_JWT}})
+        .then(()=>fetchHistory())   // refresca el gráfico en cuanto entra el dato nuevo
+        .catch(()=>{});
     },sec*1000);
   }
 }
