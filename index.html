@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
@@ -80,115 +80,127 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
     <div class="logo">Proof<span>Box</span> Vol</div>
     <div class="status-row">
       <div class="dot" id="dot"></div>
-      <span id="status-txt" style="color:var(--red)">Conectando...</span>
+      <span id="status-txt" style="color:var(--red)">Connecting...</span>
     </div>
   </div>
   <div class="mode-toggle">
-    <button class="mode-btn active" id="mode-ratio" onclick="setDMode('ratio')">📈 Modo Ratio ×</button>
-    <button class="mode-btn" id="mode-meta" onclick="setDMode('meta')">🎯 Modo Meta</button>
+    <button class="mode-btn active" id="mode-ratio" onclick="setDMode('ratio')">📈 Rise × mode</button>
+    <button class="mode-btn" id="mode-meta" onclick="setDMode('meta')">🎯 Target mode</button>
   </div>
 
-  <button class="new-dough" onclick="newDough()">🆕 Nueva masa · empezar de cero</button>
+  <button class="new-dough" onclick="newDough()">🆕 New dough · start from scratch</button>
 
   <div id="panel-ratio" class="card">
     <div class="rise-head">
-      <div class="card-label" style="margin:0">Crecimiento</div>
+      <div class="card-label" style="margin:0">Rise</div>
       <div><span class="rise-val" id="rise">--</span><span class="rise-x">×</span></div>
     </div>
     <div class="track"><div class="fill" id="bar-ratio" style="width:0%"></div></div>
     <div class="marks"><span>1×</span><span>1.5×</span><span>2×</span><span>2.5×</span><span>3×</span></div>
-    <button class="cal-btn" onclick="sendCmd({cmd:'calibrate'})">⬛ Calibrar punto cero</button>
+    <button class="cal-btn" onclick="sendCmd({cmd:'calibrate'})">⬛ Calibrate zero point</button>
   </div>
   <div id="panel-meta" style="display:none">
     <div class="card">
-      <div class="card-label">Progreso</div>
+      <div class="card-label">Progress</div>
       <div class="meta-big" id="meta-pct">--<span>%</span></div>
       <div class="meta-ratio-row">
-        <span style="color:var(--text)">Ahora: <b id="meta-ratio-now">--×</b></span>
-        <span style="color:var(--muted)">Meta: <b id="meta-ratio-goal">--×</b></span>
+        <span style="color:var(--text)">Now: <b id="meta-ratio-now">--×</b></span>
+        <span style="color:var(--muted)">Target: <b id="meta-ratio-goal">--×</b></span>
       </div>
-      <div class="cm-grown">Crecido: <b id="cm-grown">--cm</b></div>
+      <div class="cm-grown">Grown: <b id="cm-grown">--cm</b></div>
       <div class="track"><div class="fill" id="bar-meta" style="width:0%"></div></div>
       <div class="marks"><span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span></div>
     </div>
     <div class="card">
-      <div class="card-label">Definir inicio</div>
+      <div class="card-label">Set starting point</div>
       <div class="grams-row">
-        <span style="font-size:11px;color:var(--muted);flex:1">Gramos <span style="color:var(--amber)">(opcional)</span></span>
+        <span style="font-size:11px;color:var(--muted);flex:1">Grams <span style="color:var(--amber)">(optional)</span></span>
         <input class="num-input" type="number" id="input-grams" placeholder="100" style="width:70px;flex:none">
         <span class="unit-lbl">g</span>
       </div>
-      <button class="mark-btn" id="btn-start" onclick="markStart()" style="width:100%">📏 Marcar inicio</button>
+      <button class="mark-btn" id="btn-start" onclick="markStart()" style="width:100%">📏 Mark start</button>
       <div id="start-status" style="font-size:11px;color:var(--muted);margin-top:8px;text-align:center"></div>
     </div>
     <div class="card">
-      <div class="card-label">Definir meta</div>
+      <div class="card-label">Set target</div>
       <div class="goal-tabs">
-        <button class="gtab active" id="gtab-finger" onclick="setGoalTab('finger')">🖐 Dedo</button>
+        <button class="gtab active" id="gtab-finger" onclick="setGoalTab('finger')">🖐 Finger</button>
         <button class="gtab" id="gtab-ratio" onclick="setGoalTab('ratio')">✖️ Ratio</button>
         <button class="gtab" id="gtab-cm" onclick="setGoalTab('cm')">📐 cm</button>
       </div>
       <div id="goal-finger">
-        <button class="mark-btn" id="btn-goal-finger" onclick="setGoalFinger()" style="width:100%">🖐 Marcar meta con el dedo</button>
+        <button class="mark-btn" id="btn-goal-finger" onclick="setGoalFinger()" style="width:100%">🖐 Mark target with your finger</button>
       </div>
       <div id="goal-ratio" style="display:none">
         <div class="input-row">
           <input class="num-input" type="number" id="input-ratio" placeholder="2.7" step="0.1" min="1.1" max="5">
           <span class="unit-lbl">×</span>
-          <button class="mark-btn" onclick="setGoalRatio()">Aplicar</button>
+          <button class="mark-btn" onclick="setGoalRatio()">Apply</button>
         </div>
       </div>
       <div id="goal-cm" style="display:none">
         <div class="input-row">
           <input class="num-input" type="number" id="input-cm" placeholder="5" step="0.5" min="0.5">
           <span class="unit-lbl">cm</span>
-          <button class="mark-btn" onclick="setGoalCm()">Aplicar</button>
+          <button class="mark-btn" onclick="setGoalCm()">Apply</button>
         </div>
       </div>
       <div id="goal-status" style="font-size:11px;color:var(--muted);margin-top:8px;text-align:center"></div>
-      <button class="reset-small" onclick="resetMeta()">↺ Resetear meta</button>
+      <button class="reset-small" onclick="resetMeta()">↺ Reset target</button>
     </div>
   </div>
-  <div class="card">
-    <div class="card-label">Sensor</div>
-    <div class="warn" id="warn-link">📡 Sin señal del ProofBox — última lectura hace <b id="warn-age">--</b></div>
-    <div class="warn" id="warn-laser">⚠️ El sensor láser no responde — revisa el cableado</div>
-    <div class="sensor-row" id="sensor-row">
-      <div class="sensor-item"><div class="sensor-val" id="dist">--</div><div class="sensor-lbl">Distancia</div></div>
-      <div class="sensor-item"><div class="sensor-val" id="uptime">--</div><div class="sensor-lbl">Tiempo</div></div>
-      <div class="sensor-item"><div class="sensor-val" id="rssi">--</div><div class="sensor-lbl">WiFi</div></div>
+  <div class="card" id="panel-cond">
+    <div class="rise-head">
+      <div class="card-label" style="margin:0">Conductivity</div>
+      <div><span class="rise-val" id="cond-rel">--</span><span class="rise-x">%</span></div>
     </div>
-    <div class="offset-row">
-      <span style="font-size:11px;color:var(--muted);flex:1">Offset calibración</span>
-      <input class="num-input" type="number" id="input-offset" placeholder="49" style="width:60px;flex:none">
-      <span class="unit-lbl">mm</span>
-      <button class="mark-btn" onclick="setOffset()">Aplicar</button>
-    </div>
-    <button class="reset-btn" onclick="if(confirm('¿Resetear WiFi?'))sendCmd({cmd:'resetwifi'})">⚙ Cambiar red WiFi</button>
+    <div class="warn" id="warn-cond">⚡ Electrodes not in contact — the circuit is open</div>
+    <div class="track"><div class="fill" id="bar-cond" style="width:0%"></div></div>
+    <div class="marks"><span>0%</span><span>50%</span><span>base 100%</span><span>150%</span><span>200%</span></div>
+    <div style="text-align:center;font-size:11px;color:var(--muted);margin-top:8px" id="cond-abs">--</div>
+    <button class="cal-btn" onclick="sendCmd({cmd:'condBase'})">⚡ Mark base = 100%</button>
   </div>
 
   <div class="card">
-    <div class="card-label">Historial en la nube · crecimiento ×</div>
+    <div class="card-label">Sensor</div>
+    <div class="warn" id="warn-link">📡 No signal from the ProofBox — last reading <b id="warn-age">--</b> ago</div>
+    <div class="warn" id="warn-laser">⚠️ The laser sensor is not responding — check the wiring</div>
+    <div class="sensor-row" id="sensor-row">
+      <div class="sensor-item"><div class="sensor-val" id="dist">--</div><div class="sensor-lbl">Distance</div></div>
+      <div class="sensor-item"><div class="sensor-val" id="uptime">--</div><div class="sensor-lbl">Uptime</div></div>
+      <div class="sensor-item"><div class="sensor-val" id="rssi">--</div><div class="sensor-lbl">WiFi</div></div>
+    </div>
+    <div class="offset-row">
+      <span style="font-size:11px;color:var(--muted);flex:1">Calibration offset</span>
+      <input class="num-input" type="number" id="input-offset" placeholder="49" style="width:60px;flex:none">
+      <span class="unit-lbl">mm</span>
+      <button class="mark-btn" onclick="setOffset()">Apply</button>
+    </div>
+    <button class="reset-btn" onclick="if(confirm('Reset WiFi?'))sendCmd({cmd:'resetwifi'})">⚙ Change WiFi network</button>
+  </div>
+
+  <div class="card">
+    <div class="card-label">Cloud history · rise ×</div>
     <div class="log-row">
-      <div>Puntos: <b id="log-count">0</b></div>
-      <div style="color:var(--muted)">último: <b id="log-last">--</b></div>
+      <div>Points: <b id="log-count">0</b></div>
+      <div style="color:var(--muted)">last: <b id="log-last">--</b></div>
     </div>
     <div id="log-chart"></div>
     <div class="log-btns" style="margin-top:10px">
-      <button class="mark-btn" onclick="fetchHistory()" style="flex:1">↻ Actualizar</button>
+      <button class="mark-btn" onclick="fetchHistory()" style="flex:1">↻ Refresh</button>
       <button class="mark-btn" onclick="downloadCsv()" style="flex:1">⬇ CSV</button>
     </div>
     <div class="interval-row">
-      <span style="font-size:11px;color:var(--muted)">Guardar cada</span>
+      <span style="font-size:11px;color:var(--muted)">Save every</span>
       <select class="num-input" id="interval-sel" onchange="setInterval2(this.value)" style="flex:1;padding:8px 10px">
-        <option value="5">5 seg</option>
-        <option value="15">15 seg</option>
-        <option value="30">30 seg</option>
+        <option value="5">5 sec</option>
+        <option value="15">15 sec</option>
+        <option value="30">30 sec</option>
         <option value="60">1 min</option>
         <option value="300">5 min</option>
         <option value="600">10 min</option>
         <option value="1800">30 min</option>
-        <option value="3600">1 hora</option>
+        <option value="3600">1 hour</option>
       </select>
     </div>
     <div id="interval-note" style="font-size:10px;color:var(--muted);margin-top:8px;line-height:1.4"></div>
@@ -202,16 +214,16 @@ const TOPIC_STATUS = `proofboxvol/${DEVICE_ID}/status`;
 const TOPIC_CMD    = `proofboxvol/${DEVICE_ID}/cmd`;
 const TOPIC_NOTIFY = `proofboxvol/${DEVICE_ID}/notify`;
 let mqttClient=null, lastMeta=0;
-// El ESP32 publica status cada 1s. Si pasan STALE_MS sin uno nuevo, lo que se ve
-// en pantalla está congelado: puede ser el retained del broker o una caída.
+// The ESP32 publishes status every 1s. If STALE_MS goes by without a new one, what
+// is on screen is frozen: it may be the broker's retained message, or a crash.
 const STALE_MS=5000;
-let lastStatusMs=0, brokerUp=false, laserOk=true;
+let lastStatusMs=0, brokerUp=false, laserOk=true, condOk=false;
 
-// La distancia se muestra cruda (rápida). El crecimiento (ratio/%/cm) se promedia
-// sobre una ventana móvil para que no salte cada segundo. Re-derivamos todo de la
-// distancia suavizada, así ratio, % y cm quedan consistentes entre sí.
-const SMOOTH_MS=30000;   // ventana de promediado del crecimiento
-let distBuf=[];          // {t, v} distancias crudas recientes
+// Distance is shown raw (fast). The rise (ratio/%/cm) is averaged over a moving
+// window so it does not jump every second. Everything is re-derived from the
+// smoothed distance, so ratio, % and cm stay consistent with each other.
+const SMOOTH_MS=30000;   // averaging window for the rise
+let distBuf=[];          // {t, v} recent raw distances
 function smoothDist(rawDist){
   const now=Date.now();
   distBuf.push({t:now,v:rawDist});
@@ -220,18 +232,18 @@ function smoothDist(rawDist){
   return distBuf.length ? s/distBuf.length : rawDist;
 }
 
-// Registro en la NUBE: un proceso en Supabase guarda las lecturas al intervalo
-// elegido, aunque la app esté cerrada. Aquí LEEMOS el histórico y ELEGIMOS el intervalo.
+// CLOUD logging: a process on Supabase saves the readings at the chosen interval,
+// even with the app closed. Here we only READ the history and PICK the interval.
 const SUPA_URL='https://blqcppmjejtnvoqlhshp.supabase.co';
 const SUPA_KEY='sb_publishable_7AiXScdSAxipUu_Mi8Fulg_jFCZoKYJ';
-// JWT anon (público) para llamar al edge function del modo rápido.
+// Anon (public) JWT, used to call the edge function in fast mode.
 const SUPA_JWT='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJscWNwcG1qZWp0bnZvcWxoc2hwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM0MDc3NTIsImV4cCI6MjA5ODk4Mzc1Mn0.uxFYd7kTc7tl1v6C7e3OzBgSdlFNxx8scGrD6MzQw8U';
 let history=[];
 let fastTimer=null;
-let sessionStart=null;   // solo se grafica lo registrado desde el inicio de la masa actual
+let sessionStart=null;   // only data logged since the current dough started is charted
 
-// Intervalo de registro. >=60s lo hace la nube 24/7; <60s solo mientras la app
-// está abierta (la nube no puede bajar de 1 min con el teléfono apagado).
+// Logging interval. >=60s is handled by the cloud 24/7; <60s only while the app is
+// open (the cloud cannot go below 1 min with the phone switched off).
 function fetchConfig(){
   fetch(`${SUPA_URL}/rest/v1/proofbox_config?device_id=eq.${DEVICE_ID}&select=log_interval_seconds,session_start`,
     {headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY}})
@@ -244,9 +256,9 @@ function applyInterval(sec){
   if([...sel.options].some(o=>+o.value===+sec)) sel.value=String(sec);
   const note=document.getElementById('interval-note');
   if(sec<60){
-    note.innerHTML='⚡ Menos de 1 min: se registra rápido <b>solo mientras esta app esté abierta</b>. Con el teléfono apagado, la nube guarda 1 vez por minuto.';
+    note.innerHTML='⚡ Under 1 min: fast logging runs <b>only while this app is open</b>. With the phone switched off, the cloud saves once per minute.';
   }else{
-    note.innerHTML='☁️ Se guarda solo en la nube, aunque cierres la app o apagues el teléfono.';
+    note.innerHTML='☁️ Saved in the cloud on its own, even if you close the app or switch the phone off.';
   }
   updateFastTimer(+sec);
 }
@@ -256,20 +268,21 @@ function setInterval2(sec){
     method:'PATCH',
     headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY,'Content-Type':'application/json',Prefer:'return=minimal'},
     body:JSON.stringify({log_interval_seconds:sec,updated_at:new Date().toISOString()})
-  }).then(r=>{ if(r.ok) showToast('Frecuencia actualizada'); else showToast('No se pudo guardar la frecuencia'); })
-    .catch(()=>showToast('No se pudo guardar la frecuencia'));
+  }).then(r=>{ if(r.ok) showToast('Interval updated'); else showToast('Could not save the interval'); })
+    .catch(()=>showToast('Could not save the interval'));
   applyInterval(sec);
 }
-// Empezar una masa nueva: reinicia el crecimiento a 1×, borra la meta anterior
-// y arranca el gráfico desde cero (los datos viejos quedan guardados en la nube).
+// Start a new dough: resets the rise to 1×, clears the previous target and starts
+// the chart from zero (the old data stays saved in the cloud).
 function newDough(){
-  if(!confirm('¿Empezar una masa nueva?\n\nSe pone el crecimiento en 1×, se borra la meta anterior y el gráfico empieza de cero.'))return;
+  if(!confirm('Start a new dough?\n\nThe rise goes back to 1×, the previous target is cleared and the chart starts from zero.'))return;
   if(!(mqttClient&&mqttClient.connected)){
-    showToast('Conecta el ProofBox antes de empezar');
+    showToast('Connect the ProofBox before starting');
     return;
   }
   sendCmd({cmd:'metaReset'});
   sendCmd({cmd:'calibrate'});
+  sendCmd({cmd:'condBase'});
   const now=new Date().toISOString();
   fetch(`${SUPA_URL}/rest/v1/proofbox_config?device_id=eq.${DEVICE_ID}`,{
     method:'PATCH',
@@ -277,30 +290,30 @@ function newDough(){
     body:JSON.stringify({session_start:now})
   }).catch(()=>{});
   sessionStart=now; history=[]; renderHistory();
-  showToast('🆕 Masa nueva — empezando de cero');
-  // Un punto base cuando el ESP32 ya recalibró (~2s después).
+  showToast('🆕 New dough — starting from zero');
+  // One baseline point once the ESP32 has recalibrated (~2s later).
   setTimeout(()=>{
     fetch(`${SUPA_URL}/functions/v1/proofbox-logger`,{method:'POST',headers:{Authorization:'Bearer '+SUPA_JWT}})
       .then(()=>fetchHistory()).catch(()=>{});
   },2500);
 }
 
-// Modo rápido (solo app abierta): dispara el logger de la nube cada N seg.
+// Fast mode (only with the app open): triggers the cloud logger every N seconds.
 function updateFastTimer(sec){
   if(fastTimer){clearInterval(fastTimer);fastTimer=null;}
   if(sec<60){
     fastTimer=setInterval(()=>{
       if(brokerUp) fetch(`${SUPA_URL}/functions/v1/proofbox-logger`,
         {method:'POST',headers:{Authorization:'Bearer '+SUPA_JWT}})
-        .then(()=>fetchHistory())   // refresca el gráfico en cuanto entra el dato nuevo
+        .then(()=>fetchHistory())   // refresh the chart as soon as the new point lands
         .catch(()=>{});
     },sec*1000);
   }
 }
 function fetchHistory(){
   const flt = sessionStart ? `&logged_at=gte.${encodeURIComponent(sessionStart)}` : '';
-  // Traemos los MÁS RECIENTES (desc) para que los nuevos siempre aparezcan, y
-  // los damos vuelta a orden cronológico para el gráfico.
+  // Fetch the MOST RECENT first (desc) so new points always show up, then flip
+  // them back into chronological order for the chart.
   fetch(`${SUPA_URL}/rest/v1/proofbox_readings?device_id=eq.${DEVICE_ID}${flt}&order=logged_at.desc&limit=2000`,
     {headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY}})
     .then(r=>{if(!r.ok)throw new Error(r.status);return r.json();})
@@ -311,13 +324,13 @@ function renderHistory(){
   const n=history.length;
   document.getElementById('log-count').textContent=n;
   document.getElementById('log-last').textContent=n
-    ? new Date(history[n-1].logged_at).toLocaleString('es',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})
+    ? new Date(history[n-1].logged_at).toLocaleString('en-GB',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})
     : '--';
   drawChart(history);
 }
 function drawChart(rows){
   const box=document.getElementById('log-chart');
-  if(!rows.length){box.innerHTML='<div style="color:var(--muted);font-size:11px;text-align:center;padding:24px 0">Aún sin datos guardados.<br>El primero llega en unos minutos.</div>';return;}
+  if(!rows.length){box.innerHTML='<div style="color:var(--muted);font-size:11px;text-align:center;padding:24px 0">No saved data yet.<br>The first point arrives in a few minutes.</div>';return;}
   const W=340,H=90,p=6;
   const xs=rows.map(r=>new Date(r.logged_at).getTime());
   const ys=rows.map(r=>r.rise==null?1:r.rise);
@@ -331,15 +344,15 @@ function drawChart(rows){
     <path d="${line}" fill="none" stroke="var(--amber-l)" stroke-width="1.5" stroke-linejoin="round"/>
   </svg>
   <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--muted);margin-top:2px">
-    <span>${new Date(x0).toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'})}</span>
-    <span style="color:var(--amber)">máx ${Math.max(...ys).toFixed(2)}×</span>
-    <span>${new Date(x1).toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'})}</span>
+    <span>${new Date(x0).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}</span>
+    <span style="color:var(--amber)">max ${Math.max(...ys).toFixed(2)}×</span>
+    <span>${new Date(x1).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}</span>
   </div>`;
 }
 async function downloadCsv(){
-  showToast('Preparando CSV...');
-  // El servidor devuelve máx 1000 filas por consulta: paginamos hasta traer
-  // la sesión completa (solo desde el inicio de la masa actual).
+  showToast('Preparing CSV...');
+  // The server returns at most 1000 rows per query: paginate until the whole
+  // session is in (only from the start of the current dough).
   const flt = sessionStart ? `&logged_at=gte.${encodeURIComponent(sessionStart)}` : '';
   let all=[], from=0;
   try{
@@ -350,11 +363,11 @@ async function downloadCsv(){
       all=all.concat(page);
       if(page.length<1000) break;
       from+=1000;
-      if(from>100000) break;  // tope de seguridad
+      if(from>100000) break;  // safety cap
     }
-  }catch(e){ showToast('No se pudo bajar el CSV'); return; }
-  if(!all.length){showToast('Aún no hay datos guardados');return;}
-  const head='fecha,ratio,progreso_%,crecido_cm,distancia_mm,gramos';
+  }catch(e){ showToast('Could not download the CSV'); return; }
+  if(!all.length){showToast('No saved data yet');return;}
+  const head='date,ratio,progress_%,grown_cm,distance_mm,grams';
   const rows=all.map(r=>[r.logged_at,r.rise,r.meta_progress,r.cm_grown,r.dist_mm,r.grams].join(','));
   const blob=new Blob([head+'\n'+rows.join('\n')],{type:'text/csv'});
   const url=URL.createObjectURL(blob), link=document.createElement('a');
@@ -381,15 +394,15 @@ function setGoalTab(tab){
   });
 }
 function updateUI(d){
-  // Distancia: cruda, exacta y rápida.
+  // Distance: raw, exact and fast.
   const raw=d.dist;
   document.getElementById('dist').textContent=Math.round(raw)+'mm';
   document.getElementById('rssi').textContent=d.rssi+'dB';
   const s=Math.floor(d.uptime),h=Math.floor(s/3600),m=Math.floor((s%3600)/60);
   document.getElementById('uptime').textContent=h+'h'+String(m).padStart(2,'0');
 
-  // Crecimiento: re-derivado de la distancia suavizada. Como ratio ∝ 1/distancia,
-  // basta escalar los valores del firmware por (crudo/suavizado).
+  // Rise: re-derived from the smoothed distance. Since ratio ∝ 1/distance, it is
+  // enough to scale the firmware's values by (raw/smoothed).
   const ds=Math.max(1,smoothDist(raw));
   const scale=raw/ds;
   const riseS=d.rise*scale;
@@ -397,7 +410,7 @@ function updateUI(d){
   const cmS=(d.cmGrown||0)+(raw-ds)/10;
   let mp=0;
   if(d.metaStartSet&&d.metaGoalSet){
-    const start=(d.metaRatioCurr||1)*raw;            // reconstruido: metaRatioCurr = inicio/crudo
+    const start=(d.metaRatioCurr||1)*raw;            // reconstructed: metaRatioCurr = start/raw
     const goal=d.metaRatioGoal>0?start/d.metaRatioGoal:0;
     if(start>goal) mp=Math.min(100,Math.max(0,(start-ds)/(start-goal)*100));
   }
@@ -411,25 +424,36 @@ function updateUI(d){
   document.getElementById('meta-ratio-goal').textContent=d.metaGoalSet?fmt(d.metaRatioGoal)+'×':'--×';
   document.getElementById('cm-grown').textContent=fmt(cmS)+'cm';
   if(mp>=100&&lastMeta<100&&d.metaGoalSet){
-    showToast('🎉 ¡La masa llegó a la meta! '+fmt(mrcS)+'×',10000);
+    showToast('🎉 The dough hit the target! '+fmt(mrcS)+'×',10000);
     if('vibrate'in navigator)navigator.vibrate([300,100,300,100,300]);
   }
   lastMeta=mp;
   if(d.metaStartSet){
     const g=d.metaGrams>0?` · ${d.metaGrams}g`:'';
-    document.getElementById('start-status').textContent='✓ Inicio marcado'+g;
+    document.getElementById('start-status').textContent='✓ Start marked'+g;
     document.getElementById('btn-start').className='mark-btn done';
   }else{
     document.getElementById('start-status').textContent='';
     document.getElementById('btn-start').className='mark-btn';
   }
   if(d.metaGoalSet){
-    document.getElementById('goal-status').textContent='✓ Meta: '+fmt(d.metaRatioGoal)+'×';
+    document.getElementById('goal-status').textContent='✓ Target: '+fmt(d.metaRatioGoal)+'×';
     document.getElementById('btn-goal-finger').className='mark-btn done';
   }else{
     document.getElementById('goal-status').textContent='';
     document.getElementById('btn-goal-finger').className='mark-btn';
   }
+  // Conductivity. The % only means anything once a base has been marked; without
+  // one we just show the absolute values.
+  condOk=d.condOk===true;
+  const condBaseSet=d.condBaseSet===true;
+  const relC=condOk&&condBaseSet?(d.condRel||0):null;
+  document.getElementById('cond-rel').textContent=relC!==null?fmt(relC,0):'--';
+  document.getElementById('bar-cond').style.width=(relC!==null?Math.min(100,relC/2):0)+'%';
+  document.getElementById('cond-abs').textContent=condOk
+    ?`${fmt(d.cond,1)} µS · ${fmt(d.condKohm,1)} kΩ`+(condBaseSet?'':' · no base marked')
+    :'no reading';
+
   lastStatusMs=Date.now();
   laserOk=d.laserOk!==false;
   refreshHealth();
@@ -442,8 +466,8 @@ function fmtAge(ms){
   return m<60?m+'min':Math.floor(m/60)+'h'+String(m%60).padStart(2,'0');
 }
 
-// Único sitio que decide el estado del indicador. Verde exige las dos cosas:
-// socket abierto al broker Y datos recientes del ESP32.
+// The single place that decides the indicator's state. Green needs both things:
+// an open socket to the broker AND recent data from the ESP32.
 function refreshHealth(){
   const age=lastStatusMs?Date.now()-lastStatusMs:Infinity;
   const stale=age>STALE_MS;
@@ -451,26 +475,27 @@ function refreshHealth(){
 
   if(!brokerUp){
     dot.className='dot';
-    txt.textContent='Sin conexión';
+    txt.textContent='Offline';
     txt.style.color='var(--red)';
   }else if(stale){
     dot.className='dot stale';
-    txt.textContent=lastStatusMs?'Sin señal':'Esperando...';
+    txt.textContent=lastStatusMs?'No signal':'Waiting...';
     txt.style.color='var(--amber-l)';
   }else{
     dot.className='dot ok';
-    txt.textContent='Conectado';
+    txt.textContent='Connected';
     txt.style.color='var(--green)';
   }
 
   const frozen=!brokerUp||stale;
-  ['panel-ratio','panel-meta','sensor-row'].forEach(id=>
+  ['panel-ratio','panel-meta','panel-cond','sensor-row'].forEach(id=>
     document.getElementById(id).classList.toggle('dim',frozen));
 
   const wl=document.getElementById('warn-link');
   wl.classList.toggle('show',frozen&&lastStatusMs>0);
   if(frozen&&lastStatusMs>0)document.getElementById('warn-age').textContent=fmtAge(age);
   document.getElementById('warn-laser').classList.toggle('show',!frozen&&!laserOk);
+  document.getElementById('warn-cond').classList.toggle('show',!frozen&&!condOk);
 }
 setInterval(refreshHealth,1000);
 function sendCmd(payload){
@@ -480,20 +505,20 @@ function sendCmd(payload){
 function markStart(){
   const g=parseFloat(document.getElementById('input-grams').value)||0;
   sendCmd({cmd:'metaSetStart',grams:g});
-  document.getElementById('start-status').textContent='⏳ Marcando...';
+  document.getElementById('start-status').textContent='⏳ Marking...';
 }
-function setGoalFinger(){sendCmd({cmd:'metaSetGoalFinger'});document.getElementById('goal-status').textContent='⏳ Leyendo...';}
+function setGoalFinger(){sendCmd({cmd:'metaSetGoalFinger'});document.getElementById('goal-status').textContent='⏳ Reading...';}
 function setGoalRatio(){
   const r=parseFloat(document.getElementById('input-ratio').value);
-  if(!r||r<=1||r>10){document.getElementById('goal-status').textContent='⚠️ Ratio entre 1.1 y 10';return;}
-  sendCmd({cmd:'metaSetGoalRatio',ratio:r});document.getElementById('goal-status').textContent='⏳ Aplicando...';
+  if(!r||r<=1||r>10){document.getElementById('goal-status').textContent='⚠️ Ratio between 1.1 and 10';return;}
+  sendCmd({cmd:'metaSetGoalRatio',ratio:r});document.getElementById('goal-status').textContent='⏳ Applying...';
 }
 function setGoalCm(){
   const cm=parseFloat(document.getElementById('input-cm').value);
-  if(!cm||cm<=0){document.getElementById('goal-status').textContent='⚠️ Escribe los cm';return;}
-  sendCmd({cmd:'metaSetGoalCm',cm});document.getElementById('goal-status').textContent='⏳ Aplicando...';
+  if(!cm||cm<=0){document.getElementById('goal-status').textContent='⚠️ Enter the cm';return;}
+  sendCmd({cmd:'metaSetGoalCm',cm});document.getElementById('goal-status').textContent='⏳ Applying...';
 }
-function resetMeta(){if(confirm('¿Resetear inicio y meta?'))sendCmd({cmd:'metaReset'});}
+function resetMeta(){if(confirm('Reset start and target?'))sendCmd({cmd:'metaReset'});}
 function setOffset(){
   const o=parseFloat(document.getElementById('input-offset').value);
   if(isNaN(o)){return;}
@@ -506,13 +531,13 @@ function connect(){
   mqttClient.on('message',(t,msg)=>{
     if(t===TOPIC_NOTIFY){
       try{const n=JSON.parse(msg.toString());
-        if(n.event==='meta_reached')showToast('🎉 ¡Meta alcanzada! '+fmt(n.ratio)+'×',10000);
+        if(n.event==='meta_reached')showToast('🎉 Target reached! '+fmt(n.ratio)+'×',10000);
       }catch(e){}
     }else{
       try{updateUI(JSON.parse(msg.toString()));}catch(e){}
     }
   });
-  // MQTT.js emite close/offline/error al perder el broker; 'disconnect' solo existe en MQTT 5.
+  // MQTT.js emits close/offline/error when the broker drops; 'disconnect' only exists in MQTT 5.
   ['close','offline','error'].forEach(ev=>mqttClient.on(ev,()=>{brokerUp=false;refreshHealth();}));
 }
 connect();
