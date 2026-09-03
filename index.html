@@ -216,7 +216,9 @@ const TOPIC_NOTIFY = `proofboxvol/${DEVICE_ID}/notify`;
 let mqttClient=null, lastMeta=0;
 // The ESP32 publishes status every 1s. If STALE_MS goes by without a new one, what
 // is on screen is frozen: it may be the broker's retained message, or a crash.
-const STALE_MS=5000;
+// 5s was too tight — a single hiccup on the public broker flashed "No signal" on
+// a device that was perfectly fine. 12 missed publishes in a row is a real outage.
+const STALE_MS=12000;
 let lastStatusMs=0, brokerUp=false, laserOk=true, condOk=false;
 
 // Distance is shown raw (fast). The rise (ratio/%/cm) is averaged over a moving

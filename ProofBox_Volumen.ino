@@ -1,16 +1,13 @@
 // ============================================================
-//  ProofBox — Módulo VOLUMEN v1.1
+//  ProofBox — Módulo VOLUMEN v1.2
 //  VL53L0X (volumen) + conductividad de 2 electrodos + WiFi + MQTT
 //  Modo Ratio × y Modo Meta (dedo / ratio / cm)
 //
-//  PLACA: ESP32-S3 Super Mini (Heemol HW-747), la misma de la divisora.
-//  En Arduino IDE: "ESP32S3 Dev Module" + USB CDC On Boot: Enabled.
-//  Solo existen los headers laterales, GPIO 1–13:
-//     TX  RX   1   2   3   4   5   6   7
-//     5V GND 3V3  13  12  11  10   9   8
+//  PLACA: ESP32 clásico (DevKit / WROOM-32).
+//  En Arduino IDE: "ESP32 Dev Module".
 //
-//  VL53L0X:       SDA → GPIO 8 | SCL → GPIO 9 | VIN → 3V3 | GND → GND
-//  Conductividad: GPIO 5 y 6 (excitación) | GPIO 4 (medida)
+//  VL53L0X:       SDA → GPIO 21 | SCL → GPIO 22 | VIN → 3V3 | GND → GND
+//  Conductividad: GPIO 25 y 26 (excitación) | GPIO 34 (medida)
 // ============================================================
 
 #include <WiFi.h>
@@ -30,21 +27,18 @@
 #define TOPIC_CMD    "proofboxvol/" DEVICE_ID "/cmd"
 #define TOPIC_NOTIFY "proofboxvol/" DEVICE_ID "/notify"
 
-#define PIN_SDA  8
-#define PIN_SCL  9
+#define PIN_SDA  21
+#define PIN_SCL  22
+#define PIN_LED  2
 
-// La Super Mini no tiene LED simple: lleva un RGB direccionable (WS2812) en el
-// GPIO 48, que no está en los headers pero sí soldado en la placa. rgbLedWrite()
-// viene en el core ESP32 3.x, no hace falta librería.
-#define PIN_LED_RGB 48
-
-// Conductividad. En la S3 el ADC2 no funciona con el WiFi encendido, así que la
-// medida TIENE que ir en un pin de ADC1 = GPIO 1–10. El GPIO 4 es ADC1_CH3.
-// (Ojo: los GPIO 34/35/36/39 del ESP32 clásico NO existen en la S3.)
-// 5 y 6 son salidas digitales normales, sin función especial al arrancar.
-#define PIN_COND_A    5
-#define PIN_COND_B    6
-#define PIN_COND_ADC  4
+// Conductividad. El ADC2 no funciona con el WiFi encendido, así que la medida
+// TIENE que ir en un pin de ADC1: 32, 33, 34, 35, 36 o 39. El GPIO 34 es de solo
+// entrada, que para leer es justo lo que hace falta, y además no tiene pull-ups
+// internos que falseen la medida.
+// 25 y 26 son salidas normales, sin función especial al arrancar.
+#define PIN_COND_A    25
+#define PIN_COND_B    26
+#define PIN_COND_ADC  34
 #define COND_R_SERIES 4700.0f   // resistencia conocida en serie, en ohmios
 
 WiFiClient   espClient;
@@ -225,10 +219,39 @@ void readConductivity() {
   condRel = (condBaseUS > 0) ? (condUS / condBaseUS) * 100.0f : 0.0f;
 }
 
+// ─── SESIÓN PERSISTENTE ────────────────────────────────────────
+// El avance de la masa sobrevive a los cortes de corriente: si desenchufás el
+// ProofBox y lo volvés a enchufar, sigue contando desde donde estaba. Volver a
+// cero es siempre una decisión explícita — "Nueva masa", metaReset o calibrate.
+void saveSession() {
+  prefs.putFloat("ratioInit", ratioInitDist);
+  prefs.putBool ("ratioCal",  ratioCal);
+  prefs.putFloat("mStart",    metaStartDist);
+  prefs.putFloat("mGoal",     metaGoalDist);
+  prefs.putFloat("mGoalR",    metaRatioGoal);
+  prefs.putFloat("mGrams",    metaGrams);
+  prefs.putBool ("mStartSet", metaStartSet);
+  prefs.putBool ("mGoalSet",  metaGoalSet);
+  prefs.putBool ("mNotified", metaNotified);
+}
+
+void loadSession() {
+  ratioInitDist = prefs.getFloat("ratioInit", 0.0);
+  ratioCal      = prefs.getBool ("ratioCal",  false);
+  metaStartDist = prefs.getFloat("mStart",    0.0);
+  metaGoalDist  = prefs.getFloat("mGoal",     0.0);
+  metaRatioGoal = prefs.getFloat("mGoalR",    0.0);
+  metaGrams     = prefs.getFloat("mGrams",    0.0);
+  metaStartSet  = prefs.getBool ("mStartSet", false);
+  metaGoalSet   = prefs.getBool ("mGoalSet",  false);
+  metaNotified  = prefs.getBool ("mNotified", false);
+}
+
 // ─── NOTIFICACIÓN META ─────────────────────────────────────────
 void checkMetaNotification() {
   if (metaStartSet && metaGoalSet && metaProgress >= 100.0 && !metaNotified) {
     metaNotified = true;
+    prefs.putBool("mNotified", true);   // que no vuelva a avisar si se reinicia
     Serial.println("🎉 Meta alcanzada");
     StaticJsonDocument<128> notif;
     notif["event"] = "meta_reached";
@@ -350,34 +373,51 @@ void onMqttMessage(char* topic, byte* payload, unsigned int length) {
     delay(500); WiFiManager wm; wm.resetSettings(); ESP.restart();
   }
 
+  saveSession();
   publishStatus();
 }
 
-// ─── MQTT RECONECTAR ──────────────────────────────────────────
-void mqttReconnect() {
-  while (!mqtt.connected()) {
-    String cid = "PBVOL-" + String(random(0xffff), HEX);
-    if (mqtt.connect(cid.c_str())) {
-      mqtt.subscribe(TOPIC_CMD);
-      publishStatus();
-      Serial.println("🔌 MQTT ✅");
-    } else {
-      Serial.printf("MQTT ❌ rc=%d\n", mqtt.state());
-      delay(5000);
+// ─── RED: RECONEXIÓN SIN BLOQUEAR ─────────────────────────────
+// Esto era un while con delay(5000) dentro. Mientras el broker no contestaba,
+// el loop entero se paraba: durante esos segundos el ESP32 no publicaba nada y
+// la app mostraba "sin señal" aunque el aparato estuviera perfectamente. Ahora
+// reintenta cada 3 s sin frenar el resto, así que los publish no se cortan.
+unsigned long lastMqttTry = 0;
+unsigned long lastWifiTry = 0;
+
+void netEnsure() {
+  if (WiFi.status() != WL_CONNECTED) {
+    if (millis() - lastWifiTry >= 5000) {
+      lastWifiTry = millis();
+      Serial.println("📶 WiFi caído — reconectando...");
+      WiFi.reconnect();
     }
+    return;
+  }
+  if (mqtt.connected()) return;
+  if (millis() - lastMqttTry < 3000) return;
+  lastMqttTry = millis();
+  String cid = "PBVOL-" + String(random(0xffff), HEX);
+  if (mqtt.connect(cid.c_str())) {
+    mqtt.subscribe(TOPIC_CMD);
+    publishStatus();
+    Serial.println("🔌 MQTT ✅");
+  } else {
+    Serial.printf("MQTT ❌ rc=%d\n", mqtt.state());
   }
 }
 
 // ─── SETUP ────────────────────────────────────────────────────
 void setup() {
   Serial.begin(115200); delay(500);
-  rgbLedWrite(PIN_LED_RGB, 8, 4, 0);   // ámbar tenue = arrancando
+  pinMode(PIN_LED, OUTPUT);
 
   prefs.begin("proofboxvol", false);
   sensorOffset = prefs.getFloat("offset", 49.0);
   condBaseUS   = prefs.getFloat("condBase", 0.0);
+  loadSession();
 
-  Serial.println("\n📏 ProofBox Volumen v1.1");
+  Serial.println("\n📏 ProofBox Volumen v1.2");
 
   // Conductividad: los pines de excitación arrancan en alta impedancia para no
   // meter continua en el líquido antes de la primera medida.
@@ -408,7 +448,7 @@ void setup() {
   wm.setConfigPortalTimeout(180);
   if (!wm.autoConnect("ProofBoxVol-Setup")) ESP.restart();
   Serial.println("✅ WiFi: " + WiFi.SSID());
-  rgbLedWrite(PIN_LED_RGB, 0, 8, 0);   // verde tenue = WiFi conectado
+  digitalWrite(PIN_LED, HIGH);
 
   // MQTT
   mqtt.setServer(MQTT_SERVER, MQTT_PORT);
@@ -421,15 +461,21 @@ void setup() {
   delay(500); readSensors(); readConductivity();
   if (condOk) Serial.printf("⚡ Conductividad: %.1f kΩ / %.1f µS\n", condOhms/1000.0, condUS);
   else        Serial.println("⚡ Conductividad: electrodos sin contacto");
-  if (distanceMM > 5) {
+  // Solo auto-calibra si NO había sesión guardada. Si se reinició a mitad de una
+  // fermentación, el punto cero es el de antes — no el de ahora, que ya subió.
+  if (ratioCal || metaStartSet) {
+    Serial.printf("↩ Sesión recuperada: cero %.1fmm%s\n", ratioInitDist,
+                  metaStartSet ? " · meta activa" : "");
+  } else if (distanceMM > 5) {
     ratioInitDist = distanceMM; ratioCal = true;
+    saveSession();
     Serial.printf("📏 Cal auto: %.1fmm\n", ratioInitDist);
   }
 }
 
 // ─── LOOP ─────────────────────────────────────────────────────
 void loop() {
-  if (!mqtt.connected()) mqttReconnect();
+  netEnsure();
   mqtt.loop();
 
   unsigned long now = millis();
