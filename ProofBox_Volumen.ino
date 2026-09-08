@@ -1,5 +1,5 @@
 // ============================================================
-//  ProofBox — Módulo VOLUMEN v1.2
+//  ProofBox — Módulo VOLUMEN v1.3
 //  VL53L0X (volumen) + conductividad de 2 electrodos + WiFi + MQTT
 //  Modo Ratio × y Modo Meta (dedo / ratio / cm)
 //
@@ -8,6 +8,7 @@
 //
 //  VL53L0X:       SDA → GPIO 21 | SCL → GPIO 22 | VIN → 3V3 | GND → GND
 //  Conductividad: GPIO 25 y 26 (excitación) | GPIO 34 (medida)
+//  Temperatura:   DS18B20 en GPIO 27 (+ pull-up de 4k7 a 3V3)
 // ============================================================
 
 #include <WiFi.h>
@@ -17,6 +18,8 @@
 #include <Preferences.h>
 #include <Wire.h>
 #include <VL53L0X.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
 
 // ─── CONFIGURACIÓN ────────────────────────────────────────────
 #define DEVICE_ID    "proofbox-vol01"
@@ -36,6 +39,9 @@
 // entrada, que para leer es justo lo que hace falta, y además no tiene pull-ups
 // internos que falseen la medida.
 // 25 y 26 son salidas normales, sin función especial al arrancar.
+// DS18B20. Sonda de acero sumergible, en la masa junto a los electrodos: lo que
+// interesa es la temperatura de LA MASA, no la del aire de la cámara.
+#define PIN_TEMP      27
 #define PIN_COND_A    25
 #define PIN_COND_B    26
 #define PIN_COND_ADC  34
@@ -45,6 +51,8 @@ WiFiClient   espClient;
 PubSubClient mqtt(espClient);
 Preferences  prefs;
 VL53L0X      laser;
+OneWire        oneWire(PIN_TEMP);
+DallasTemperature ds18(&oneWire);
 
 // ─── ESTADO DEL SENSOR ────────────────────────────────────────
 float distanceMM   = 0;
@@ -71,9 +79,14 @@ bool  metaNotified  = false;
 // ─── CONDUCTIVIDAD ────────────────────────────────────────────
 float condOhms   = 0;      // resistencia medida entre electrodos
 float condUS     = 0;      // conductancia en microsiemens (1e6 / ohmios)
-float condBaseUS = 0;      // referencia marcada por el usuario
+float condBaseUS = 0;      // referencia marcada por el usuario (ya a 25 °C)
+float condUS25   = 0;      // conductancia normalizada a 25 °C
 float condRel    = 0;      // % respecto a esa referencia
 bool  condOk     = false;  // hay circuito: los electrodos tocan algo
+
+// ─── TEMPERATURA ──────────────────────────────────────────────
+float tempC  = 0;
+bool  tempOk = false;
 
 // ─── OFFSET DE CALIBRACIÓN DEL SENSOR ─────────────────────────
 // Ajusta este valor si la medida no coincide con la regla.
@@ -204,10 +217,20 @@ float readResistanceOhms() {
   return rs[n/2];
 }
 
+// El DS18B20 tarda 750 ms en convertir a 12 bits. Esperarlo bloquearía el loop
+// justo lo que acabamos de arreglar, así que se pide y se recoge en la vuelta
+// siguiente: el valor va 2 s atrasado, que para una masa es nada.
+void readTemperature() {
+  float t = ds18.getTempCByIndex(0);       // resultado de la petición anterior
+  tempOk  = (t > -50.0f && t < 100.0f);    // -127 = sonda desconectada
+  if (tempOk) tempC = t;
+  ds18.requestTemperatures();              // dispara la siguiente, sin esperar
+}
+
 void readConductivity() {
   float r = readResistanceOhms();
   if (r < 0) {
-    condOk = false; condOhms = 0; condUS = 0; condRel = 0;
+    condOk = false; condOhms = 0; condUS = 0; condUS25 = 0; condRel = 0;
     return;
   }
   condOhms = max(r, 1.0f);
@@ -216,7 +239,13 @@ void readConductivity() {
   // la lectura tiemble aunque la mezcla no cambie.
   condUS = condOk ? (condUS * 0.7f + us * 0.3f) : us;
   condOk = true;
-  condRel = (condBaseUS > 0) ? (condUS / condBaseUS) * 100.0f : 0.0f;
+
+  // La conductividad sube ~2% por cada grado. Sin corregir, 5 °C de deriva en la
+  // cámara se confunden con un cambio real en la masa — era el mayor enemigo de
+  // esta medida. Se normaliza todo a 25 °C para poder comparar horas distintas.
+  condUS25 = tempOk ? condUS / (1.0f + 0.02f * (tempC - 25.0f)) : condUS;
+
+  condRel = (condBaseUS > 0) ? (condUS25 / condBaseUS) * 100.0f : 0.0f;
 }
 
 // ─── SESIÓN PERSISTENTE ────────────────────────────────────────
@@ -283,6 +312,9 @@ void publishStatus() {
   doc["cond"]           = round(condUS * 10) / 10.0;      // microsiemens
   doc["condKohm"]       = round(condOhms / 100.0) / 10.0; // kΩ, 1 decimal
   doc["condRel"]        = round(condRel * 10) / 10.0;     // % sobre la base
+  doc["cond25"]         = round(condUS25 * 10) / 10.0;    // µS normalizados a 25 °C
+  doc["tempOk"]         = tempOk;
+  doc["tempC"]          = round(tempC * 10) / 10.0;
   doc["condBaseSet"]    = condBaseUS > 0;
   char buf[512]; serializeJson(doc, buf);
   mqtt.publish(TOPIC_STATUS, buf, true);
@@ -313,8 +345,8 @@ void onMqttMessage(char* topic, byte* payload, unsigned int length) {
         metaRatioGoal = metaStartDist / metaGoalDist;
       // Marcar el inicio de la masa marca también la base de conductividad:
       // las dos señales arrancan del mismo instante y se pueden comparar.
-      if (condOk && condUS > 0) {
-        condBaseUS = condUS; condRel = 100.0;
+      if (condOk && condUS25 > 0) {
+        condBaseUS = condUS25; condRel = 100.0;
         prefs.putFloat("condBase", condBaseUS);
       }
       Serial.printf("✅ Meta inicio: %.1fmm\n", metaStartDist);
@@ -350,8 +382,8 @@ void onMqttMessage(char* topic, byte* payload, unsigned int length) {
     Serial.println("↺ Meta reset");
   }
   else if (cmd == "condBase") {
-    if (condOk && condUS > 0) {
-      condBaseUS = condUS; condRel = 100.0;
+    if (condOk && condUS25 > 0) {
+      condBaseUS = condUS25; condRel = 100.0;
       prefs.putFloat("condBase", condBaseUS);
       Serial.printf("⚡ Base conductividad: %.1f µS (%.1f kΩ)\n", condBaseUS, condOhms/1000.0);
     } else {
@@ -417,13 +449,20 @@ void setup() {
   condBaseUS   = prefs.getFloat("condBase", 0.0);
   loadSession();
 
-  Serial.println("\n📏 ProofBox Volumen v1.2");
+  Serial.println("\n📏 ProofBox Volumen v1.3");
 
   // Conductividad: los pines de excitación arrancan en alta impedancia para no
   // meter continua en el líquido antes de la primera medida.
   pinMode(PIN_COND_A, INPUT);
   pinMode(PIN_COND_B, INPUT);
   // La atenuación por defecto del core ESP32 ya es 11 dB (rango completo).
+
+  // DS18B20
+  ds18.begin();
+  ds18.setWaitForConversion(false);
+  ds18.requestTemperatures();
+  Serial.printf(ds18.getDeviceCount() > 0 ? "✅ DS18B20 listo\n"
+                                          : "❌ DS18B20 no encontrado — revisa el pull-up de 4k7\n");
 
   // VL53L0X
   delay(100);
@@ -458,7 +497,7 @@ void setup() {
 
   startMillis = millis();
 
-  delay(500); readSensors(); readConductivity();
+  delay(500); readSensors(); readTemperature(); readConductivity();
   if (condOk) Serial.printf("⚡ Conductividad: %.1f kΩ / %.1f µS\n", condOhms/1000.0, condUS);
   else        Serial.println("⚡ Conductividad: electrodos sin contacto");
   // Solo auto-calibra si NO había sesión guardada. Si se reinició a mitad de una
@@ -486,13 +525,15 @@ void loop() {
   }
   if (now - lastCondRead >= COND_INTERVAL) {
     lastCondRead = now;
+    readTemperature();     // primero: la compensación de abajo la necesita
     readConductivity();
   }
   if (now - lastPublish >= PUBLISH_INTERVAL) {
     lastPublish = now;
     publishStatus();
-    Serial.printf("📏%.0fmm | 📈%.2f× | 🎯%.0f%% | ⚡%s\n",
+    Serial.printf("📏%.0fmm | 📈%.2f× | 🎯%.0f%% | ⚡%s | 🌡%s\n",
                   distanceMM, riseRatio, metaProgress,
-                  condOk ? String(condUS, 1).c_str() : "--");
+                  condOk ? String(condUS25, 1).c_str() : "--",
+                  tempOk ? String(tempC, 1).c_str() : "--");
   }
 }

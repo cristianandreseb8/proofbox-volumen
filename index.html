@@ -56,7 +56,7 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
 .mark-btn.done{border-color:var(--green);color:var(--green)}
 .grams-row{display:flex;gap:8px;align-items:center;margin-bottom:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px}
 .reset-small{background:transparent;border:1px solid var(--border);border-radius:7px;padding:6px 10px;color:var(--muted);font-family:'DM Mono',monospace;font-size:10px;cursor:pointer;margin-top:10px;width:100%}
-.sensor-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.sensor-row{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
 .sensor-item{text-align:center;padding:10px 4px;background:var(--bg);border-radius:8px;border:1px solid var(--border)}
 .sensor-val{font-size:13px;font-weight:500;color:var(--text);margin-bottom:2px}
 .sensor-lbl{font-size:9px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase}
@@ -167,6 +167,7 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
     <div class="warn" id="warn-laser">⚠️ The laser sensor is not responding — check the wiring</div>
     <div class="sensor-row" id="sensor-row">
       <div class="sensor-item"><div class="sensor-val" id="dist">--</div><div class="sensor-lbl">Distance</div></div>
+      <div class="sensor-item"><div class="sensor-val" id="temp">--</div><div class="sensor-lbl">Temp</div></div>
       <div class="sensor-item"><div class="sensor-val" id="uptime">--</div><div class="sensor-lbl">Uptime</div></div>
       <div class="sensor-item"><div class="sensor-val" id="rssi">--</div><div class="sensor-lbl">WiFi</div></div>
     </div>
@@ -400,6 +401,7 @@ function updateUI(d){
   const raw=d.dist;
   document.getElementById('dist').textContent=Math.round(raw)+'mm';
   document.getElementById('rssi').textContent=d.rssi+'dB';
+  document.getElementById('temp').textContent=d.tempOk?fmt(d.tempC)+'\u00b0':'--';
   const s=Math.floor(d.uptime),h=Math.floor(s/3600),m=Math.floor((s%3600)/60);
   document.getElementById('uptime').textContent=h+'h'+String(m).padStart(2,'0');
 
@@ -453,7 +455,8 @@ function updateUI(d){
   document.getElementById('cond-rel').textContent=relC!==null?fmt(relC,0):'--';
   document.getElementById('bar-cond').style.width=(relC!==null?Math.min(100,relC/2):0)+'%';
   document.getElementById('cond-abs').textContent=condOk
-    ?`${fmt(d.cond,1)} µS · ${fmt(d.condKohm,1)} kΩ`+(condBaseSet?'':' · no base marked')
+    ?`${fmt(d.cond25!=null?d.cond25:d.cond,1)} µS · ${fmt(d.condKohm,1)} kΩ`
+      +(d.tempOk?' · at 25\u00b0':'')+(condBaseSet?'':' · no base marked')
     :'no reading';
 
   lastStatusMs=Date.now();
