@@ -56,7 +56,10 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
 .mark-btn.done{border-color:var(--green);color:var(--green)}
 .grams-row{display:flex;gap:8px;align-items:center;margin-bottom:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px}
 .reset-small{background:transparent;border:1px solid var(--border);border-radius:7px;padding:6px 10px;color:var(--muted);font-family:'DM Mono',monospace;font-size:10px;cursor:pointer;margin-top:10px;width:100%}
-.sensor-row{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.sensor-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.big-val{font-family:'Syne',sans-serif;font-size:46px;font-weight:700;color:var(--amber-l);line-height:1}
+.big-unit{font-size:20px;color:var(--amber)}
+.big-row{display:flex;justify-content:space-between;align-items:baseline}
 .sensor-item{text-align:center;padding:10px 4px;background:var(--bg);border-radius:8px;border:1px solid var(--border)}
 .sensor-val{font-size:13px;font-weight:500;color:var(--text);margin-bottom:2px}
 .sensor-lbl{font-size:9px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase}
@@ -84,13 +87,13 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
     </div>
   </div>
   <div class="mode-toggle">
-    <button class="mode-btn active" id="mode-ratio" onclick="setDMode('ratio')">📈 Rise × mode</button>
-    <button class="mode-btn" id="mode-meta" onclick="setDMode('meta')">🎯 Target mode</button>
+    <button class="mode-btn" id="mode-ratio" onclick="setDMode('ratio')">📈 Rise × mode</button>
+    <button class="mode-btn active" id="mode-meta" onclick="setDMode('meta')">🎯 Target mode</button>
   </div>
 
   <button class="new-dough" onclick="newDough()">🆕 New dough · start from scratch</button>
 
-  <div id="panel-ratio" class="card">
+  <div id="panel-ratio" class="card" style="display:none">
     <div class="rise-head">
       <div class="card-label" style="margin:0">Rise</div>
       <div><span class="rise-val" id="rise">--</span><span class="rise-x">×</span></div>
@@ -99,7 +102,7 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
     <div class="marks"><span>1×</span><span>1.5×</span><span>2×</span><span>2.5×</span><span>3×</span></div>
     <button class="cal-btn" onclick="sendCmd({cmd:'calibrate'})">⬛ Calibrate zero point</button>
   </div>
-  <div id="panel-meta" style="display:none">
+  <div id="panel-meta">
     <div class="card">
       <div class="card-label">Progress</div>
       <div class="meta-big" id="meta-pct">--<span>%</span></div>
@@ -111,6 +114,29 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
       <div class="track"><div class="fill" id="bar-meta" style="width:0%"></div></div>
       <div class="marks"><span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span></div>
     </div>
+  </div>
+  <div class="card" id="panel-temp">
+    <div class="big-row">
+      <div class="card-label" style="margin:0">Temperature</div>
+      <div><span class="big-val" id="temp-big">--</span><span class="big-unit">°C</span></div>
+    </div>
+    <div class="warn" id="warn-temp" style="margin:10px 0 0">🌡 Probe not responding — check the 4k7 pull-up between data and 3V3</div>
+    <div style="font-size:11px;color:var(--muted);margin-top:8px" id="temp-note">Dough temperature · corrects the conductivity to 25°C</div>
+  </div>
+
+  <div class="card" id="panel-cond">
+    <div class="rise-head">
+      <div class="card-label" style="margin:0">Conductivity</div>
+      <div><span class="rise-val" id="cond-rel">--</span><span class="rise-x">%</span></div>
+    </div>
+    <div class="warn" id="warn-cond">⚡ Electrodes not in contact — the circuit is open</div>
+    <div class="track"><div class="fill" id="bar-cond" style="width:0%"></div></div>
+    <div class="marks"><span>0%</span><span>50%</span><span>base 100%</span><span>150%</span><span>200%</span></div>
+    <div style="text-align:center;font-size:11px;color:var(--muted);margin-top:8px" id="cond-abs">--</div>
+    <button class="cal-btn" onclick="sendCmd({cmd:'condBase'})">⚡ Mark base = 100%</button>
+  </div>
+
+  <div id="panel-meta-setup">
     <div class="card">
       <div class="card-label">Set starting point</div>
       <div class="grams-row">
@@ -149,17 +175,6 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
       <button class="reset-small" onclick="resetMeta()">↺ Reset target</button>
     </div>
   </div>
-  <div class="card" id="panel-cond">
-    <div class="rise-head">
-      <div class="card-label" style="margin:0">Conductivity</div>
-      <div><span class="rise-val" id="cond-rel">--</span><span class="rise-x">%</span></div>
-    </div>
-    <div class="warn" id="warn-cond">⚡ Electrodes not in contact — the circuit is open</div>
-    <div class="track"><div class="fill" id="bar-cond" style="width:0%"></div></div>
-    <div class="marks"><span>0%</span><span>50%</span><span>base 100%</span><span>150%</span><span>200%</span></div>
-    <div style="text-align:center;font-size:11px;color:var(--muted);margin-top:8px" id="cond-abs">--</div>
-    <button class="cal-btn" onclick="sendCmd({cmd:'condBase'})">⚡ Mark base = 100%</button>
-  </div>
 
   <div class="card">
     <div class="card-label">Sensor</div>
@@ -167,7 +182,6 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
     <div class="warn" id="warn-laser">⚠️ The laser sensor is not responding — check the wiring</div>
     <div class="sensor-row" id="sensor-row">
       <div class="sensor-item"><div class="sensor-val" id="dist">--</div><div class="sensor-lbl">Distance</div></div>
-      <div class="sensor-item"><div class="sensor-val" id="temp">--</div><div class="sensor-lbl">Temp</div></div>
       <div class="sensor-item"><div class="sensor-val" id="uptime">--</div><div class="sensor-lbl">Uptime</div></div>
       <div class="sensor-item"><div class="sensor-val" id="rssi">--</div><div class="sensor-lbl">WiFi</div></div>
     </div>
@@ -220,7 +234,7 @@ let mqttClient=null, lastMeta=0;
 // 5s was too tight — a single hiccup on the public broker flashed "No signal" on
 // a device that was perfectly fine. 12 missed publishes in a row is a real outage.
 const STALE_MS=12000;
-let lastStatusMs=0, brokerUp=false, laserOk=true, condOk=false;
+let lastStatusMs=0, brokerUp=false, laserOk=true, condOk=false, tempOk=false;
 
 // Distance is shown raw (fast). The rise (ratio/%/cm) is averaged over a moving
 // window so it does not jump every second. Everything is re-derived from the
@@ -387,6 +401,7 @@ function showToast(msg,dur=6000){
 function setDMode(mode){
   document.getElementById('panel-ratio').style.display=mode==='ratio'?'block':'none';
   document.getElementById('panel-meta').style.display=mode==='meta'?'block':'none';
+  document.getElementById('panel-meta-setup').style.display=mode==='meta'?'block':'none';
   document.getElementById('mode-ratio').className='mode-btn'+(mode==='ratio'?' active':'');
   document.getElementById('mode-meta').className='mode-btn'+(mode==='meta'?' active':'');
 }
@@ -401,7 +416,8 @@ function updateUI(d){
   const raw=d.dist;
   document.getElementById('dist').textContent=Math.round(raw)+'mm';
   document.getElementById('rssi').textContent=d.rssi+'dB';
-  document.getElementById('temp').textContent=d.tempOk?fmt(d.tempC)+'\u00b0':'--';
+  tempOk=d.tempOk===true;
+  document.getElementById('temp-big').textContent=tempOk?fmt(d.tempC):'--';
   const s=Math.floor(d.uptime),h=Math.floor(s/3600),m=Math.floor((s%3600)/60);
   document.getElementById('uptime').textContent=h+'h'+String(m).padStart(2,'0');
 
@@ -493,7 +509,7 @@ function refreshHealth(){
   }
 
   const frozen=!brokerUp||stale;
-  ['panel-ratio','panel-meta','panel-cond','sensor-row'].forEach(id=>
+  ['panel-ratio','panel-meta','panel-meta-setup','panel-temp','panel-cond','sensor-row'].forEach(id=>
     document.getElementById(id).classList.toggle('dim',frozen));
 
   const wl=document.getElementById('warn-link');
@@ -501,6 +517,7 @@ function refreshHealth(){
   if(frozen&&lastStatusMs>0)document.getElementById('warn-age').textContent=fmtAge(age);
   document.getElementById('warn-laser').classList.toggle('show',!frozen&&!laserOk);
   document.getElementById('warn-cond').classList.toggle('show',!frozen&&!condOk);
+  document.getElementById('warn-temp').classList.toggle('show',!frozen&&!tempOk);
 }
 setInterval(refreshHealth,1000);
 function sendCmd(payload){
