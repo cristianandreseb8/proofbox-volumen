@@ -60,6 +60,9 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
 .big-val{font-family:'Syne',sans-serif;font-size:46px;font-weight:700;color:var(--amber-l);line-height:1}
 .big-unit{font-size:20px;color:var(--amber)}
 .big-row{display:flex;justify-content:space-between;align-items:baseline}
+.fill.timer{background:linear-gradient(90deg,#1a4a6b,#3aa0d8)}
+.fill.timer.late{background:linear-gradient(90deg,#7a2a08,#d85a1a)}
+.alarm-on{border-color:var(--green)!important;color:var(--green)!important}
 .sensor-item{text-align:center;padding:10px 4px;background:var(--bg);border-radius:8px;border:1px solid var(--border)}
 .sensor-val{font-size:13px;font-weight:500;color:var(--text);margin-bottom:2px}
 .sensor-lbl{font-size:9px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase}
@@ -115,6 +118,31 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
       <div class="marks"><span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span></div>
     </div>
   </div>
+  <div class="card" id="panel-timer">
+    <div class="big-row">
+      <div class="card-label" style="margin:0">Timer</div>
+      <div><span class="big-val" id="timer-big">--:--</span></div>
+    </div>
+    <div class="track" style="margin-top:10px"><div class="fill timer" id="bar-timer" style="width:0%"></div></div>
+    <div class="input-row" style="margin-top:12px">
+      <input class="num-input" type="number" id="timer-h" placeholder="0" min="0" max="48">
+      <span class="unit-lbl">h</span>
+      <input class="num-input" type="number" id="timer-m" placeholder="30" min="0" max="59">
+      <span class="unit-lbl">min</span>
+    </div>
+    <div class="log-btns">
+      <button class="mark-btn" id="btn-timer" onclick="timerToggle()" style="flex:1">▶ Start</button>
+      <button class="mark-btn" onclick="timerReset()" style="flex:1">↺ Reset</button>
+    </div>
+    <div class="offset-row">
+      <span style="font-size:11px;color:var(--muted);flex:1">Also alert me at</span>
+      <input class="num-input" type="number" id="input-pct-alarm" placeholder="80" min="1" max="300" style="width:64px;flex:none">
+      <span class="unit-lbl">%</span>
+      <button class="mark-btn" id="btn-pct-alarm" onclick="setPctAlarm()">Set</button>
+    </div>
+    <div id="timer-note" style="font-size:11px;color:var(--muted);margin-top:8px"></div>
+  </div>
+
   <div class="card" id="panel-temp">
     <div class="big-row">
       <div class="card-label" style="margin:0">Temperature</div>
@@ -195,16 +223,17 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
   </div>
 
   <div class="card">
-    <div class="card-label">Cloud history · rise ×</div>
+    <div class="card-label">Cloud history · growth × over elapsed time</div>
     <div class="log-row">
-      <div>Points: <b id="log-count">0</b></div>
-      <div style="color:var(--muted)">last: <b id="log-last">--</b></div>
+      <div>Elapsed: <b id="log-elapsed">--</b></div>
+      <div style="color:var(--muted)">Points: <b id="log-count">0</b></div>
     </div>
     <div id="log-chart"></div>
     <div class="log-btns" style="margin-top:10px">
       <button class="mark-btn" onclick="fetchHistory()" style="flex:1">↻ Refresh</button>
       <button class="mark-btn" onclick="downloadCsv()" style="flex:1">⬇ CSV</button>
     </div>
+    <button class="cal-btn" onclick="newChart()">📊 Start a new chart from now</button>
     <div class="interval-row">
       <span style="font-size:11px;color:var(--muted)">Save every</span>
       <select class="num-input" id="interval-sel" onchange="setInterval2(this.value)" style="flex:1;padding:8px 10px">
@@ -291,6 +320,26 @@ function setInterval2(sec){
 }
 // Start a new dough: resets the rise to 1×, clears the previous target and starts
 // the chart from zero (the old data stays saved in the cloud).
+// Distinto de "New dough": esto NO recalibra ni resetea la meta, solo mueve el
+// punto de partida del registro. Sirve para empezar a graficar a mitad de una
+// fermentación sin perder el cero del volumen.
+function newChart(){
+  if(!confirm('Start a new chart?\n\nLogging starts from now. The dough measurement, the target and the conductivity base are left untouched.'))return;
+  const now=new Date().toISOString();
+  fetch(`${SUPA_URL}/rest/v1/proofbox_config?device_id=eq.${DEVICE_ID}`,{
+    method:'PATCH',
+    headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY,'Content-Type':'application/json',Prefer:'return=minimal'},
+    body:JSON.stringify({session_start:now})
+  }).then(r=>{
+    if(!r.ok)throw new Error(r.status);
+    sessionStart=now; history=[]; renderHistory();
+    showToast('📊 New chart — logging from now');
+    setTimeout(()=>{
+      fetch(`${SUPA_URL}/functions/v1/proofbox-logger`,{method:'POST',headers:{Authorization:'Bearer '+SUPA_JWT}})
+        .then(()=>fetchHistory()).catch(()=>{});
+    },2000);
+  }).catch(()=>showToast('Could not start the new chart'));
+}
 function newDough(){
   if(!confirm('Start a new dough?\n\nThe rise goes back to 1×, the previous target is cleared and the chart starts from zero.'))return;
   if(!(mqttClient&&mqttClient.connected)){
@@ -307,6 +356,7 @@ function newDough(){
     body:JSON.stringify({session_start:now})
   }).catch(()=>{});
   sessionStart=now; history=[]; renderHistory();
+  if(pctAlarm.pct){pctAlarm.fired=false; savePct();}   // que pueda volver a sonar
   showToast('🆕 New dough — starting from zero');
   // One baseline point once the ESP32 has recalibrated (~2s later).
   setTimeout(()=>{
@@ -340,18 +390,27 @@ function fetchHistory(){
 function renderHistory(){
   const n=history.length;
   document.getElementById('log-count').textContent=n;
-  document.getElementById('log-last').textContent=n
-    ? new Date(history[n-1].logged_at).toLocaleString('en-GB',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})
-    : '--';
+  const t0=chartT0();
+  document.getElementById('log-elapsed').textContent=
+    (n&&t0)?fmtElapsed(new Date(history[n-1].logged_at).getTime()-t0):'--';
   drawChart(history);
+}
+// Cero del eje de tiempos: el momento en que se empezó este gráfico. Si no hay
+// sesión marcada, cae al primer punto registrado.
+function chartT0(){
+  if(sessionStart) return new Date(sessionStart).getTime();
+  return history.length?new Date(history[0].logged_at).getTime():null;
 }
 function drawChart(rows){
   const box=document.getElementById('log-chart');
   if(!rows.length){box.innerHTML='<div style="color:var(--muted);font-size:11px;text-align:center;padding:24px 0">No saved data yet.<br>The first point arrives in a few minutes.</div>';return;}
   const W=340,H=90,p=6;
-  const xs=rows.map(r=>new Date(r.logged_at).getTime());
+  // El eje X es TIEMPO TRANSCURRIDO desde que arrancó el gráfico, no hora del
+  // reloj: así dos fermentaciones distintas se pueden comparar superpuestas.
+  const t0=chartT0()||new Date(rows[0].logged_at).getTime();
+  const xs=rows.map(r=>new Date(r.logged_at).getTime()-t0);
   const ys=rows.map(r=>r.rise==null?1:r.rise);
-  const x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(...ys,1),y1=Math.max(...ys,1.1);
+  const x0=0,x1=Math.max(...xs,60000),y0=Math.min(...ys,1),y1=Math.max(...ys,1.1);
   const sx=t=>p+(x1===x0?0:(t-x0)/(x1-x0))*(W-2*p);
   const sy=v=>H-p-(y1===y0?0:(v-y0)/(y1-y0))*(H-2*p);
   const line=rows.map((r,i)=>(i?'L':'M')+sx(xs[i]).toFixed(1)+' '+sy(ys[i]).toFixed(1)).join(' ');
@@ -361,9 +420,9 @@ function drawChart(rows){
     <path d="${line}" fill="none" stroke="var(--amber-l)" stroke-width="1.5" stroke-linejoin="round"/>
   </svg>
   <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--muted);margin-top:2px">
-    <span>${new Date(x0).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}</span>
-    <span style="color:var(--amber)">max ${Math.max(...ys).toFixed(2)}×</span>
-    <span>${new Date(x1).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}</span>
+    <span>0min</span>
+    <span style="color:var(--amber)">max ${Math.max(...ys).toFixed(2)}× · ${fmtElapsed(x1/2)} mid</span>
+    <span>${fmtElapsed(x1)}</span>
   </div>`;
 }
 async function downloadCsv(){
@@ -393,6 +452,115 @@ async function downloadCsv(){
   setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
 function fmt(n,d=1){return parseFloat(n).toFixed(d);}
+
+// ─── TIMER Y ALARMAS ──────────────────────────────────────────────────────
+// El countdown se guarda como INSTANTE DE FIN, no como segundos restantes. Así
+// sigue corriendo con la app cerrada o el móvil bloqueado: al volver se calcula
+// lo que queda mirando el reloj, no un contador que se paró.
+let timer={endAt:null,leftMs:0,totalMs:0,running:false,fired:false};
+let pctAlarm={pct:null,fired:false};
+let audioCtx=null;
+
+function saveTimer(){try{localStorage.setItem('pb-timer',JSON.stringify(timer));}catch(e){}}
+function savePct(){try{localStorage.setItem('pb-pctalarm',JSON.stringify(pctAlarm));}catch(e){}}
+function loadAlarms(){
+  try{const t=JSON.parse(localStorage.getItem('pb-timer')||'null'); if(t)timer=t;}catch(e){}
+  try{const a=JSON.parse(localStorage.getItem('pb-pctalarm')||'null'); if(a)pctAlarm=a;}catch(e){}
+  if(pctAlarm.pct)document.getElementById('input-pct-alarm').value=pctAlarm.pct;
+  renderTimer();
+}
+function timerLeft(){
+  if(timer.running&&timer.endAt)return Math.max(0,timer.endAt-Date.now());
+  return timer.leftMs||0;
+}
+function fmtClock(ms){
+  const s=Math.round(ms/1000),h=Math.floor(s/3600),m=Math.floor((s%3600)/60),ss=s%60;
+  return h>0?`${h}:${String(m).padStart(2,'0')}:${String(ss).padStart(2,'0')}`
+            :`${m}:${String(ss).padStart(2,'0')}`;
+}
+function fmtElapsed(ms){
+  const m=Math.max(0,Math.round(ms/60000));
+  return m<60?m+'min':Math.floor(m/60)+'h'+String(m%60).padStart(2,'0');
+}
+function renderTimer(){
+  const left=timerLeft();
+  document.getElementById('timer-big').textContent=(timer.totalMs||left)?fmtClock(left):'--:--';
+  const done=timer.totalMs?(1-left/timer.totalMs)*100:0;
+  const bar=document.getElementById('bar-timer');
+  bar.style.width=Math.min(100,Math.max(0,done))+'%';
+  bar.className='fill timer'+(timer.totalMs&&left===0?' late':'');
+  document.getElementById('btn-timer').textContent=timer.running?'⏸ Pause':(left>0?'▶ Resume':'▶ Start');
+  document.getElementById('btn-pct-alarm').className='mark-btn'+(pctAlarm.pct?' alarm-on':'');
+  const note=document.getElementById('timer-note');
+  const alarmTxt=pctAlarm.pct?` · alarm at ${pctAlarm.pct}%`:'';
+  if(timer.running&&timer.endAt)
+    note.textContent='Rings at '+new Date(timer.endAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})+alarmTxt;
+  else if(left>0) note.textContent='Paused'+alarmTxt;
+  else note.textContent=(alarmTxt?alarmTxt.slice(3):'Set hours or minutes and press Start');
+}
+function timerToggle(){
+  unlockAudio();
+  if(timer.running){
+    timer.leftMs=timerLeft(); timer.running=false; timer.endAt=null;
+  }else{
+    let left=timerLeft();
+    if(left<=0){
+      const h=parseFloat(document.getElementById('timer-h').value)||0;
+      const m=parseFloat(document.getElementById('timer-m').value)||0;
+      left=(h*3600+m*60)*1000;
+      if(left<=0){showToast('Set hours or minutes first');return;}
+      timer.totalMs=left;
+    }
+    timer.leftMs=left; timer.endAt=Date.now()+left; timer.running=true; timer.fired=false;
+  }
+  saveTimer(); renderTimer();
+}
+function timerReset(){
+  timer={endAt:null,leftMs:0,totalMs:0,running:false,fired:false};
+  saveTimer(); renderTimer();
+}
+function setPctAlarm(){
+  const v=parseFloat(document.getElementById('input-pct-alarm').value);
+  if(!v||v<=0){pctAlarm={pct:null,fired:false};showToast('Progress alarm off');}
+  else{pctAlarm={pct:v,fired:false};unlockAudio();showToast(`🎯 Alarm armed at ${v}%`);}
+  savePct(); renderTimer();
+}
+// Los móviles solo dejan sonar después de un toque. Todos los botones que arman
+// una alarma pasan por aquí, así el contexto está vivo cuando toque avisar.
+function unlockAudio(){
+  try{
+    if(!audioCtx)audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+    if(audioCtx.state==='suspended')audioCtx.resume();
+  }catch(e){}
+}
+function beep(n=4){
+  try{
+    if(!audioCtx)return;
+    for(let i=0;i<n;i++){
+      const o=audioCtx.createOscillator(),g=audioCtx.createGain();
+      o.type='sine'; o.frequency.value=i%2?660:880;
+      o.connect(g); g.connect(audioCtx.destination);
+      const t=audioCtx.currentTime+i*0.5;
+      g.gain.setValueAtTime(0,t);
+      g.gain.linearRampToValueAtTime(0.35,t+0.03);
+      g.gain.linearRampToValueAtTime(0,t+0.4);
+      o.start(t); o.stop(t+0.45);
+    }
+  }catch(e){}
+}
+function fireAlarm(msg){
+  showToast(msg,12000);
+  beep();
+  if('vibrate'in navigator)navigator.vibrate([400,150,400,150,400]);
+}
+setInterval(()=>{
+  if(timer.running&&timerLeft()<=0&&!timer.fired){
+    timer.fired=true; timer.running=false; timer.leftMs=0; timer.endAt=null;
+    saveTimer();
+    fireAlarm('⏰ Timer finished');
+  }
+  renderTimer();
+},250);
 function showToast(msg,dur=6000){
   const t=document.getElementById('toast');
   t.textContent=msg;t.classList.add('show');
@@ -446,6 +614,16 @@ function updateUI(d){
   if(mp>=100&&lastMeta<100&&d.metaGoalSet){
     showToast('🎉 The dough hit the target! '+fmt(mrcS)+'×',10000);
     if('vibrate'in navigator)navigator.vibrate([300,100,300,100,300]);
+  }
+  // Alarma por porcentaje. Se rearma sola si la masa vuelve a bajar del umbral,
+  // con 3 puntos de histéresis para que el ruido de la medida no la dispare dos veces.
+  if(pctAlarm.pct){
+    if(mp>=pctAlarm.pct&&!pctAlarm.fired){
+      pctAlarm.fired=true; savePct();
+      fireAlarm(`🎯 The dough reached ${pctAlarm.pct}%`);
+    }else if(mp<pctAlarm.pct-3&&pctAlarm.fired){
+      pctAlarm.fired=false; savePct();
+    }
   }
   lastMeta=mp;
   if(d.metaStartSet){
@@ -562,6 +740,7 @@ function connect(){
   // MQTT.js emits close/offline/error when the broker drops; 'disconnect' only exists in MQTT 5.
   ['close','offline','error'].forEach(ev=>mqttClient.on(ev,()=>{brokerUp=false;refreshHealth();}));
 }
+loadAlarms();
 connect();
 refreshHealth();
 fetchHistory();
