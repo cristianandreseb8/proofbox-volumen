@@ -26,9 +26,13 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
 .dim{opacity:.3;transition:opacity .4s}
 .warn{display:none;background:rgba(192,57,43,.12);border:1px solid var(--red);border-radius:8px;padding:9px 10px;font-size:11px;color:#e8867a;margin-bottom:10px;text-align:center}
 .warn.show{display:block}
-.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:12px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:12px;position:relative}
+.drag-handle{position:absolute;top:6px;right:8px;padding:6px 8px;color:var(--muted);font-size:14px;line-height:1;cursor:grab;opacity:.45;touch-action:none;user-select:none;-webkit-user-select:none}
+.drag-handle:active{cursor:grabbing;opacity:1;color:var(--amber-l)}
+.card.dragging{opacity:.6;border-color:var(--amber);box-shadow:0 6px 24px rgba(0,0,0,.5)}
+#stack.sorting .card{transition:transform .12s ease}
 .card-label{font-size:10px;letter-spacing:.12em;color:var(--muted);text-transform:uppercase;margin-bottom:10px}
-.mode-toggle{display:grid;grid-template-columns:1fr 1fr;gap:4px;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:4px;margin-bottom:12px}
+.mode-toggle{display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:4px;margin-bottom:12px}
 .mode-btn{padding:8px;border:none;border-radius:7px;background:transparent;color:var(--muted);font-family:'DM Mono',monospace;font-size:12px;cursor:pointer}
 .mode-btn.active{background:var(--surface);color:var(--amber-l);border:1px solid var(--amber-d)}
 .track{height:10px;background:var(--bg);border-radius:5px;overflow:hidden;border:1px solid var(--border)}
@@ -90,13 +94,17 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
     </div>
   </div>
   <div class="mode-toggle">
-    <button class="mode-btn" id="mode-ratio" onclick="setDMode('ratio')">📈 Rise × mode</button>
-    <button class="mode-btn active" id="mode-meta" onclick="setDMode('meta')">🎯 Target mode</button>
+    <button class="mode-btn active" id="mode-meta" onclick="setDMode('meta')">🎯 Target</button>
+    <button class="mode-btn" id="mode-ratio" onclick="setDMode('ratio')">📈 Rise ×</button>
+    <button class="mode-btn" id="mode-settings" onclick="setDMode('settings')">⚙ Settings</button>
   </div>
 
-  <button class="new-dough" onclick="newDough()">🆕 New dough · start from scratch</button>
+  <button class="new-dough" id="btn-new-dough" onclick="newDough()">🆕 New dough · start from scratch</button>
 
-  <div id="panel-ratio" class="card" style="display:none">
+  <div id="stack">
+
+  <div class="card sortable" id="panel-ratio" style="display:none">
+    <div class="drag-handle" title="Drag to reorder">⠿</div>
     <div class="rise-head">
       <div class="card-label" style="margin:0">Rise</div>
       <div><span class="rise-val" id="rise">--</span><span class="rise-x">×</span></div>
@@ -105,8 +113,8 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
     <div class="marks"><span>1×</span><span>1.5×</span><span>2×</span><span>2.5×</span><span>3×</span></div>
     <button class="cal-btn" onclick="sendCmd({cmd:'calibrate'})">⬛ Calibrate zero point</button>
   </div>
-  <div id="panel-meta">
-    <div class="card">
+  <div class="card sortable" id="panel-meta">
+      <div class="drag-handle" title="Drag to reorder">⠿</div>
       <div class="card-label">Progress</div>
       <div class="meta-big" id="meta-pct">--<span>%</span></div>
       <div class="meta-ratio-row">
@@ -116,9 +124,9 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
       <div class="cm-grown">Grown: <b id="cm-grown">--cm</b></div>
       <div class="track"><div class="fill" id="bar-meta" style="width:0%"></div></div>
       <div class="marks"><span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span></div>
-    </div>
   </div>
-  <div class="card" id="panel-timer">
+  <div class="card sortable" id="panel-timer">
+    <div class="drag-handle" title="Drag to reorder">⠿</div>
     <div class="big-row">
       <div class="card-label" style="margin:0">Timer</div>
       <div><span class="big-val" id="timer-big">--:--</span></div>
@@ -143,7 +151,8 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
     <div id="timer-note" style="font-size:11px;color:var(--muted);margin-top:8px"></div>
   </div>
 
-  <div class="card" id="panel-temp">
+  <div class="card sortable" id="panel-temp">
+    <div class="drag-handle" title="Drag to reorder">⠿</div>
     <div class="big-row">
       <div class="card-label" style="margin:0">Temperature</div>
       <div><span class="big-val" id="temp-big">--</span><span class="big-unit">°C</span></div>
@@ -152,7 +161,8 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
     <div style="font-size:11px;color:var(--muted);margin-top:8px" id="temp-note">Dough temperature · corrects the conductivity to 25°C</div>
   </div>
 
-  <div class="card" id="panel-cond">
+  <div class="card sortable" id="panel-cond">
+    <div class="drag-handle" title="Drag to reorder">⠿</div>
     <div class="rise-head">
       <div class="card-label" style="margin:0">Conductivity</div>
       <div><span class="rise-val" id="cond-rel">--</span><span class="rise-x">%</span></div>
@@ -164,8 +174,8 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
     <button class="cal-btn" onclick="sendCmd({cmd:'condBase'})">⚡ Mark base = 100%</button>
   </div>
 
-  <div id="panel-meta-setup">
-    <div class="card">
+  <div class="card sortable" id="panel-start">
+      <div class="drag-handle" title="Drag to reorder">⠿</div>
       <div class="card-label">Set starting point</div>
       <div class="grams-row">
         <span style="font-size:11px;color:var(--muted);flex:1">Grams <span style="color:var(--amber)">(optional)</span></span>
@@ -174,15 +184,24 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
       </div>
       <button class="mark-btn" id="btn-start" onclick="markStart()" style="width:100%">📏 Mark start</button>
       <div id="start-status" style="font-size:11px;color:var(--muted);margin-top:8px;text-align:center"></div>
-    </div>
-    <div class="card">
+  </div>
+
+  <div class="card sortable" id="panel-goal">
+      <div class="drag-handle" title="Drag to reorder">⠿</div>
       <div class="card-label">Set target</div>
       <div class="goal-tabs">
-        <button class="gtab active" id="gtab-finger" onclick="setGoalTab('finger')">🖐 Finger</button>
+        <button class="gtab active" id="gtab-cm" onclick="setGoalTab('cm')">📐 cm</button>
+        <button class="gtab" id="gtab-finger" onclick="setGoalTab('finger')">🖐 Finger</button>
         <button class="gtab" id="gtab-ratio" onclick="setGoalTab('ratio')">✖️ Ratio</button>
-        <button class="gtab" id="gtab-cm" onclick="setGoalTab('cm')">📐 cm</button>
       </div>
-      <div id="goal-finger">
+      <div id="goal-cm">
+        <div class="input-row">
+          <input class="num-input" type="number" id="input-cm" placeholder="5" step="0.5" min="0.5">
+          <span class="unit-lbl">cm</span>
+          <button class="mark-btn" onclick="setGoalCm()">Apply</button>
+        </div>
+      </div>
+      <div id="goal-finger" style="display:none">
         <button class="mark-btn" id="btn-goal-finger" onclick="setGoalFinger()" style="width:100%">🖐 Mark target with your finger</button>
       </div>
       <div id="goal-ratio" style="display:none">
@@ -192,37 +211,12 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
           <button class="mark-btn" onclick="setGoalRatio()">Apply</button>
         </div>
       </div>
-      <div id="goal-cm" style="display:none">
-        <div class="input-row">
-          <input class="num-input" type="number" id="input-cm" placeholder="5" step="0.5" min="0.5">
-          <span class="unit-lbl">cm</span>
-          <button class="mark-btn" onclick="setGoalCm()">Apply</button>
-        </div>
-      </div>
       <div id="goal-status" style="font-size:11px;color:var(--muted);margin-top:8px;text-align:center"></div>
       <button class="reset-small" onclick="resetMeta()">↺ Reset target</button>
-    </div>
   </div>
 
-  <div class="card">
-    <div class="card-label">Sensor</div>
-    <div class="warn" id="warn-link">📡 No signal from the ProofBox — last reading <b id="warn-age">--</b> ago</div>
-    <div class="warn" id="warn-laser">⚠️ The laser sensor is not responding — check the wiring</div>
-    <div class="sensor-row" id="sensor-row">
-      <div class="sensor-item"><div class="sensor-val" id="dist">--</div><div class="sensor-lbl">Distance</div></div>
-      <div class="sensor-item"><div class="sensor-val" id="uptime">--</div><div class="sensor-lbl">Uptime</div></div>
-      <div class="sensor-item"><div class="sensor-val" id="rssi">--</div><div class="sensor-lbl">WiFi</div></div>
-    </div>
-    <div class="offset-row">
-      <span style="font-size:11px;color:var(--muted);flex:1">Calibration offset</span>
-      <input class="num-input" type="number" id="input-offset" placeholder="49" style="width:60px;flex:none">
-      <span class="unit-lbl">mm</span>
-      <button class="mark-btn" onclick="setOffset()">Apply</button>
-    </div>
-    <button class="reset-btn" onclick="if(confirm('Reset WiFi?'))sendCmd({cmd:'resetwifi'})">⚙ Change WiFi network</button>
-  </div>
-
-  <div class="card">
+  <div class="card sortable" id="panel-history">
+    <div class="drag-handle" title="Drag to reorder">⠿</div>
     <div class="card-label">Cloud history · growth × over elapsed time</div>
     <div class="log-row">
       <div>Elapsed: <b id="log-elapsed">--</b></div>
@@ -248,6 +242,33 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
       </select>
     </div>
     <div id="interval-note" style="font-size:10px;color:var(--muted);margin-top:8px;line-height:1.4"></div>
+  </div>
+  </div><!-- /stack -->
+
+  <div id="panel-settings" style="display:none">
+  <div class="card">
+    <div class="card-label">Sensor</div>
+    <div class="warn" id="warn-link">📡 No signal from the ProofBox — last reading <b id="warn-age">--</b> ago</div>
+    <div class="warn" id="warn-laser">⚠️ The laser sensor is not responding — check the wiring</div>
+    <div class="sensor-row" id="sensor-row">
+      <div class="sensor-item"><div class="sensor-val" id="dist">--</div><div class="sensor-lbl">Distance</div></div>
+      <div class="sensor-item"><div class="sensor-val" id="uptime">--</div><div class="sensor-lbl">Uptime</div></div>
+      <div class="sensor-item"><div class="sensor-val" id="rssi">--</div><div class="sensor-lbl">WiFi</div></div>
+    </div>
+    <div class="offset-row">
+      <span style="font-size:11px;color:var(--muted);flex:1">Calibration offset</span>
+      <input class="num-input" type="number" id="input-offset" placeholder="49" style="width:60px;flex:none">
+      <span class="unit-lbl">mm</span>
+      <button class="mark-btn" onclick="setOffset()">Apply</button>
+    </div>
+    <button class="reset-btn" onclick="if(confirm('Reset WiFi?'))sendCmd({cmd:'resetwifi'})">⚙ Change WiFi network</button>
+  </div>
+
+  <div class="card">
+    <div class="card-label">Layout</div>
+    <div style="font-size:11px;color:var(--muted);line-height:1.5">Drag the ⠿ handle on any block to reorder the page. The order is remembered on this device.</div>
+    <button class="reset-btn" onclick="resetOrder()">↺ Restore the default order</button>
+  </div>
   </div>
 </div>
 <script>
@@ -453,6 +474,58 @@ async function downloadCsv(){
 }
 function fmt(n,d=1){return parseFloat(n).toFixed(d);}
 
+// ─── ORDEN DE LOS BLOQUES ─────────────────────────────────────────────────
+// Arrastrar por el asa ⠿. Se usa Pointer Events y no el drag&drop de HTML5
+// porque este último no existe en móvil, que es donde se usa la app.
+const ORDER_KEY='pb-order';
+let dragEl=null;
+function stackKids(){return [...document.getElementById('stack').children].filter(e=>e.id);}
+function saveOrder(){try{localStorage.setItem(ORDER_KEY,JSON.stringify(stackKids().map(e=>e.id)));}catch(e){}}
+function applyOrder(){
+  let order=null;
+  try{order=JSON.parse(localStorage.getItem(ORDER_KEY)||'null');}catch(e){}
+  if(!Array.isArray(order))return;
+  const stack=document.getElementById('stack');
+  // Los ids que ya no existan se ignoran, y los nuevos se quedan donde estén:
+  // así una versión futura con más tarjetas no rompe el orden guardado.
+  order.forEach(id=>{const el=document.getElementById(id); if(el&&el.parentNode===stack)stack.appendChild(el);});
+}
+function resetOrder(){
+  try{localStorage.removeItem(ORDER_KEY);}catch(e){}
+  showToast('Layout restored — reopening');
+  setTimeout(()=>location.reload(),700);
+}
+function initSort(){
+  const stack=document.getElementById('stack');
+  stack.querySelectorAll('.drag-handle').forEach(h=>{
+    h.addEventListener('pointerdown',e=>{
+      e.preventDefault();
+      let el=h; while(el.parentElement!==stack) el=el.parentElement;
+      dragEl=el; dragEl.classList.add('dragging'); stack.classList.add('sorting');
+      try{h.setPointerCapture(e.pointerId);}catch(err){}
+    });
+    h.addEventListener('pointermove',e=>{
+      if(!dragEl)return;
+      e.preventDefault();
+      for(const sib of stack.children){
+        if(sib===dragEl||sib.style.display==='none')continue;
+        const r=sib.getBoundingClientRect();
+        if(e.clientY>r.top&&e.clientY<r.bottom){
+          stack.insertBefore(dragEl, e.clientY<r.top+r.height/2 ? sib : sib.nextSibling);
+          break;
+        }
+      }
+    });
+    const end=()=>{
+      if(!dragEl)return;
+      dragEl.classList.remove('dragging'); stack.classList.remove('sorting');
+      dragEl=null; saveOrder();
+    };
+    h.addEventListener('pointerup',end);
+    h.addEventListener('pointercancel',end);
+  });
+}
+
 // ─── TIMER Y ALARMAS ──────────────────────────────────────────────────────
 // El countdown se guarda como INSTANTE DE FIN, no como segundos restantes. Así
 // sigue corriendo con la app cerrada o el móvil bloqueado: al volver se calcula
@@ -566,13 +639,25 @@ function showToast(msg,dur=6000){
   t.textContent=msg;t.classList.add('show');
   setTimeout(()=>t.classList.remove('show'),dur);
 }
+// Qué tarjetas pertenecen solo a un modo. Las que no están aquí se ven en los dos.
+const MODE_ONLY={'panel-meta':'meta','panel-start':'meta','panel-goal':'meta','panel-ratio':'ratio'};
 function setDMode(mode){
-  document.getElementById('panel-ratio').style.display=mode==='ratio'?'block':'none';
-  document.getElementById('panel-meta').style.display=mode==='meta'?'block':'none';
-  document.getElementById('panel-meta-setup').style.display=mode==='meta'?'block':'none';
-  document.getElementById('mode-ratio').className='mode-btn'+(mode==='ratio'?' active':'');
-  document.getElementById('mode-meta').className='mode-btn'+(mode==='meta'?' active':'');
+  const settings = mode==='settings';
+  document.getElementById('stack').style.display        = settings?'none':'block';
+  document.getElementById('panel-settings').style.display = settings?'block':'none';
+  document.getElementById('btn-new-dough').style.display   = settings?'none':'block';
+  if(!settings){
+    for(const el of document.getElementById('stack').children){
+      const only=MODE_ONLY[el.id];
+      el.style.display = (!only||only===mode)?'block':'none';
+    }
+  }
+  ['meta','ratio','settings'].forEach(m=>{
+    document.getElementById('mode-'+m).className='mode-btn'+(m===mode?' active':'');
+  });
+  try{localStorage.setItem('pb-mode',mode);}catch(e){}
 }
+
 function setGoalTab(tab){
   ['finger','ratio','cm'].forEach(t=>{
     document.getElementById('goal-'+t).style.display=t===tab?'block':'none';
@@ -740,6 +825,11 @@ function connect(){
   // MQTT.js emits close/offline/error when the broker drops; 'disconnect' only exists in MQTT 5.
   ['close','offline','error'].forEach(ev=>mqttClient.on(ev,()=>{brokerUp=false;refreshHealth();}));
 }
+applyOrder();
+initSort();
+let startMode='meta';
+try{startMode=localStorage.getItem('pb-mode')||'meta';}catch(e){}
+setDMode(startMode==='settings'?'meta':startMode);   // nunca abrir en Ajustes
 loadAlarms();
 connect();
 refreshHealth();
