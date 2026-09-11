@@ -71,6 +71,13 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
 .sensor-val{font-size:13px;font-weight:500;color:var(--text);margin-bottom:2px}
 .sensor-lbl{font-size:9px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase}
 .reset-btn{width:100%;padding:8px;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--muted);font-family:'DM Mono',monospace;font-size:11px;cursor:pointer;margin-top:8px}
+.alarm-banner{position:fixed;top:0;left:0;right:0;background:var(--red);color:#fff;padding:14px 16px;z-index:1000;display:none;align-items:center;gap:12px;box-shadow:0 4px 20px rgba(0,0,0,.5)}
+.alarm-banner.show{display:flex}
+.alarm-banner b{flex:1;font-size:14px}
+.alarm-banner button{background:#fff;color:var(--red);border:none;border-radius:8px;padding:10px 16px;font-family:'DM Mono',monospace;font-size:13px;font-weight:500;cursor:pointer;white-space:nowrap}
+.vis-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--border);font-size:12px}
+.vis-row:last-child{border-bottom:none}
+.vis-row input{width:18px;height:18px;accent-color:var(--amber);flex:none}
 .toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);background:var(--green);color:#fff;padding:14px 24px;border-radius:12px;font-size:14px;font-weight:500;z-index:999;display:none;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,.4);max-width:320px}
 .toast.show{display:block;animation:toastIn .3s ease}
 @keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(-10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
@@ -85,6 +92,10 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
 </head>
 <body>
 <div class="toast" id="toast"></div>
+<div class="alarm-banner" id="alarm-banner">
+  <b id="alarm-msg">⏰</b>
+  <button onclick="stopAlarm()">⏹ Stop</button>
+</div>
 <div class="app">
   <div class="header">
     <div class="logo">Proof<span>Box</span> Vol</div>
@@ -262,6 +273,35 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
       <button class="mark-btn" onclick="setOffset()">Apply</button>
     </div>
     <button class="reset-btn" onclick="if(confirm('Reset WiFi?'))sendCmd({cmd:'resetwifi'})">⚙ Change WiFi network</button>
+  </div>
+
+  <div class="card">
+    <div class="card-label">Alarm</div>
+    <div class="input-row">
+      <span style="font-size:11px;color:var(--muted);flex:1">Ring for</span>
+      <select class="num-input" id="alarm-dur" onchange="setAlarmDur(this.value)" style="flex:none;width:140px;padding:8px 10px">
+        <option value="15">15 sec</option>
+        <option value="30">30 sec</option>
+        <option value="60">1 min</option>
+        <option value="120">2 min</option>
+        <option value="300">5 min</option>
+        <option value="0">Until I stop it</option>
+      </select>
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin:4px 0 8px">Sound: <b id="alarm-sound-name">default beep</b></div>
+    <div class="log-btns">
+      <label class="mark-btn" style="flex:1;text-align:center;cursor:pointer">🎵 Upload music
+        <input type="file" accept="audio/*" id="alarm-file" onchange="loadAlarmFile(this)" style="display:none">
+      </label>
+      <button class="mark-btn" onclick="testAlarm()" style="flex:1">▶ Test</button>
+    </div>
+    <button class="reset-btn" onclick="clearAlarmFile()">↺ Back to the default beep</button>
+    <div style="font-size:10px;color:var(--muted);margin-top:8px;line-height:1.4">The file stays on this device. It is never uploaded anywhere and it is not shared with your other phones.</div>
+  </div>
+
+  <div class="card">
+    <div class="card-label">Show on screen</div>
+    <div id="vis-list"></div>
   </div>
 
   <div class="card">
@@ -606,10 +646,24 @@ function unlockAudio(){
     if(audioCtx.state==='suspended')audioCtx.resume();
   }catch(e){}
 }
-function beep(n=4){
+// ─── EL TIMBRE ────────────────────────────────────────────────────────────
+// Suena en bucle hasta que se para o hasta que vence la duración elegida. Un
+// aviso de dos segundos no sirve: la gracia es enterarte desde la otra punta
+// de la casa.
+let alarmAudio=null, alarmName=null, ringTimer=null, ringStop=null, vibTimer=null;
+
+function alarmSecs(){
+  const v=parseInt(localStorage.getItem('pb-alarm-dur'));
+  return isNaN(v)?60:v;          // por defecto 1 minuto; 0 = hasta pararla
+}
+function setAlarmDur(v){
+  try{localStorage.setItem('pb-alarm-dur',String(parseInt(v)));}catch(e){}
+  showToast(parseInt(v)?`Alarm will ring for ${v}s`:'Alarm will ring until you stop it');
+}
+function beep(){
   try{
     if(!audioCtx)return;
-    for(let i=0;i<n;i++){
+    for(let i=0;i<4;i++){
       const o=audioCtx.createOscillator(),g=audioCtx.createGain();
       o.type='sine'; o.frequency.value=i%2?660:880;
       o.connect(g); g.connect(audioCtx.destination);
@@ -621,11 +675,102 @@ function beep(n=4){
     }
   }catch(e){}
 }
-function fireAlarm(msg){
-  showToast(msg,12000);
-  beep();
-  if('vibrate'in navigator)navigator.vibrate([400,150,400,150,400]);
+function startRinging(){
+  stopRinging();
+  if(alarmAudio){
+    try{alarmAudio.loop=true; alarmAudio.currentTime=0; alarmAudio.play().catch(()=>{});}catch(e){}
+  }else{
+    unlockAudio(); beep();
+    ringTimer=setInterval(beep,2200);
+  }
+  if('vibrate'in navigator){
+    navigator.vibrate([500,200,500,200,500]);
+    vibTimer=setInterval(()=>navigator.vibrate([500,200,500,200,500]),2400);
+  }
+  const secs=alarmSecs();
+  if(secs>0) ringStop=setTimeout(stopAlarm,secs*1000);
 }
+function stopRinging(){
+  if(ringTimer){clearInterval(ringTimer);ringTimer=null;}
+  if(ringStop){clearTimeout(ringStop);ringStop=null;}
+  if(vibTimer){clearInterval(vibTimer);vibTimer=null;}
+  if('vibrate'in navigator)navigator.vibrate(0);
+  if(alarmAudio){try{alarmAudio.pause();alarmAudio.currentTime=0;}catch(e){}}
+}
+function stopAlarm(){
+  stopRinging();
+  document.getElementById('alarm-banner').classList.remove('show');
+}
+function fireAlarm(msg){
+  document.getElementById('alarm-msg').textContent=msg;
+  document.getElementById('alarm-banner').classList.add('show');
+  startRinging();
+}
+function testAlarm(){ unlockAudio(); fireAlarm('🔔 Test — this is how it will sound'); }
+
+// ─── MÚSICA PROPIA ────────────────────────────────────────────────────────
+// El audio va a IndexedDB, no a localStorage: ahí caben megas y se guarda el
+// fichero tal cual, sin convertirlo a texto base64.
+function idb(){
+  return new Promise((res,rej)=>{
+    const r=indexedDB.open('proofbox',1);
+    r.onupgradeneeded=()=>r.result.createObjectStore('files');
+    r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error);
+  });
+}
+function idbDo(mode,fn){
+  return idb().then(db=>new Promise((res,rej)=>{
+    const t=db.transaction('files',mode), q=fn(t.objectStore('files'));
+    t.oncomplete=()=>res(q&&q.result); t.onerror=()=>rej(t.error);
+  }));
+}
+async function initAlarmSound(){
+  try{
+    const rec=await idbDo('readonly',st=>st.get('alarm'));
+    if(rec&&rec.blob){
+      if(alarmAudio&&alarmAudio.src)URL.revokeObjectURL(alarmAudio.src);
+      alarmAudio=new Audio(URL.createObjectURL(rec.blob));
+      alarmAudio.loop=true; alarmName=rec.name;
+    }else{ alarmAudio=null; alarmName=null; }
+  }catch(e){ alarmAudio=null; alarmName=null; }
+  document.getElementById('alarm-sound-name').textContent=alarmName||'default beep';
+}
+async function loadAlarmFile(input){
+  const f=input.files&&input.files[0]; if(!f)return;
+  if(f.size>20*1024*1024){showToast('That file is too big — keep it under 20 MB');input.value='';return;}
+  try{
+    await idbDo('readwrite',st=>st.put({name:f.name,blob:f},'alarm'));
+    await initAlarmSound(); unlockAudio();
+    showToast('🎵 Alarm sound saved: '+f.name);
+  }catch(e){ showToast('Could not save that file'); }
+  input.value='';
+}
+async function clearAlarmFile(){
+  try{ await idbDo('readwrite',st=>st.delete('alarm')); }catch(e){}
+  await initAlarmSound();
+  showToast('Back to the default beep');
+}
+
+// ─── QUÉ SE VE EN PANTALLA ────────────────────────────────────────────────
+const BLOCKS=[
+  ['panel-meta','Progress'],['panel-timer','Timer'],['panel-temp','Temperature'],
+  ['panel-cond','Conductivity'],['panel-start','Set starting point'],
+  ['panel-goal','Set target'],['panel-history','Cloud history'],
+  ['panel-ratio','Rise × (on the Rise tab)']
+];
+let hiddenBlocks={};
+function saveVis(){try{localStorage.setItem('pb-hidden',JSON.stringify(hiddenBlocks));}catch(e){}}
+function buildVisList(){
+  try{hiddenBlocks=JSON.parse(localStorage.getItem('pb-hidden')||'{}')||{};}catch(e){hiddenBlocks={};}
+  const box=document.getElementById('vis-list');
+  box.innerHTML=BLOCKS.map(([id,name])=>
+    `<label class="vis-row"><input type="checkbox" data-id="${id}" ${hiddenBlocks[id]?'':'checked'}>${name}</label>`).join('');
+  box.querySelectorAll('input').forEach(cb=>cb.addEventListener('change',()=>{
+    if(cb.checked) delete hiddenBlocks[cb.dataset.id]; else hiddenBlocks[cb.dataset.id]=true;
+    saveVis(); setDMode(currentMode);
+  }));
+}
+
 setInterval(()=>{
   if(timer.running&&timerLeft()<=0&&!timer.fired){
     timer.fired=true; timer.running=false; timer.leftMs=0; timer.endAt=null;
@@ -641,15 +786,17 @@ function showToast(msg,dur=6000){
 }
 // Qué tarjetas pertenecen solo a un modo. Las que no están aquí se ven en los dos.
 const MODE_ONLY={'panel-meta':'meta','panel-start':'meta','panel-goal':'meta','panel-ratio':'ratio'};
+let currentMode='meta';
 function setDMode(mode){
   const settings = mode==='settings';
+  if(!settings) currentMode=mode;
   document.getElementById('stack').style.display        = settings?'none':'block';
   document.getElementById('panel-settings').style.display = settings?'block':'none';
   document.getElementById('btn-new-dough').style.display   = settings?'none':'block';
   if(!settings){
     for(const el of document.getElementById('stack').children){
       const only=MODE_ONLY[el.id];
-      el.style.display = (!only||only===mode)?'block':'none';
+      el.style.display = ((!only||only===mode)&&!hiddenBlocks[el.id])?'block':'none';
     }
   }
   ['meta','ratio','settings'].forEach(m=>{
@@ -827,6 +974,9 @@ function connect(){
 }
 applyOrder();
 initSort();
+buildVisList();
+initAlarmSound();
+document.getElementById('alarm-dur').value=String(alarmSecs());
 let startMode='meta';
 try{startMode=localStorage.getItem('pb-mode')||'meta';}catch(e){}
 setDMode(startMode==='settings'?'meta':startMode);   // nunca abrir en Ajustes
