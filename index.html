@@ -81,6 +81,9 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
 .series-chip{display:flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:11px;cursor:pointer;user-select:none}
 .series-chip input{width:15px;height:15px;margin:0;flex:none}
 .series-dot{width:9px;height:9px;border-radius:50%;flex:none}
+.chart-readout{display:flex;flex-wrap:wrap;gap:14px;align-items:baseline;font-size:12px;margin-top:8px;min-height:18px}
+.chart-readout b{font-size:14px}
+.chart-full-box{touch-action:none}
 .series-legend{display:flex;flex-wrap:wrap;gap:12px;font-size:10px;color:var(--muted);margin-top:6px}
 .alarm-banner{position:fixed;top:0;left:0;right:0;background:var(--red);color:#fff;padding:14px 16px;z-index:1000;display:none;align-items:center;gap:12px;box-shadow:0 4px 20px rgba(0,0,0,.5)}
 .alarm-banner.show{display:flex}
@@ -117,6 +120,7 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
   </div>
   <div class="series-row" id="series-row-full"></div>
   <div class="chart-full-box" id="chart-full-box"></div>
+  <div class="chart-readout" id="chart-readout"></div>
   <div class="series-legend" id="legend-full"></div>
 </div>
 <div class="alarm-banner" id="alarm-banner">
@@ -617,6 +621,7 @@ function drawChart(rows,boxId,W,H){
     const span=Math.max(mx-mn, sr.minSpan||0.5);
     const mid=(mn+mx)/2;
     mn=mid-span/2; mx=mid+span/2;
+    sr._winMin=mn; sr._winMax=mx;
     const yv=v=>H-p-((v-mn)/(mx-mn))*(H-2*p);
     let d='',pen=false;
     for(let i=0;i<vals.length;i++){
@@ -637,6 +642,16 @@ function drawChart(rows,boxId,W,H){
       grid+=`<line x1="${p}" y1="${yy.toFixed(1)}" x2="${W-p}" y2="${yy.toFixed(1)}" stroke="var(--border)" stroke-width="1"/>`
           +`<text x="${p-6}" y="${(yy+3).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--muted)">${v.toFixed(2)}×</text>`;
     }
+    // Eje derecho para la primera serie secundaria: sin esto se ve la forma de
+    // la curva pero no a qué temperatura está, que es justo lo que hace falta.
+    const sec=active.find(a=>a.key!=='rise'&&a._winMin!=null);
+    if(sec){
+      for(let i=0;i<=4;i++){
+        const v=sec._winMin+(sec._winMax-sec._winMin)*i/4;
+        const yy=H-p-(i/4)*(H-2*p);
+        grid+=`<text x="${W-p+6}" y="${(yy+3).toFixed(1)}" text-anchor="start" font-size="10" fill="${sec.color}">${v.toFixed(sec.dec)}${sec.unit}</text>`;
+      }
+    }
     for(let i=0;i<=4;i++){
       const t=x1*i/4, xx=sx(t);
       grid+=`<line x1="${xx.toFixed(1)}" y1="${p}" x2="${xx.toFixed(1)}" y2="${H-p}" stroke="var(--border)" stroke-width="1" opacity=".6"/>`
@@ -655,12 +670,73 @@ function drawChart(rows,boxId,W,H){
     <span style="color:var(--amber)">max ${Math.max(...raw).toFixed(2)}× · ${fmtElapsed(x1/2)} mid</span>
     <span>${fmtElapsed(x1)}</span>
   </div>`);
-  if(boxId==='chart-full-box') renderLegend(legend);
+  if(boxId==='chart-full-box'){
+    renderLegend(legend);
+    chartState={xs,rows,active:legend,W,H,p,x1,sx,raw,win};
+    showReadout(null);
+  }
 }
 // Capa propia en vez del Fullscreen API a secas: en iPhone ese API solo existe
 // para vídeo, así que en el móvil no haría nada. El nativo se pide además,
 // donde exista, para ganar también la barra del navegador.
 function fullOpen(){return document.getElementById('chart-full').classList.contains('show');}
+let chartState=null;
+// Índice más cercano por búsqueda binaria: con miles de puntos un barrido
+// lineal en cada movimiento del dedo se notaría.
+function nearestIdx(xs,t){
+  let lo=0,hi=xs.length-1;
+  while(lo<hi){const m=(lo+hi)>>1; if(xs[m]<t)lo=m+1; else hi=m;}
+  if(lo>0&&Math.abs(xs[lo-1]-t)<Math.abs(xs[lo]-t))lo--;
+  return lo;
+}
+function showReadout(vbx){
+  const box=document.getElementById('chart-readout');
+  if(!box||!chartState)return;
+  const {xs,rows,active,W,p,x1,win}=chartState;
+  // Sin dedo encima, enseña la última lectura: así siempre dice algo útil.
+  let i=rows.length-1;
+  if(vbx!=null){
+    const t=x1*((vbx-p)/(W-2*p));
+    i=nearestIdx(xs,Math.max(0,Math.min(x1,t)));
+  }
+  const r=rows[i]; if(!r)return;
+  const parts=active.map(sr=>{
+    const v=sr.key==='rise'?(r.rise==null?null:+r.rise):(r[sr.key]==null?null:+r[sr.key]);
+    const txt=(v==null||!isFinite(v))?'--':v.toFixed(sr.dec)+sr.unit;
+    return `<span style="color:${sr.color}">${sr.label} <b>${txt}</b></span>`;
+  }).join('');
+  box.innerHTML=`<span style="color:var(--muted)">${fmtElapsed(xs[i])}</span>${parts}`
+    +(vbx==null?'<span style="color:var(--muted);font-size:9px">touch the chart to read any moment</span>':'');
+  // Marcador vertical sobre el punto elegido.
+  const svg=document.querySelector('#chart-full-box svg');
+  if(svg){
+    let ln=svg.querySelector('#cursor-line');
+    if(vbx==null){ if(ln)ln.remove(); return; }
+    if(!ln){
+      ln=document.createElementNS('http://www.w3.org/2000/svg','line');
+      ln.id='cursor-line'; ln.setAttribute('stroke','var(--text)');
+      ln.setAttribute('stroke-width','1'); ln.setAttribute('opacity','.5');
+      svg.appendChild(ln);
+    }
+    const xx=chartState.sx(xs[i]);
+    ln.setAttribute('x1',xx); ln.setAttribute('x2',xx);
+    ln.setAttribute('y1',p);  ln.setAttribute('y2',chartState.H-p);
+  }
+}
+function initReadout(){
+  const box=document.getElementById('chart-full-box');
+  const toVb=e=>{
+    const svg=box.querySelector('svg'); if(!svg||!chartState)return null;
+    const r=svg.getBoundingClientRect();
+    return (e.clientX-r.left)/r.width*chartState.W;
+  };
+  const move=e=>{e.preventDefault(); const v=toVb(e); if(v!=null)showReadout(v);};
+  box.addEventListener('pointerdown',e=>{box.setPointerCapture(e.pointerId);move(e);});
+  box.addEventListener('pointermove',e=>{if(box.hasPointerCapture&&box.hasPointerCapture(e.pointerId))move(e);});
+  const off=()=>showReadout(null);
+  box.addEventListener('pointerup',off);
+  box.addEventListener('pointercancel',off);
+}
 function renderLegend(active){
   const box=document.getElementById('legend-full'); if(!box)return;
   box.innerHTML=active.map(sr=>{
@@ -1242,6 +1318,7 @@ let startMode='meta';
 try{startMode=localStorage.getItem('pb-mode')||'meta';}catch(e){}
 setDMode(startMode==='settings'?'meta':startMode);   // nunca abrir en Ajustes
 loadSeries();
+initReadout();
 loadAlarms();
 connect();
 refreshHealth();
