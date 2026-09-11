@@ -259,6 +259,13 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
       <button class="reset-small" onclick="resetMeta()">↺ Reset target</button>
   </div>
 
+  <div class="card sortable" id="panel-log">
+    <div class="drag-handle" title="Drag to reorder">⠿</div>
+    <div class="card-label">Session history</div>
+    <div id="log-list" style="font-size:11px"></div>
+    <div style="font-size:10px;color:var(--muted);margin-top:8px;line-height:1.4">Saved on this phone every time the start, the target or the weight changes. Independent of the ProofBox, so it survives even if the device forgets.</div>
+  </div>
+
   <div class="card sortable" id="panel-history">
     <div class="drag-handle" title="Drag to reorder">⠿</div>
     <div class="card-label">Cloud history · growth × over elapsed time</div>
@@ -1099,7 +1106,7 @@ async function clearAlarmFile(){
 const BLOCKS=[
   ['panel-meta','Progress'],['panel-timer','Timer'],['panel-temp','Temperature'],
   ['panel-cond','Conductivity'],['panel-grams','Dough weight'],
-  ['panel-goal','Start & target'],['panel-history','Cloud history'],
+  ['panel-goal','Start & target'],['panel-log','Session history'],['panel-history','Cloud history'],
   ['panel-ratio','Rise × (on the Rise tab)']
 ];
 let hiddenBlocks={};
@@ -1129,7 +1136,7 @@ function showToast(msg,dur=6000){
   setTimeout(()=>t.classList.remove('show'),dur);
 }
 // Qué tarjetas pertenecen solo a un modo. Las que no están aquí se ven en los dos.
-const MODE_ONLY={'panel-meta':'meta','panel-grams':'meta','panel-goal':'meta','panel-ratio':'ratio'};
+const MODE_ONLY={'panel-meta':'meta','panel-grams':'meta','panel-goal':'meta','panel-log':'meta','panel-ratio':'ratio'};
 let currentMode='meta';
 // Pinta qué bloques se ven, sin tocar la pestaña activa. Separado de setDMode a
 // propósito: marcar una casilla en Ajustes no debe cambiarte de pantalla.
@@ -1191,6 +1198,7 @@ function updateUI(d){
   document.getElementById('meta-ratio-goal').textContent=d.metaGoalSet?fmt(d.metaRatioGoal)+'×':'--×';
   document.getElementById('cm-grown').textContent=fmt(cmS)+'cm';
   lastStart.set=d.metaStartSet===true;
+  noteSession(d);
   const avg=mpAverage(mp);
   if(avg!=null){
     // Las dos alarmas suenan UNA vez. Solo se rearman al volver a armarlas, al
@@ -1294,6 +1302,66 @@ function sendCmd(payload){
   if(mqttClient&&mqttClient.connected)
     mqttClient.publish(TOPIC_CMD,JSON.stringify({...payload,secret:CMD_SECRET}));
 }
+// ─── HISTORIAL DE SESIÓN, EN EL NAVEGADOR ─────────────────────────────────
+// Guardado aquí y no en el ESP32 a propósito: así existe aunque el aparato se
+// reinicie, se reflashee o se lo lleven, y se puede mirar atrás desde el móvil
+// sin depender de que el firmware recuerde nada.
+let sessionLog=[];
+function loadLog(){
+  try{sessionLog=JSON.parse(localStorage.getItem('pb-sessionlog')||'[]')||[];}catch(e){sessionLog=[];}
+  renderLog();
+}
+function saveLog(){
+  try{localStorage.setItem('pb-sessionlog',JSON.stringify(sessionLog.slice(-60)));}catch(e){}
+}
+// Se llama con cada status. Solo anota cuando algo REALMENTE cambia, si no
+// tendríamos una entrada por segundo.
+function noteSession(d){
+  const startD = d.metaStart!=null ? Math.round(d.metaStart)
+               : (d.metaStartSet ? Math.round((d.metaRatioCurr||1)*d.dist) : null);
+  const snap={
+    t:Date.now(),
+    start:startD,
+    goal:d.metaGoalSet?+(+d.metaRatioGoal).toFixed(2):null,
+    grams:+d.metaGrams||0,
+    base:d.condBaseSet===true
+  };
+  const last=sessionLog[sessionLog.length-1];
+  const same=last&&last.start===snap.start&&last.goal===snap.goal&&
+             last.grams===snap.grams&&last.base===snap.base;
+  if(same) return;
+  // Un cambio de 1 mm es el redondeo del sensor, no una decisión del usuario.
+  if(last&&last.goal===snap.goal&&last.grams===snap.grams&&last.base===snap.base&&
+     last.start!=null&&snap.start!=null&&Math.abs(last.start-snap.start)<=1) return;
+  sessionLog.push(snap); saveLog(); renderLog();
+}
+function renderLog(){
+  const box=document.getElementById('log-list'); if(!box)return;
+  if(!sessionLog.length){
+    box.innerHTML='<div style="color:var(--muted);padding:8px 0">Nothing recorded yet.</div>';
+    return;
+  }
+  box.innerHTML=sessionLog.slice().reverse().slice(0,12).map((e,i)=>{
+    const when=new Date(e.t).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+    const bits=[e.start!=null?`start ${e.start}mm`:'no start',
+                e.goal?`target ${e.goal}×`:'no target',
+                e.grams?`${e.grams}g`:null].filter(Boolean).join(' · ');
+    return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border)">
+      <span style="color:var(--muted);min-width:38px">${when}</span>
+      <span style="flex:1">${bits}</span>
+      ${e.start!=null?`<button class="mark-btn" style="padding:5px 9px;font-size:10px" onclick="restoreSnap(${e.t})">Restore</button>`:''}
+    </div>`;
+  }).join('');
+}
+function restoreSnap(t){
+  const e=sessionLog.find(x=>x.t===t); if(!e)return;
+  if(!confirm(`Go back to this point?\n\nStart ${e.start}mm${e.goal?` · target ${e.goal}×`:''}${e.grams?` · ${e.grams}g`:''}\n\nThe ProofBox will recalculate the progress from there.`))return;
+  sendCmd({cmd:'metaSetStartAt',mm:e.start,grams:e.grams});
+  if(e.goal) setTimeout(()=>sendCmd({cmd:'metaSetGoalRatio',ratio:e.goal}),400);
+  metaFired=false; mpBuf=[]; try{localStorage.setItem('pb-metafired','0');}catch(e2){}
+  showToast('↩ Restored — check the progress in a second');
+}
+
 function markStart(){
   // Pisa el cero de la masa en curso, así que no puede dispararse por un roce.
   if(lastStart.set && !confirm('Mark the start again?\n\nThe dough already has a start marked and the current progress will be replaced. You can undo this afterwards.'))return;
@@ -1373,6 +1441,7 @@ let startMode='meta';
 try{startMode=localStorage.getItem('pb-mode')||'meta';}catch(e){}
 setDMode(startMode==='settings'?'meta':startMode);   // nunca abrir en Ajustes
 loadSeries();
+loadLog();
 initReadout();
 loadAlarms();
 connect();

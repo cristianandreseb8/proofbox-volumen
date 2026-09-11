@@ -382,6 +382,7 @@ void publishStatus() {
   doc["tempOk"]         = tempOk;
   doc["tempC"]          = round(tempC * 10) / 10.0;
   doc["canUndo"]        = hasUndo;
+  doc["metaStart"]      = round(metaStartDist);
   doc["condBaseSet"]    = condBaseUS > 0;
   char buf[512]; serializeJson(doc, buf);
   mqtt.publish(TOPIC_STATUS, buf, true);
@@ -419,6 +420,18 @@ void onMqttMessage(char* topic, byte* payload, unsigned int length) {
         prefs.putFloat("condBase", condBaseUS);
       }
       Serial.printf("✅ Meta inicio: %.1fmm\n", metaStartDist);
+    }
+  }
+  else if (cmd == "metaSetStartAt") {
+    markUndoPoint();
+    float mm = doc["mm"]|0.0;
+    if (mm > 5 && mm < 3000) {
+      metaStartDist = mm; metaGrams = doc["grams"]|metaGrams;
+      metaProgress = 0; metaRatioCurr = 1.0; metaStartSet = true;
+      metaNotified = false;
+      if (metaGoalSet && metaStartDist > metaGoalDist)
+        metaRatioGoal = metaStartDist / metaGoalDist;
+      Serial.printf("↩ Inicio restaurado: %.1fmm\n", metaStartDist);
     }
   }
   else if (cmd == "metaSetGoalFinger") {
