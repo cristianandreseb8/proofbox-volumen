@@ -185,24 +185,25 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
     <button class="cal-btn" onclick="sendCmd({cmd:'condBase'})">⚡ Mark base = 100%</button>
   </div>
 
-  <div class="card sortable" id="panel-start">
+  <div class="card sortable" id="panel-grams">
       <div class="drag-handle" title="Drag to reorder">⠿</div>
-      <div class="card-label">Set starting point</div>
-      <div class="grams-row">
+      <div class="card-label">Dough weight</div>
+      <div class="grams-row" style="margin-bottom:0">
         <span style="font-size:11px;color:var(--muted);flex:1">Grams <span style="color:var(--amber)">(optional)</span></span>
-        <input class="num-input" type="number" id="input-grams" placeholder="100" style="width:70px;flex:none">
+        <input class="num-input" type="number" id="input-grams" placeholder="100" style="width:80px;flex:none">
         <span class="unit-lbl">g</span>
       </div>
-      <button class="mark-btn" id="btn-start" onclick="markStart()" style="width:100%">📏 Mark start</button>
-      <div id="start-status" style="font-size:11px;color:var(--muted);margin-top:8px;text-align:center"></div>
+      <div style="font-size:10px;color:var(--muted);margin-top:8px;line-height:1.4">Saved with the dough when you mark the start.</div>
   </div>
 
   <div class="card sortable" id="panel-goal">
       <div class="drag-handle" title="Drag to reorder">⠿</div>
-      <div class="card-label">Set target</div>
+      <div class="card-label">Start & target</div>
+      <button class="mark-btn" id="btn-start" onclick="markStart()" style="width:100%">📏 Mark start</button>
+      <div id="start-status" style="font-size:11px;color:var(--muted);margin:8px 0 12px;text-align:center"></div>
       <div class="goal-tabs">
         <button class="gtab active" id="gtab-cm" onclick="setGoalTab('cm')">📐 cm</button>
-        <button class="gtab" id="gtab-finger" onclick="setGoalTab('finger')">🖐 Finger</button>
+        <button class="gtab" id="gtab-finger" onclick="setGoalTab('finger')">🖐 Hand</button>
         <button class="gtab" id="gtab-ratio" onclick="setGoalTab('ratio')">✖️ Ratio</button>
       </div>
       <div id="goal-cm">
@@ -213,7 +214,7 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
         </div>
       </div>
       <div id="goal-finger" style="display:none">
-        <button class="mark-btn" id="btn-goal-finger" onclick="setGoalFinger()" style="width:100%">🖐 Mark target with your finger</button>
+        <button class="mark-btn" id="btn-goal-finger" onclick="setGoalFinger()" style="width:100%">🖐 Mark target with your hand</button>
       </div>
       <div id="goal-ratio" style="display:none">
         <div class="input-row">
@@ -363,7 +364,7 @@ function applyInterval(sec){
   if([...sel.options].some(o=>+o.value===+sec)) sel.value=String(sec);
   const note=document.getElementById('interval-note');
   if(sec<60){
-    note.innerHTML='⚡ Under 1 min: fast logging runs <b>only while this app is open</b>. With the phone switched off, the cloud saves once per minute.';
+    note.innerHTML='⚡ Under 1 min: fast logging needs this app <b>open and on screen</b>. Browsers throttle hidden tabs to about one tick per minute, so with the app in the background — or the screen off — you get roughly one point a minute whatever you pick here.';
   }else{
     note.innerHTML='☁️ Saved in the cloud on its own, even if you close the app or switch the phone off.';
   }
@@ -535,6 +536,20 @@ function resetOrder(){
   showToast('Layout restored — reopening');
   setTimeout(()=>location.reload(),700);
 }
+// Busca ante qué tarjeta hay que soltar, comparando el dedo con el CENTRO de
+// cada una. Antes se miraba si el dedo caía dentro de los bordes de la de al
+// lado, y como al reinsertar cambiaba la geometría bajo el dedo, el bloque
+// bailaba adelante y atrás. Con los centros el punto de cambio es estable.
+function afterElement(stack,y){
+  let best={off:-Infinity,el:null};
+  for(const el of stack.children){
+    if(el===dragEl||el.style.display==='none')continue;
+    const b=el.getBoundingClientRect();
+    const off=y-(b.top+b.height/2);
+    if(off<0&&off>best.off) best={off,el};
+  }
+  return best.el;
+}
 function initSort(){
   const stack=document.getElementById('stack');
   stack.querySelectorAll('.drag-handle').forEach(h=>{
@@ -547,14 +562,13 @@ function initSort(){
     h.addEventListener('pointermove',e=>{
       if(!dragEl)return;
       e.preventDefault();
-      for(const sib of stack.children){
-        if(sib===dragEl||sib.style.display==='none')continue;
-        const r=sib.getBoundingClientRect();
-        if(e.clientY>r.top&&e.clientY<r.bottom){
-          stack.insertBefore(dragEl, e.clientY<r.top+r.height/2 ? sib : sib.nextSibling);
-          break;
-        }
-      }
+      const after=afterElement(stack,e.clientY);
+      if(after!==dragEl.nextElementSibling) stack.insertBefore(dragEl,after);
+      // Arrastrar hasta un borde desplaza la página sola, si no es imposible
+      // mover una tarjeta más allá de lo que cabe en pantalla.
+      const m=90;
+      if(e.clientY<m) window.scrollBy(0,-12);
+      else if(e.clientY>window.innerHeight-m) window.scrollBy(0,12);
     });
     const end=()=>{
       if(!dragEl)return;
@@ -754,8 +768,8 @@ async function clearAlarmFile(){
 // ─── QUÉ SE VE EN PANTALLA ────────────────────────────────────────────────
 const BLOCKS=[
   ['panel-meta','Progress'],['panel-timer','Timer'],['panel-temp','Temperature'],
-  ['panel-cond','Conductivity'],['panel-start','Set starting point'],
-  ['panel-goal','Set target'],['panel-history','Cloud history'],
+  ['panel-cond','Conductivity'],['panel-grams','Dough weight'],
+  ['panel-goal','Start & target'],['panel-history','Cloud history'],
   ['panel-ratio','Rise × (on the Rise tab)']
 ];
 let hiddenBlocks={};
@@ -767,7 +781,7 @@ function buildVisList(){
     `<label class="vis-row"><input type="checkbox" data-id="${id}" ${hiddenBlocks[id]?'':'checked'}>${name}</label>`).join('');
   box.querySelectorAll('input').forEach(cb=>cb.addEventListener('change',()=>{
     if(cb.checked) delete hiddenBlocks[cb.dataset.id]; else hiddenBlocks[cb.dataset.id]=true;
-    saveVis(); setDMode(currentMode);
+    saveVis(); applyVisibility();     // NO setDMode: eso nos echaba de Ajustes
   }));
 }
 
@@ -785,20 +799,23 @@ function showToast(msg,dur=6000){
   setTimeout(()=>t.classList.remove('show'),dur);
 }
 // Qué tarjetas pertenecen solo a un modo. Las que no están aquí se ven en los dos.
-const MODE_ONLY={'panel-meta':'meta','panel-start':'meta','panel-goal':'meta','panel-ratio':'ratio'};
+const MODE_ONLY={'panel-meta':'meta','panel-grams':'meta','panel-goal':'meta','panel-ratio':'ratio'};
 let currentMode='meta';
+// Pinta qué bloques se ven, sin tocar la pestaña activa. Separado de setDMode a
+// propósito: marcar una casilla en Ajustes no debe cambiarte de pantalla.
+function applyVisibility(){
+  for(const el of document.getElementById('stack').children){
+    const only=MODE_ONLY[el.id];
+    el.style.display=((!only||only===currentMode)&&!hiddenBlocks[el.id])?'block':'none';
+  }
+}
 function setDMode(mode){
   const settings = mode==='settings';
   if(!settings) currentMode=mode;
   document.getElementById('stack').style.display        = settings?'none':'block';
   document.getElementById('panel-settings').style.display = settings?'block':'none';
   document.getElementById('btn-new-dough').style.display   = settings?'none':'block';
-  if(!settings){
-    for(const el of document.getElementById('stack').children){
-      const only=MODE_ONLY[el.id];
-      el.style.display = ((!only||only===mode)&&!hiddenBlocks[el.id])?'block':'none';
-    }
-  }
+  if(!settings) applyVisibility();
   ['meta','ratio','settings'].forEach(m=>{
     document.getElementById('mode-'+m).className='mode-btn'+(m===mode?' active':'');
   });
@@ -919,8 +936,13 @@ function refreshHealth(){
   }
 
   const frozen=!brokerUp||stale;
-  ['panel-ratio','panel-meta','panel-meta-setup','panel-temp','panel-cond','sensor-row'].forEach(id=>
-    document.getElementById(id).classList.toggle('dim',frozen));
+  // Atenuar TODO lo que hay en el stack, sin listar ids a mano. La lista fija se
+  // quedó apuntando a una tarjeta que dejó de existir, refreshHealth petaba cada
+  // segundo, y al petar en el arranque se llevaba por delante a fetchConfig() —
+  // que es quien aplica el intervalo de registro.
+  for(const el of document.getElementById('stack').children) el.classList.toggle('dim',frozen);
+  const sr=document.getElementById('sensor-row');
+  if(sr) sr.classList.toggle('dim',frozen);
 
   const wl=document.getElementById('warn-link');
   wl.classList.toggle('show',frozen&&lastStatusMs>0);
@@ -986,6 +1008,18 @@ refreshHealth();
 fetchHistory();
 fetchConfig();
 setInterval(fetchHistory,60000);
+
+// Volver de segundo plano: el navegador tuvo el temporizador estrangulado, así
+// que se registra un punto ya y se refresca, en vez de esperar al próximo tick.
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState!=='visible')return;
+  fetchHistory();
+  const sec=parseInt(document.getElementById('interval-sel').value);
+  if(sec<60&&brokerUp){
+    fetch(`${SUPA_URL}/functions/v1/proofbox-logger`,{method:'POST',headers:{Authorization:'Bearer '+SUPA_JWT}})
+      .then(()=>fetchHistory()).catch(()=>{});
+  }
+});
 </script>
 </body>
 </html>
