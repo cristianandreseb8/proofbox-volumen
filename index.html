@@ -255,6 +255,7 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
         </div>
       </div>
       <div id="goal-status" style="font-size:11px;color:var(--muted);margin-top:8px;text-align:center"></div>
+      <button class="mark-btn" id="btn-undo" onclick="undoLast()" style="width:100%;margin-top:10px">↶ Undo last change</button>
       <button class="reset-small" onclick="resetMeta()">↺ Reset target</button>
   </div>
 
@@ -376,6 +377,21 @@ let mqttClient=null, lastMeta=0;
 // a device that was perfectly fine. 12 missed publishes in a row is a real outage.
 const STALE_MS=12000;
 let lastStatusMs=0, brokerUp=false, laserOk=true, condOk=false, tempOk=false;
+let lastStart={set:false};
+let metaFired=false;
+try{metaFired=localStorage.getItem('pb-metafired')==='1';}catch(e){}
+
+// El progreso tiembla con el ruido del ToF. Disparar con el valor instantáneo
+// hacía sonar la alarma en un pico y otra vez al siguiente. Se exige que la
+// MEDIA de los últimos 15 s cruce el umbral: un pico suelto ya no basta.
+let mpBuf=[];
+function mpAverage(v){
+  const now=Date.now();
+  mpBuf.push({t:now,v});
+  while(mpBuf.length&&now-mpBuf[0].t>15000) mpBuf.shift();
+  if(mpBuf.length<5) return null;          // todavía no hay con qué decidir
+  return mpBuf.reduce((a,b)=>a+b.v,0)/mpBuf.length;
+}
 
 // Distance is shown raw (fast). The rise (ratio/%/cm) is averaged over a moving
 // window so it does not jump every second. Everything is re-derived from the
@@ -469,6 +485,7 @@ function newDough(){
   }).catch(()=>{});
   sessionStart=now; history=[]; renderHistory();
   if(pctAlarm.pct){pctAlarm.fired=false; savePct();}   // que pueda volver a sonar
+  metaFired=false; mpBuf=[]; try{localStorage.setItem('pb-metafired','0');}catch(e){}
   showToast('🆕 New dough — starting from zero');
   // One baseline point once the ESP32 has recalibrated (~2s later).
   setTimeout(()=>{
@@ -1173,18 +1190,18 @@ function updateUI(d){
   document.getElementById('meta-ratio-now').textContent=d.metaStartSet?fmt(mrcS)+'×':'--×';
   document.getElementById('meta-ratio-goal').textContent=d.metaGoalSet?fmt(d.metaRatioGoal)+'×':'--×';
   document.getElementById('cm-grown').textContent=fmt(cmS)+'cm';
-  if(mp>=100&&lastMeta<100&&d.metaGoalSet){
-    showToast('🎉 The dough hit the target! '+fmt(mrcS)+'×',10000);
-    if('vibrate'in navigator)navigator.vibrate([300,100,300,100,300]);
-  }
-  // Alarma por porcentaje. Se rearma sola si la masa vuelve a bajar del umbral,
-  // con 3 puntos de histéresis para que el ruido de la medida no la dispare dos veces.
-  if(pctAlarm.pct){
-    if(mp>=pctAlarm.pct&&!pctAlarm.fired){
+  lastStart.set=d.metaStartSet===true;
+  const avg=mpAverage(mp);
+  if(avg!=null){
+    // Las dos alarmas suenan UNA vez. Solo se rearman al volver a armarlas, al
+    // marcar un inicio nuevo, al resetear la meta o al empezar otra masa.
+    if(pctAlarm.pct&&!pctAlarm.fired&&avg>=pctAlarm.pct){
       pctAlarm.fired=true; savePct();
       fireAlarm(`🎯 The dough reached ${pctAlarm.pct}%`);
-    }else if(mp<pctAlarm.pct-3&&pctAlarm.fired){
-      pctAlarm.fired=false; savePct();
+    }
+    if(d.metaGoalSet&&!metaFired&&avg>=100){
+      metaFired=true; try{localStorage.setItem('pb-metafired','1');}catch(e){}
+      fireAlarm('🎉 The dough hit the target! '+fmt(mrcS)+'×');
     }
   }
   lastMeta=mp;
@@ -1214,6 +1231,9 @@ function updateUI(d){
     ?`${fmt(d.cond25!=null?d.cond25:d.cond,1)} µS · ${fmt(d.condKohm,1)} kΩ`
       +(d.tempOk?' · at 25\u00b0':'')+(condBaseSet?'':' · no base marked')
     :'no reading';
+
+  const ub=document.getElementById('btn-undo');
+  if(ub){ ub.disabled=d.canUndo!==true; ub.style.opacity=d.canUndo===true?'1':'.4'; }
 
   lastStatusMs=Date.now();
   laserOk=d.laserOk!==false;
@@ -1275,7 +1295,10 @@ function sendCmd(payload){
     mqttClient.publish(TOPIC_CMD,JSON.stringify({...payload,secret:CMD_SECRET}));
 }
 function markStart(){
+  // Pisa el cero de la masa en curso, así que no puede dispararse por un roce.
+  if(lastStart.set && !confirm('Mark the start again?\n\nThe dough already has a start marked and the current progress will be replaced. You can undo this afterwards.'))return;
   const g=parseFloat(document.getElementById('input-grams').value)||0;
+  metaFired=false; mpBuf=[]; try{localStorage.setItem('pb-metafired','0');}catch(e){}
   sendCmd({cmd:'metaSetStart',grams:g});
   document.getElementById('start-status').textContent='⏳ Marking...';
 }
@@ -1290,7 +1313,15 @@ function setGoalCm(){
   if(!cm||cm<=0){document.getElementById('goal-status').textContent='⚠️ Enter the cm';return;}
   sendCmd({cmd:'metaSetGoalCm',cm});document.getElementById('goal-status').textContent='⏳ Applying...';
 }
-function resetMeta(){if(confirm('Reset start and target?'))sendCmd({cmd:'metaReset'});}
+// Un paso atrás, reversible: el firmware intercambia el estado actual con la
+// foto anterior, así que volver a pulsarlo rehace.
+function undoLast(){ sendCmd({cmd:'undo'}); showToast('↶ Undone — press again to redo'); }
+function resetMeta(){
+  if(!confirm('Reset start and target?'))return;
+  metaFired=false; mpBuf=[]; try{localStorage.setItem('pb-metafired','0');}catch(e){}
+  if(pctAlarm.pct){pctAlarm.fired=false; savePct();}
+  sendCmd({cmd:'metaReset'});
+}
 function setOffset(){
   const o=parseFloat(document.getElementById('input-offset').value);
   if(isNaN(o)){return;}

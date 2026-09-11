@@ -1,5 +1,5 @@
 // ============================================================
-//  ProofBox — Módulo VOLUMEN v1.3
+//  ProofBox — Módulo VOLUMEN v1.4
 //  VL53L0X (volumen) + conductividad de 2 electrodos + WiFi + MQTT
 //  Modo Ratio × y Modo Meta (dedo / ratio / cm)
 //
@@ -51,6 +51,18 @@ WiFiClient   espClient;
 PubSubClient mqtt(espClient);
 Preferences  prefs;
 VL53L0X      laser;
+// Declarada aquí arriba a propósito: el IDE de Arduino genera los prototipos de
+// las funciones antes del cuerpo del sketch, y si el struct estuviera más abajo
+// esos prototipos lo usarían sin conocerlo y no compila.
+struct Session {
+  float ratioInit; bool ratioCal;
+  float mStart, mGoal, mGoalR, mGrams;
+  bool  mStartSet, mGoalSet, mNotified;
+  float condBase;
+};
+Session undoBuf;
+bool    hasUndo = false;
+
 OneWire        oneWire(PIN_TEMP);
 DallasTemperature ds18(&oneWire);
 
@@ -276,6 +288,58 @@ void loadSession() {
   metaNotified  = prefs.getBool ("mNotified", false);
 }
 
+// ─── DESHACER ──────────────────────────────────────────────────
+// Antes de cada cambio se guarda una foto de la sesión. "undo" las intercambia,
+// así que volver a pulsarlo rehace: es un solo paso atrás, pero reversible, que
+// es lo que hace falta cuando se aprieta un botón sin querer.
+void captureSession(Session &x) {
+  x.ratioInit = ratioInitDist; x.ratioCal = ratioCal;
+  x.mStart = metaStartDist;    x.mGoal   = metaGoalDist;
+  x.mGoalR = metaRatioGoal;    x.mGrams  = metaGrams;
+  x.mStartSet = metaStartSet;  x.mGoalSet = metaGoalSet;
+  x.mNotified = metaNotified;  x.condBase = condBaseUS;
+}
+void restoreSession(const Session &x) {
+  ratioInitDist = x.ratioInit; ratioCal = x.ratioCal;
+  metaStartDist = x.mStart;    metaGoalDist = x.mGoal;
+  metaRatioGoal = x.mGoalR;    metaGrams = x.mGrams;
+  metaStartSet  = x.mStartSet; metaGoalSet = x.mGoalSet;
+  metaNotified  = x.mNotified; condBaseUS = x.condBase;
+  metaProgress = 0; metaRatioCurr = 1.0;
+}
+void persistUndo() {
+  prefs.putBool ("hasUndo",   hasUndo);
+  prefs.putFloat("u_ratioIni", undoBuf.ratioInit);
+  prefs.putBool ("u_ratioCal", undoBuf.ratioCal);
+  prefs.putFloat("u_mStart",   undoBuf.mStart);
+  prefs.putFloat("u_mGoal",    undoBuf.mGoal);
+  prefs.putFloat("u_mGoalR",   undoBuf.mGoalR);
+  prefs.putFloat("u_mGrams",   undoBuf.mGrams);
+  prefs.putBool ("u_mStartSet",undoBuf.mStartSet);
+  prefs.putBool ("u_mGoalSet", undoBuf.mGoalSet);
+  prefs.putBool ("u_mNotif",   undoBuf.mNotified);
+  prefs.putFloat("u_condBase", undoBuf.condBase);
+}
+void loadUndo() {
+  hasUndo            = prefs.getBool ("hasUndo",   false);
+  undoBuf.ratioInit  = prefs.getFloat("u_ratioIni", 0.0);
+  undoBuf.ratioCal   = prefs.getBool ("u_ratioCal", false);
+  undoBuf.mStart     = prefs.getFloat("u_mStart",   0.0);
+  undoBuf.mGoal      = prefs.getFloat("u_mGoal",    0.0);
+  undoBuf.mGoalR     = prefs.getFloat("u_mGoalR",   0.0);
+  undoBuf.mGrams     = prefs.getFloat("u_mGrams",   0.0);
+  undoBuf.mStartSet  = prefs.getBool ("u_mStartSet",false);
+  undoBuf.mGoalSet   = prefs.getBool ("u_mGoalSet", false);
+  undoBuf.mNotified  = prefs.getBool ("u_mNotif",   false);
+  undoBuf.condBase   = prefs.getFloat("u_condBase", 0.0);
+}
+// Se llama ANTES de tocar nada.
+void markUndoPoint() {
+  captureSession(undoBuf);
+  hasUndo = true;
+  persistUndo();
+}
+
 // ─── NOTIFICACIÓN META ─────────────────────────────────────────
 void checkMetaNotification() {
   if (metaStartSet && metaGoalSet && metaProgress >= 100.0 && !metaNotified) {
@@ -289,7 +353,9 @@ void checkMetaNotification() {
     char buf[128]; serializeJson(notif, buf);
     mqtt.publish(TOPIC_NOTIFY, buf, false);
   }
-  if (metaProgress < 95.0) metaNotified = false;
+  // Antes se rearmaba al bajar del 95%. Con el temblor del ToF eso significaba
+  // volver a sonar cada pocos minutos una vez alcanzada la meta. Ahora solo se
+  // rearma al empezar otra masa o al resetear la meta, que es explícito.
 }
 
 // ─── MQTT PUBLICAR ──────────────────────────────────────────────
@@ -315,6 +381,7 @@ void publishStatus() {
   doc["cond25"]         = round(condUS25 * 10) / 10.0;    // µS normalizados a 25 °C
   doc["tempOk"]         = tempOk;
   doc["tempC"]          = round(tempC * 10) / 10.0;
+  doc["canUndo"]        = hasUndo;
   doc["condBaseSet"]    = condBaseUS > 0;
   char buf[512]; serializeJson(doc, buf);
   mqtt.publish(TOPIC_STATUS, buf, true);
@@ -331,12 +398,14 @@ void onMqttMessage(char* topic, byte* payload, unsigned int length) {
   Serial.printf("📩 %s\n", cmd.c_str());
 
   if (cmd == "calibrate") {
+    markUndoPoint();
     if (distanceMM > 5) {
       ratioInitDist = distanceMM; riseRatio = 1.0; ratioCal = true;
       Serial.printf("✅ Ratio cal: %.1fmm\n", ratioInitDist);
     }
   }
   else if (cmd == "metaSetStart") {
+    markUndoPoint();
     if (distanceMM > 5) {
       metaStartDist = distanceMM; metaGrams = doc["grams"]|0.0;
       metaProgress = 0; metaRatioCurr = 1.0; metaStartSet = true;
@@ -353,6 +422,7 @@ void onMqttMessage(char* topic, byte* payload, unsigned int length) {
     }
   }
   else if (cmd == "metaSetGoalFinger") {
+    markUndoPoint();
     if (distanceMM > 5 && metaStartSet && distanceMM < metaStartDist) {
       metaGoalDist = distanceMM; metaRatioGoal = metaStartDist / metaGoalDist;
       metaGoalSet = true; metaNotified = false;
@@ -360,6 +430,7 @@ void onMqttMessage(char* topic, byte* payload, unsigned int length) {
     }
   }
   else if (cmd == "metaSetGoalRatio") {
+    markUndoPoint();
     float r = doc["ratio"]|0.0;
     if (r > 1.0 && r <= 10.0 && metaStartSet) {
       metaRatioGoal = r; metaGoalDist = metaStartDist / r;
@@ -368,6 +439,7 @@ void onMqttMessage(char* topic, byte* payload, unsigned int length) {
     }
   }
   else if (cmd == "metaSetGoalCm") {
+    markUndoPoint();
     float cm = doc["cm"]|0.0;
     if (cm > 0 && metaStartSet) {
       metaGoalDist = max(5.0f, metaStartDist - (cm * 10.0f));
@@ -377,11 +449,13 @@ void onMqttMessage(char* topic, byte* payload, unsigned int length) {
     }
   }
   else if (cmd == "metaReset") {
+    markUndoPoint();
     metaStartSet = false; metaGoalSet = false; metaProgress = 0;
     metaRatioCurr = 1.0; metaRatioGoal = 0; metaGrams = 0; metaNotified = false;
     Serial.println("↺ Meta reset");
   }
   else if (cmd == "condBase") {
+    markUndoPoint();
     if (condOk && condUS25 > 0) {
       condBaseUS = condUS25; condRel = 100.0;
       prefs.putFloat("condBase", condBaseUS);
@@ -391,9 +465,23 @@ void onMqttMessage(char* topic, byte* payload, unsigned int length) {
     }
   }
   else if (cmd == "condReset") {
+    markUndoPoint();
     condBaseUS = 0; condRel = 0;
     prefs.remove("condBase");
     Serial.println("↺ Base conductividad borrada");
+  }
+  else if (cmd == "undo") {
+    if (hasUndo) {
+      // Intercambio, no restauración a secas: el estado actual pasa a ser el
+      // punto de deshacer, así que pulsar otra vez rehace.
+      Session cur; captureSession(cur);
+      restoreSession(undoBuf);
+      undoBuf = cur;
+      persistUndo();
+      Serial.println("↶ Deshecho");
+    } else {
+      Serial.println("↶ Nada que deshacer");
+    }
   }
   else if (cmd == "setOffset") {
     float o = doc["offset"]|sensorOffset;
@@ -448,8 +536,9 @@ void setup() {
   sensorOffset = prefs.getFloat("offset", 49.0);
   condBaseUS   = prefs.getFloat("condBase", 0.0);
   loadSession();
+  loadUndo();
 
-  Serial.println("\n📏 ProofBox Volumen v1.3");
+  Serial.println("\n📏 ProofBox Volumen v1.4");
 
   // Conductividad: los pines de excitación arrancan en alta impedancia para no
   // meter continua en el líquido antes de la primera medida.
