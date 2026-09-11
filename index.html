@@ -130,7 +130,7 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
 <div class="app">
   <div class="header">
     <div class="logo">Proof<span>Box</span> Vol</div>
-    <div class="status-row">
+    <div class="status-row" onclick="forceReconnect()" style="cursor:pointer" title="Tap to reconnect">
       <div class="dot" id="dot"></div>
       <span id="status-txt" style="color:var(--red)">Connecting...</span>
     </div>
@@ -1248,6 +1248,11 @@ function refreshHealth(){
     txt.style.color='var(--green)';
   }
 
+  // Si el cliente se cree conectado pero hace 25 s que no llega un dato, el
+  // socket está muerto aunque no lo sepa. Se fuerza la reconexión en vez de
+  // esperar a que el usuario refresque la página.
+  if(brokerUp&&lastStatusMs&&age>25000) forceReconnect();
+
   const frozen=!brokerUp||stale;
   // Atenuar TODO lo que hay en el stack, sin listar ids a mano. La lista fija se
   // quedó apuntando a una tarjeta que dejó de existir, refreshHealth petaba cada
@@ -1293,7 +1298,10 @@ function setOffset(){
 }
 function connect(){
   const cid='pbvol-app-'+Math.random().toString(16).substr(2,8);
-  mqttClient=mqtt.connect(BROKER_URL,{clientId:cid,clean:true,reconnectPeriod:3000});
+  // keepalive corto a propósito: con el valor por defecto (60 s) un socket muerto
+  // tarda hasta minuto y medio en detectarse, y ese es justo el rato de "no
+  // signal" que había que aguantar antes de que reaccionara solo.
+  mqttClient=mqtt.connect(BROKER_URL,{clientId:cid,clean:true,reconnectPeriod:3000,keepalive:20,resubscribe:true});
   mqttClient.on('connect',()=>{brokerUp=true;mqttClient.subscribe(TOPIC_STATUS);mqttClient.subscribe(TOPIC_NOTIFY);refreshHealth();});
   mqttClient.on('message',(t,msg)=>{
     if(t===TOPIC_NOTIFY){
@@ -1306,6 +1314,22 @@ function connect(){
   });
   // MQTT.js emits close/offline/error when the broker drops; 'disconnect' only exists in MQTT 5.
   ['close','offline','error'].forEach(ev=>mqttClient.on(ev,()=>{brokerUp=false;refreshHealth();}));
+}
+
+// Reconexión forzada. mqtt.js a veces se queda con un socket zombi: cree estar
+// conectado y no llega nada. Pasa sobre todo al volver de segundo plano, cuando
+// el navegador congeló la conexión y nadie avisó al cliente.
+let lastReconnectTry=0;
+function forceReconnect(){
+  if(Date.now()-lastReconnectTry<8000) return;   // no machacar al broker
+  lastReconnectTry=Date.now();
+  brokerUp=false; refreshHealth();
+  // Se tira el cliente y se crea uno nuevo. El reconnect() de mqtt.js sobre un
+  // socket zombi cierra pero no vuelve a levantar: probado, se queda Offline
+  // para siempre. Un cliente nuevo, con su clientId nuevo, entra a la primera.
+  try{ if(mqttClient) mqttClient.end(true); }catch(e){}
+  mqttClient=null;
+  connect();
 }
 applyOrder();
 initSort();
@@ -1330,6 +1354,9 @@ setInterval(fetchHistory,60000);
 // que se registra un punto ya y se refresca, en vez de esperar al próximo tick.
 document.addEventListener('visibilitychange',()=>{
   if(document.visibilityState!=='visible')return;
+  // El navegador congela los sockets en segundo plano. Al volver, si no hay
+  // datos frescos no esperamos: se reconecta ya.
+  if(!brokerUp||(lastStatusMs&&Date.now()-lastStatusMs>STALE_MS)) forceReconnect();
   fetchHistory();
   const sec=parseInt(document.getElementById('interval-sel').value);
   if(sec<60&&brokerUp){
