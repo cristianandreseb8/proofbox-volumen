@@ -77,8 +77,11 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
 .chart-full-head b{flex:1;font-size:12px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;font-weight:500}
 .chart-full-head button{background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Mono',monospace;font-size:15px;padding:6px 12px;cursor:pointer}
 .chart-full-box{flex:1;min-height:0}
-.expand-btn{position:absolute;top:6px;right:34px;padding:6px 8px;background:transparent;border:none;color:var(--muted);font-size:14px;cursor:pointer;opacity:.55}
-.expand-btn:active{opacity:1;color:var(--amber-l)}
+.series-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.series-chip{display:flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:11px;cursor:pointer;user-select:none}
+.series-chip input{width:15px;height:15px;margin:0;flex:none}
+.series-dot{width:9px;height:9px;border-radius:50%;flex:none}
+.series-legend{display:flex;flex-wrap:wrap;gap:12px;font-size:10px;color:var(--muted);margin-top:6px}
 .alarm-banner{position:fixed;top:0;left:0;right:0;background:var(--red);color:#fff;padding:14px 16px;z-index:1000;display:none;align-items:center;gap:12px;box-shadow:0 4px 20px rgba(0,0,0,.5)}
 .alarm-banner.show{display:flex}
 .alarm-banner b{flex:1;font-size:14px}
@@ -112,7 +115,9 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
     </select>
     <button onclick="closeChartFull()">✕</button>
   </div>
+  <div class="series-row" id="series-row-full"></div>
   <div class="chart-full-box" id="chart-full-box"></div>
+  <div class="series-legend" id="legend-full"></div>
 </div>
 <div class="alarm-banner" id="alarm-banner">
   <b id="alarm-msg">⏰</b>
@@ -251,7 +256,6 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
 
   <div class="card sortable" id="panel-history">
     <div class="drag-handle" title="Drag to reorder">⠿</div>
-    <button class="expand-btn" onclick="openChartFull()" title="Full screen">⛶</button>
     <div class="card-label">Cloud history · growth × over elapsed time</div>
     <div class="log-row">
       <div>Elapsed: <b id="log-elapsed">--</b></div>
@@ -261,6 +265,7 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
     <div class="log-btns" style="margin-top:10px">
       <button class="mark-btn" onclick="fetchHistory()" style="flex:1">↻ Refresh</button>
       <button class="mark-btn" onclick="downloadCsv()" style="flex:1">⬇ CSV</button>
+      <button class="mark-btn" onclick="openChartFull()" style="flex:1">⛶ Full</button>
     </div>
     <button class="cal-btn" onclick="newChart()">📊 Start a new chart from now</button>
     <div class="interval-row">
@@ -336,6 +341,8 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
         <option value="1800">Very strong · 30 min</option>
       </select>
     </div>
+    <div style="font-size:11px;color:var(--muted);margin:12px 0 8px">Lines to draw</div>
+    <div class="series-row" id="series-row-set"></div>
     <div style="font-size:10px;color:var(--muted);margin-top:8px;line-height:1.4">Only changes how the curve is drawn. The readings in the cloud and the CSV are always the raw ones, so you can change your mind later. With smoothing on, the raw trace stays visible faintly underneath.</div>
   </div>
 
@@ -505,6 +512,36 @@ function chartT0(){
 }
 // Ventana en segundos. Se elige por tiempo y no por número de puntos para que
 // el resultado sea el mismo registrando cada 5 s o cada 5 min.
+// Cada serie tiene su propia unidad, así que cada una se escala contra su
+// propio mínimo y máximo. Compartir eje sería mentir: 30 °C y 1.2× no viven en
+// la misma escala. Lo que importa es la FORMA de las curvas, una contra otra.
+const SERIES=[
+  {key:'rise',     label:'Growth',       color:'#f0a832', unit:'×', dec:2},
+  {key:'temp_c',   label:'Temperature',  color:'#4aa3d8', unit:'°', dec:1},
+  {key:'cond_rel', label:'Conductivity', color:'#3fae6a', unit:'%', dec:0}
+];
+let seriesOn={rise:true,temp_c:false,cond_rel:false};
+function loadSeries(){
+  try{const v=JSON.parse(localStorage.getItem('pb-series')||'null'); if(v)seriesOn={...seriesOn,...v};}catch(e){}
+  buildSeriesRows();
+}
+function toggleSeries(key,on){
+  seriesOn[key]=on;
+  if(!SERIES.some(s=>seriesOn[s.key])) seriesOn.rise=true;   // nunca dejar el gráfico vacío
+  try{localStorage.setItem('pb-series',JSON.stringify(seriesOn));}catch(e){}
+  buildSeriesRows(); drawChart(history); if(fullOpen()) drawChartFull();
+}
+function buildSeriesRows(){
+  const html=SERIES.map(s=>
+    `<label class="series-chip"><input type="checkbox" data-s="${s.key}" ${seriesOn[s.key]?'checked':''}>`
+    +`<span class="series-dot" style="background:${s.color}"></span>${s.label}</label>`).join('');
+  ['series-row-full','series-row-set'].forEach(id=>{
+    const box=document.getElementById(id); if(!box)return;
+    box.innerHTML=html;
+    box.querySelectorAll('input').forEach(cb=>
+      cb.addEventListener('change',()=>toggleSeries(cb.dataset.s,cb.checked)));
+  });
+}
 function smoothSecs(){
   const v=parseInt(localStorage.getItem('pb-smooth'));
   return isNaN(v)?300:v;
@@ -523,12 +560,15 @@ function setSmooth(v){
 function smoothSeries(xs,ys,winMs){
   if(!winMs) return ys;
   const out=new Array(ys.length);
-  let a=0,b=0,sum=0;
+  const val=i=>{const v=ys[i]; return (v==null||!isFinite(v))?null:+v;};
+  let a=0,b=0,sum=0,cnt=0;
   for(let i=0;i<ys.length;i++){
     const lo=xs[i]-winMs/2, hi=xs[i]+winMs/2;
-    while(b<ys.length&&xs[b]<=hi){sum+=ys[b];b++;}
-    while(a<ys.length&&xs[a]<lo){sum-=ys[a];a++;}
-    out[i]=sum/Math.max(1,b-a);
+    while(b<ys.length&&xs[b]<=hi){const v=val(b); if(v!=null){sum+=v;cnt++;} b++;}
+    while(a<ys.length&&xs[a]<lo){const v=val(a); if(v!=null){sum-=v;cnt--;} a++;}
+    // Un hueco sigue siendo un hueco: no se rellena con la media de al lado, o
+    // el gráfico inventaría temperatura donde la sonda no estaba conectada.
+    out[i] = val(i)==null ? null : (cnt?sum/cnt:null);
   }
   return out;
 }
@@ -543,6 +583,7 @@ function drawChart(rows,boxId,W,H){
   const t0=chartT0()||new Date(rows[0].logged_at).getTime();
   const xs=rows.map(r=>new Date(r.logged_at).getTime()-t0);
   const raw=rows.map(r=>r.rise==null?1:r.rise);
+  const active=SERIES.filter(sr=>seriesOn[sr.key]);
   const win=smoothSecs()*1000;
   const ys=smoothSeries(xs,raw,win);
   // La escala la fija el dato CRUDO: así la curva suavizada no se sale del
@@ -554,7 +595,31 @@ function drawChart(rows,boxId,W,H){
   const line=path(ys);
   const area=`M${sx(x0).toFixed(1)} ${H-p} `+ys.map((v,i)=>'L'+sx(xs[i]).toFixed(1)+' '+sy(v).toFixed(1)).join(' ')+` L${sx(x1).toFixed(1)} ${H-p} Z`;
   // Con suavizado, el crudo queda de fondo: se ve qué se ha limpiado y cuánto.
-  const ghost=win?`<path d="${path(raw)}" fill="none" stroke="var(--amber-l)" stroke-width="1" opacity=".22"/>`:'';
+  const ghost=(win&&seriesOn.rise)?`<path d="${path(raw)}" fill="none" stroke="var(--amber-l)" stroke-width="1" opacity=".22"/>`:'';
+
+  // Las demás series: cada una normalizada entre su propio mín y máx, y con el
+  // trazo cortado donde falta el dato (sensor caído) en vez de inventar una recta.
+  const legend=[];
+  let extra='';
+  for(const sr of active){
+    if(sr.key==='rise'){ legend.push(sr); continue; }
+    const vals=smoothSeries(xs,rows.map(r=>r[sr.key]==null?null:+r[sr.key]),win);
+    const ok=vals.filter(v=>v!=null&&isFinite(v));
+    if(ok.length<2){ sr._none=true; legend.push(sr); continue; }
+    let mn=Math.min(...ok), mx=Math.max(...ok);
+    if(mx-mn<1e-9){mn-=.5;mx+=.5;}
+    const yv=v=>H-p-((v-mn)/(mx-mn))*(H-2*p);
+    let d='',pen=false;
+    for(let i=0;i<vals.length;i++){
+      const v=vals[i];
+      if(v==null||!isFinite(v)){pen=false;continue;}
+      d+=(pen?'L':'M')+sx(xs[i]).toFixed(1)+' '+yv(v).toFixed(1)+' ';
+      pen=true;
+    }
+    extra+=`<path d="${d}" fill="none" stroke="${sr.color}" stroke-width="${W>500?1.6:1.2}" stroke-linejoin="round"/>`;
+    sr._min=mn; sr._max=mx; sr._none=false;
+    legend.push(sr);
+  }
   // Rejilla y etiquetas solo en grande. En la tarjeta pequeña no caben y sobran.
   let grid='';
   if(W>500){
@@ -571,20 +636,31 @@ function drawChart(rows,boxId,W,H){
   }
   box.innerHTML=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:${W>500?'100%':H+'px'};display:block" preserveAspectRatio="none">
     ${grid}
-    <path d="${area}" fill="rgba(212,130,14,.12)"/>
+    ${seriesOn.rise?`<path d="${area}" fill="rgba(212,130,14,.12)"/>`:''}
     ${ghost}
-    <path d="${line}" fill="none" stroke="var(--amber-l)" stroke-width="1.5" stroke-linejoin="round"/>
+    ${seriesOn.rise?`<path d="${line}" fill="none" stroke="var(--amber-l)" stroke-width="1.5" stroke-linejoin="round"/>`:''}
+    ${extra}
   </svg>`+(W>500?'':`
   <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--muted);margin-top:2px">
     <span>0min</span>
     <span style="color:var(--amber)">max ${Math.max(...raw).toFixed(2)}× · ${fmtElapsed(x1/2)} mid</span>
     <span>${fmtElapsed(x1)}</span>
   </div>`);
+  if(boxId==='chart-full-box') renderLegend(legend);
 }
 // Capa propia en vez del Fullscreen API a secas: en iPhone ese API solo existe
 // para vídeo, así que en el móvil no haría nada. El nativo se pide además,
 // donde exista, para ganar también la barra del navegador.
 function fullOpen(){return document.getElementById('chart-full').classList.contains('show');}
+function renderLegend(active){
+  const box=document.getElementById('legend-full'); if(!box)return;
+  box.innerHTML=active.map(sr=>{
+    const rng = sr.key==='rise' ? 'left axis'
+      : sr._none ? 'no data yet'
+      : `${sr._min.toFixed(sr.dec)}–${sr._max.toFixed(sr.dec)}${sr.unit}`;
+    return `<span><span class="series-dot" style="background:${sr.color};display:inline-block;margin-right:5px"></span>${sr.label} · ${rng}</span>`;
+  }).join('');
+}
 function drawChartFull(){
   const box=document.getElementById('chart-full-box');
   drawChart(history,'chart-full-box',
@@ -625,8 +701,9 @@ async function downloadCsv(){
     }
   }catch(e){ showToast('Could not download the CSV'); return; }
   if(!all.length){showToast('No saved data yet');return;}
-  const head='date,ratio,progress_%,grown_cm,distance_mm,grams';
-  const rows=all.map(r=>[r.logged_at,r.rise,r.meta_progress,r.cm_grown,r.dist_mm,r.grams].join(','));
+  const head='date,ratio,progress_%,grown_cm,distance_mm,grams,temp_c,cond_uS,cond_%';
+  const rows=all.map(r=>[r.logged_at,r.rise,r.meta_progress,r.cm_grown,r.dist_mm,r.grams,
+                         r.temp_c??'',r.cond_us??'',r.cond_rel??''].join(','));
   const blob=new Blob([head+'\n'+rows.join('\n')],{type:'text/csv'});
   const url=URL.createObjectURL(blob), link=document.createElement('a');
   link.href=url; link.download='proofbox-'+new Date().toISOString().slice(0,16).replace(/[:T]/g,'-')+'.csv';
@@ -1155,6 +1232,7 @@ document.getElementById('alarm-dur').value=String(alarmSecs());
 let startMode='meta';
 try{startMode=localStorage.getItem('pb-mode')||'meta';}catch(e){}
 setDMode(startMode==='settings'?'meta':startMode);   // nunca abrir en Ajustes
+loadSeries();
 loadAlarms();
 connect();
 refreshHealth();
