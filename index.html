@@ -515,10 +515,15 @@ function chartT0(){
 // Cada serie tiene su propia unidad, así que cada una se escala contra su
 // propio mínimo y máximo. Compartir eje sería mentir: 30 °C y 1.2× no viven en
 // la misma escala. Lo que importa es la FORMA de las curvas, una contra otra.
+// minSpan = ventana mínima del eje. Sin esto, autoescalar a los datos convierte
+// una temperatura estable en una cordillera: 4 grados de deriva estirados a toda
+// la altura parecen un pico enorme cuando en realidad la cámara está quieta.
+// Con una ventana mínima de 10 °C, estable se DIBUJA estable, y un salto de
+// verdad sigue viéndose.
 const SERIES=[
-  {key:'rise',     label:'Growth',       color:'#f0a832', unit:'×', dec:2},
-  {key:'temp_c',   label:'Temperature',  color:'#4aa3d8', unit:'°', dec:1},
-  {key:'cond_rel', label:'Conductivity', color:'#3fae6a', unit:'%', dec:0}
+  {key:'rise',     label:'Growth',       color:'#f0a832', unit:'×', dec:2, minSpan:0},
+  {key:'temp_c',   label:'Temperature',  color:'#4aa3d8', unit:'°', dec:1, minSpan:10},
+  {key:'cond_rel', label:'Conductivity', color:'#3fae6a', unit:'%', dec:0, minSpan:40}
 ];
 let seriesOn={rise:true,temp_c:false,cond_rel:false};
 function loadSeries(){
@@ -607,7 +612,11 @@ function drawChart(rows,boxId,W,H){
     const ok=vals.filter(v=>v!=null&&isFinite(v));
     if(ok.length<2){ sr._none=true; legend.push(sr); continue; }
     let mn=Math.min(...ok), mx=Math.max(...ok);
-    if(mx-mn<1e-9){mn-=.5;mx+=.5;}
+    sr._dataMin=mn; sr._dataMax=mx;
+    // Ensanchar hasta la ventana mínima, centrada en los datos.
+    const span=Math.max(mx-mn, sr.minSpan||0.5);
+    const mid=(mn+mx)/2;
+    mn=mid-span/2; mx=mid+span/2;
     const yv=v=>H-p-((v-mn)/(mx-mn))*(H-2*p);
     let d='',pen=false;
     for(let i=0;i<vals.length;i++){
@@ -657,7 +666,7 @@ function renderLegend(active){
   box.innerHTML=active.map(sr=>{
     const rng = sr.key==='rise' ? 'left axis'
       : sr._none ? 'no data yet'
-      : `${sr._min.toFixed(sr.dec)}–${sr._max.toFixed(sr.dec)}${sr.unit}`;
+      : `${sr._dataMin.toFixed(sr.dec)}–${sr._dataMax.toFixed(sr.dec)}${sr.unit}`;
     return `<span><span class="series-dot" style="background:${sr.color};display:inline-block;margin-right:5px"></span>${sr.label} · ${rng}</span>`;
   }).join('');
 }
