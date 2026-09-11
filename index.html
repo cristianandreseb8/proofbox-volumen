@@ -302,6 +302,21 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
   </div>
 
   <div class="card">
+    <div class="card-label">Chart</div>
+    <div class="input-row">
+      <span style="font-size:11px;color:var(--muted);flex:1">Smoothing</span>
+      <select class="num-input" id="smooth-sel" onchange="setSmooth(this.value)" style="flex:none;width:140px;padding:8px 10px">
+        <option value="0">Raw — every point</option>
+        <option value="120">Light · 2 min</option>
+        <option value="300">Medium · 5 min</option>
+        <option value="900">Strong · 15 min</option>
+        <option value="1800">Very strong · 30 min</option>
+      </select>
+    </div>
+    <div style="font-size:10px;color:var(--muted);margin-top:8px;line-height:1.4">Only changes how the curve is drawn. The readings in the cloud and the CSV are always the raw ones, so you can change your mind later. With smoothing on, the raw trace stays visible faintly underneath.</div>
+  </div>
+
+  <div class="card">
     <div class="card-label">Show on screen</div>
     <div id="vis-list"></div>
   </div>
@@ -464,6 +479,32 @@ function chartT0(){
   if(sessionStart) return new Date(sessionStart).getTime();
   return history.length?new Date(history[0].logged_at).getTime():null;
 }
+// Ventana en segundos. Se elige por tiempo y no por número de puntos para que
+// el resultado sea el mismo registrando cada 5 s o cada 5 min.
+function smoothSecs(){
+  const v=parseInt(localStorage.getItem('pb-smooth'));
+  return isNaN(v)?300:v;
+}
+function setSmooth(v){
+  try{localStorage.setItem('pb-smooth',String(parseInt(v)));}catch(e){}
+  drawChart(history);
+  showToast(parseInt(v)?`Curve smoothed over ${parseInt(v)/60} min`:'Curve shown raw');
+}
+// Media móvil centrada. Dos punteros sobre un array ya ordenado: cada punto
+// entra y sale de la suma una sola vez, así que no se arrastra aunque haya
+// miles de lecturas.
+function smoothSeries(xs,ys,winMs){
+  if(!winMs) return ys;
+  const out=new Array(ys.length);
+  let a=0,b=0,sum=0;
+  for(let i=0;i<ys.length;i++){
+    const lo=xs[i]-winMs/2, hi=xs[i]+winMs/2;
+    while(b<ys.length&&xs[b]<=hi){sum+=ys[b];b++;}
+    while(a<ys.length&&xs[a]<lo){sum-=ys[a];a++;}
+    out[i]=sum/Math.max(1,b-a);
+  }
+  return out;
+}
 function drawChart(rows){
   const box=document.getElementById('log-chart');
   if(!rows.length){box.innerHTML='<div style="color:var(--muted);font-size:11px;text-align:center;padding:24px 0">No saved data yet.<br>The first point arrives in a few minutes.</div>';return;}
@@ -472,19 +513,27 @@ function drawChart(rows){
   // reloj: así dos fermentaciones distintas se pueden comparar superpuestas.
   const t0=chartT0()||new Date(rows[0].logged_at).getTime();
   const xs=rows.map(r=>new Date(r.logged_at).getTime()-t0);
-  const ys=rows.map(r=>r.rise==null?1:r.rise);
-  const x0=0,x1=Math.max(...xs,60000),y0=Math.min(...ys,1),y1=Math.max(...ys,1.1);
+  const raw=rows.map(r=>r.rise==null?1:r.rise);
+  const win=smoothSecs()*1000;
+  const ys=smoothSeries(xs,raw,win);
+  // La escala la fija el dato CRUDO: así la curva suavizada no se sale del
+  // marco y el pico de verdad sigue siendo el techo del gráfico.
+  const x0=0,x1=Math.max(...xs,60000),y0=Math.min(...raw,1),y1=Math.max(...raw,1.1);
   const sx=t=>p+(x1===x0?0:(t-x0)/(x1-x0))*(W-2*p);
   const sy=v=>H-p-(y1===y0?0:(v-y0)/(y1-y0))*(H-2*p);
-  const line=rows.map((r,i)=>(i?'L':'M')+sx(xs[i]).toFixed(1)+' '+sy(ys[i]).toFixed(1)).join(' ');
-  const area=`M${sx(x0).toFixed(1)} ${H-p} `+rows.map((r,i)=>'L'+sx(xs[i]).toFixed(1)+' '+sy(ys[i]).toFixed(1)).join(' ')+` L${sx(x1).toFixed(1)} ${H-p} Z`;
+  const path=arr=>arr.map((v,i)=>(i?'L':'M')+sx(xs[i]).toFixed(1)+' '+sy(v).toFixed(1)).join(' ');
+  const line=path(ys);
+  const area=`M${sx(x0).toFixed(1)} ${H-p} `+ys.map((v,i)=>'L'+sx(xs[i]).toFixed(1)+' '+sy(v).toFixed(1)).join(' ')+` L${sx(x1).toFixed(1)} ${H-p} Z`;
+  // Con suavizado, el crudo queda de fondo: se ve qué se ha limpiado y cuánto.
+  const ghost=win?`<path d="${path(raw)}" fill="none" stroke="var(--amber-l)" stroke-width="1" opacity=".22"/>`:'';
   box.innerHTML=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:${H}px;display:block">
     <path d="${area}" fill="rgba(212,130,14,.12)"/>
+    ${ghost}
     <path d="${line}" fill="none" stroke="var(--amber-l)" stroke-width="1.5" stroke-linejoin="round"/>
   </svg>
   <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--muted);margin-top:2px">
     <span>0min</span>
-    <span style="color:var(--amber)">max ${Math.max(...ys).toFixed(2)}× · ${fmtElapsed(x1/2)} mid</span>
+    <span style="color:var(--amber)">max ${Math.max(...raw).toFixed(2)}× · ${fmtElapsed(x1/2)} mid</span>
     <span>${fmtElapsed(x1)}</span>
   </div>`;
 }
@@ -1031,6 +1080,7 @@ initSort();
 buildVisList();
 initAlarmSound();
 showStorage();
+document.getElementById('smooth-sel').value=String(smoothSecs());
 document.getElementById('alarm-dur').value=String(alarmSecs());
 let startMode='meta';
 try{startMode=localStorage.getItem('pb-mode')||'meta';}catch(e){}
