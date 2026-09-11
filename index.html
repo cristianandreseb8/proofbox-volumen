@@ -71,6 +71,14 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
 .sensor-val{font-size:13px;font-weight:500;color:var(--text);margin-bottom:2px}
 .sensor-lbl{font-size:9px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase}
 .reset-btn{width:100%;padding:8px;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--muted);font-family:'DM Mono',monospace;font-size:11px;cursor:pointer;margin-top:8px}
+.chart-full{position:fixed;inset:0;background:var(--bg);z-index:900;display:none;flex-direction:column;padding:10px 12px 14px}
+.chart-full.show{display:flex}
+.chart-full-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.chart-full-head b{flex:1;font-size:12px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;font-weight:500}
+.chart-full-head button{background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Mono',monospace;font-size:15px;padding:6px 12px;cursor:pointer}
+.chart-full-box{flex:1;min-height:0}
+.expand-btn{position:absolute;top:6px;right:34px;padding:6px 8px;background:transparent;border:none;color:var(--muted);font-size:14px;cursor:pointer;opacity:.55}
+.expand-btn:active{opacity:1;color:var(--amber-l)}
 .alarm-banner{position:fixed;top:0;left:0;right:0;background:var(--red);color:#fff;padding:14px 16px;z-index:1000;display:none;align-items:center;gap:12px;box-shadow:0 4px 20px rgba(0,0,0,.5)}
 .alarm-banner.show{display:flex}
 .alarm-banner b{flex:1;font-size:14px}
@@ -92,6 +100,20 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
 </head>
 <body>
 <div class="toast" id="toast"></div>
+<div class="chart-full" id="chart-full">
+  <div class="chart-full-head">
+    <b>Growth × over elapsed time</b>
+    <select class="num-input" id="smooth-sel-full" onchange="setSmooth(this.value)" style="width:150px;padding:6px 8px;font-size:12px">
+      <option value="0">Raw</option>
+      <option value="120">Light · 2 min</option>
+      <option value="300">Medium · 5 min</option>
+      <option value="900">Strong · 15 min</option>
+      <option value="1800">Very strong · 30 min</option>
+    </select>
+    <button onclick="closeChartFull()">✕</button>
+  </div>
+  <div class="chart-full-box" id="chart-full-box"></div>
+</div>
 <div class="alarm-banner" id="alarm-banner">
   <b id="alarm-msg">⏰</b>
   <button onclick="stopAlarm()">⏹ Stop</button>
@@ -229,6 +251,7 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
 
   <div class="card sortable" id="panel-history">
     <div class="drag-handle" title="Drag to reorder">⠿</div>
+    <button class="expand-btn" onclick="openChartFull()" title="Full screen">⛶</button>
     <div class="card-label">Cloud history · growth × over elapsed time</div>
     <div class="log-row">
       <div>Elapsed: <b id="log-elapsed">--</b></div>
@@ -472,6 +495,7 @@ function renderHistory(){
   document.getElementById('log-elapsed').textContent=
     (n&&t0)?fmtElapsed(new Date(history[n-1].logged_at).getTime()-t0):'--';
   drawChart(history);
+  if(fullOpen()) drawChartFull();
 }
 // Cero del eje de tiempos: el momento en que se empezó este gráfico. Si no hay
 // sesión marcada, cae al primer punto registrado.
@@ -487,7 +511,10 @@ function smoothSecs(){
 }
 function setSmooth(v){
   try{localStorage.setItem('pb-smooth',String(parseInt(v)));}catch(e){}
+  const a=document.getElementById('smooth-sel'), b=document.getElementById('smooth-sel-full');
+  if(a)a.value=String(parseInt(v)); if(b)b.value=String(parseInt(v));
   drawChart(history);
+  if(fullOpen()) drawChartFull();
   showToast(parseInt(v)?`Curve smoothed over ${parseInt(v)/60} min`:'Curve shown raw');
 }
 // Media móvil centrada. Dos punteros sobre un array ya ordenado: cada punto
@@ -505,10 +532,12 @@ function smoothSeries(xs,ys,winMs){
   }
   return out;
 }
-function drawChart(rows){
-  const box=document.getElementById('log-chart');
+function drawChart(rows,boxId,W,H){
+  boxId=boxId||'log-chart'; W=W||340; H=H||90;
+  const box=document.getElementById(boxId);
+  if(!box)return;
   if(!rows.length){box.innerHTML='<div style="color:var(--muted);font-size:11px;text-align:center;padding:24px 0">No saved data yet.<br>The first point arrives in a few minutes.</div>';return;}
-  const W=340,H=90,p=6;
+  const p=W>500?34:6;   // en grande hace falta margen para las etiquetas
   // El eje X es TIEMPO TRANSCURRIDO desde que arrancó el gráfico, no hora del
   // reloj: así dos fermentaciones distintas se pueden comparar superpuestas.
   const t0=chartT0()||new Date(rows[0].logged_at).getTime();
@@ -526,17 +555,58 @@ function drawChart(rows){
   const area=`M${sx(x0).toFixed(1)} ${H-p} `+ys.map((v,i)=>'L'+sx(xs[i]).toFixed(1)+' '+sy(v).toFixed(1)).join(' ')+` L${sx(x1).toFixed(1)} ${H-p} Z`;
   // Con suavizado, el crudo queda de fondo: se ve qué se ha limpiado y cuánto.
   const ghost=win?`<path d="${path(raw)}" fill="none" stroke="var(--amber-l)" stroke-width="1" opacity=".22"/>`:'';
-  box.innerHTML=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:${H}px;display:block">
+  // Rejilla y etiquetas solo en grande. En la tarjeta pequeña no caben y sobran.
+  let grid='';
+  if(W>500){
+    for(let i=0;i<=4;i++){
+      const v=y0+(y1-y0)*i/4, yy=sy(v);
+      grid+=`<line x1="${p}" y1="${yy.toFixed(1)}" x2="${W-p}" y2="${yy.toFixed(1)}" stroke="var(--border)" stroke-width="1"/>`
+          +`<text x="${p-6}" y="${(yy+3).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--muted)">${v.toFixed(2)}×</text>`;
+    }
+    for(let i=0;i<=4;i++){
+      const t=x1*i/4, xx=sx(t);
+      grid+=`<line x1="${xx.toFixed(1)}" y1="${p}" x2="${xx.toFixed(1)}" y2="${H-p}" stroke="var(--border)" stroke-width="1" opacity=".6"/>`
+          +`<text x="${xx.toFixed(1)}" y="${H-p+16}" text-anchor="middle" font-size="10" fill="var(--muted)">${fmtElapsed(t)}</text>`;
+    }
+  }
+  box.innerHTML=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:${W>500?'100%':H+'px'};display:block" preserveAspectRatio="none">
+    ${grid}
     <path d="${area}" fill="rgba(212,130,14,.12)"/>
     ${ghost}
     <path d="${line}" fill="none" stroke="var(--amber-l)" stroke-width="1.5" stroke-linejoin="round"/>
-  </svg>
+  </svg>`+(W>500?'':`
   <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--muted);margin-top:2px">
     <span>0min</span>
     <span style="color:var(--amber)">max ${Math.max(...raw).toFixed(2)}× · ${fmtElapsed(x1/2)} mid</span>
     <span>${fmtElapsed(x1)}</span>
-  </div>`;
+  </div>`);
 }
+// Capa propia en vez del Fullscreen API a secas: en iPhone ese API solo existe
+// para vídeo, así que en el móvil no haría nada. El nativo se pide además,
+// donde exista, para ganar también la barra del navegador.
+function fullOpen(){return document.getElementById('chart-full').classList.contains('show');}
+function drawChartFull(){
+  const box=document.getElementById('chart-full-box');
+  drawChart(history,'chart-full-box',
+            Math.max(600,Math.round(box.clientWidth)),
+            Math.max(240,Math.round(box.clientHeight)));
+}
+function openChartFull(){
+  const ov=document.getElementById('chart-full');
+  document.getElementById('smooth-sel-full').value=String(smoothSecs());
+  ov.classList.add('show');
+  drawChartFull();
+  if(ov.requestFullscreen) ov.requestFullscreen().catch(()=>{});
+}
+function closeChartFull(){
+  document.getElementById('chart-full').classList.remove('show');
+  if(document.fullscreenElement&&document.exitFullscreen) document.exitFullscreen().catch(()=>{});
+}
+// Girar el móvil a horizontal es la mejor manera de mirar una curva de tiempo,
+// así que hay que redibujar cuando cambia el tamaño.
+addEventListener('resize',()=>{ if(fullOpen()) drawChartFull(); });
+addEventListener('keydown',e=>{ if(e.key==='Escape') closeChartFull(); });
+
 async function downloadCsv(){
   showToast('Preparing CSV...');
   // The server returns at most 1000 rows per query: paginate until the whole
