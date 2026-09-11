@@ -297,7 +297,8 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
       <button class="mark-btn" onclick="testAlarm()" style="flex:1">▶ Test</button>
     </div>
     <button class="reset-btn" onclick="clearAlarmFile()">↺ Back to the default beep</button>
-    <div style="font-size:10px;color:var(--muted);margin-top:8px;line-height:1.4">The file stays on this device. It is never uploaded anywhere and it is not shared with your other phones.</div>
+    <div style="font-size:10px;color:var(--muted);margin-top:8px;line-height:1.4">Any size the browser has room for — a long track is fine. The file stays on this device: it is never uploaded anywhere and it does not follow you to another phone.</div>
+    <div id="storage-note" style="font-size:10px;color:var(--muted);margin-top:4px"></div>
   </div>
 
   <div class="card">
@@ -744,24 +745,55 @@ async function initAlarmSound(){
     if(rec&&rec.blob){
       if(alarmAudio&&alarmAudio.src)URL.revokeObjectURL(alarmAudio.src);
       alarmAudio=new Audio(URL.createObjectURL(rec.blob));
-      alarmAudio.loop=true; alarmName=rec.name;
+      alarmAudio.loop=true;
+      alarmName=rec.size?`${rec.name} · ${(rec.size/MB).toFixed(1)} MB`:rec.name;
     }else{ alarmAudio=null; alarmName=null; }
   }catch(e){ alarmAudio=null; alarmName=null; }
   document.getElementById('alarm-sound-name').textContent=alarmName||'default beep';
 }
+const MB=1048576;
+// Sin tope inventado: se le pregunta al navegador cuánto sitio hay de verdad.
+// IndexedDB da normalmente cientos de MB o más, según el disco libre.
+async function storageInfo(){
+  try{
+    if(!navigator.storage||!navigator.storage.estimate)return null;
+    const {quota=0,usage=0}=await navigator.storage.estimate();
+    return {quota,usage,free:Math.max(0,quota-usage)};
+  }catch(e){return null;}
+}
+async function showStorage(){
+  const el=document.getElementById('storage-note'); if(!el)return;
+  const st=await storageInfo();
+  el.textContent = st&&st.quota
+    ? `About ${(st.free/MB).toFixed(0)} MB free for this app on this device.`
+    : 'This browser does not report how much room it has.';
+}
 async function loadAlarmFile(input){
   const f=input.files&&input.files[0]; if(!f)return;
-  if(f.size>20*1024*1024){showToast('That file is too big — keep it under 20 MB');input.value='';return;}
+  const mb=(f.size/MB).toFixed(1);
+  const st=await storageInfo();
+  if(st&&st.quota&&f.size>st.free*0.9){
+    showToast(`That file is ${mb} MB and only ${(st.free/MB).toFixed(0)} MB are free here`,9000);
+    input.value=''; return;
+  }
+  showToast(`Saving ${mb} MB…`,30000);
   try{
-    await idbDo('readwrite',st=>st.put({name:f.name,blob:f},'alarm'));
-    await initAlarmSound(); unlockAudio();
-    showToast('🎵 Alarm sound saved: '+f.name);
-  }catch(e){ showToast('Could not save that file'); }
+    // Pide almacenamiento persistente: sin esto el navegador puede tirar el
+    // fichero cuando ande justo de disco, y te quedarías sin alarma sin avisar.
+    if(navigator.storage&&navigator.storage.persist){ try{await navigator.storage.persist();}catch(e){} }
+    await idbDo('readwrite',st2=>st2.put({name:f.name,size:f.size,blob:f},'alarm'));
+    await initAlarmSound(); unlockAudio(); showStorage();
+    showToast(`🎵 Alarm sound saved: ${f.name} · ${mb} MB`);
+  }catch(e){
+    showToast(e&&e.name==='QuotaExceededError'
+      ? `No room left for ${mb} MB — free some space or use a smaller file`
+      : 'Could not save that file',9000);
+  }
   input.value='';
 }
 async function clearAlarmFile(){
   try{ await idbDo('readwrite',st=>st.delete('alarm')); }catch(e){}
-  await initAlarmSound();
+  await initAlarmSound(); showStorage();
   showToast('Back to the default beep');
 }
 
@@ -998,6 +1030,7 @@ applyOrder();
 initSort();
 buildVisList();
 initAlarmSound();
+showStorage();
 document.getElementById('alarm-dur').value=String(alarmSecs());
 let startMode='meta';
 try{startMode=localStorage.getItem('pb-mode')||'meta';}catch(e){}
