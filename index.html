@@ -42,7 +42,16 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
   background:var(--bg);color:var(--muted);font-family:'DM Mono',monospace;font-size:12px;cursor:pointer;white-space:nowrap}
 .sheet.active{background:var(--surface);color:var(--amber-l);border-color:var(--amber-d)}
 .sheet.tidy{border-radius:8px;border-bottom:1px solid var(--border);margin-bottom:5px;display:none}
-body{padding-top:45px}
+/* Dos filas: arriba las sesiones (cada elaboración es una hoja), debajo las
+   vistas dentro de la sesión abierta. */
+.sess-bar{top:0;background:#070605;padding-bottom:0}
+.sess-bar .sheet{font-size:11px;padding:6px 11px}
+.sess-bar .sheet.active{background:#0a0908;color:var(--text);border-color:var(--border)}
+.view-bar{top:35px}
+.sheet.add{color:var(--amber);padding:6px 10px}
+.sheet .x{margin-left:7px;opacity:.45}
+.sheet .x:hover{opacity:1;color:var(--red)}
+body{padding-top:80px}
 
 /* Escritorio: el tablero libre. En móvil no se activa nada de esto y la vista
    sigue siendo exactamente la columna de ahora. */
@@ -210,7 +219,8 @@ body{padding-top:45px}
   <b id="alarm-msg">⏰</b>
   <button onclick="stopAlarm()">⏹ Stop</button>
 </div>
-<div class="sheet-bar">
+<div class="sheet-bar sess-bar" id="sess-bar"></div>
+<div class="sheet-bar view-bar">
     <button class="sheet active" id="mode-meta" onclick="setDMode('meta')">🎯 Target</button>
     <button class="sheet" id="mode-ratio" onclick="setDMode('ratio')">📈 Rise ×</button>
     <button class="sheet" id="mode-chart" onclick="setDMode('chart')">📊 Chart</button>
@@ -362,7 +372,7 @@ body{padding-top:45px}
     </div>
     <div class="input-row" style="margin-top:10px">
       <input class="num-input" type="text" id="sess-name" placeholder="Panettone" style="flex:1;font-size:12px">
-      <button class="mark-btn" onclick="newSession()">New</button>
+      <button class="mark-btn" onclick="renameSession()">Rename</button>
     </div>
     <div id="sess-stages" style="font-size:11px"></div>
     <div class="input-row" style="margin-top:10px">
@@ -1906,23 +1916,72 @@ Return clean semantic HTML for the report body: h1, h2, p, ul, table. No CSS, no
 // funciona hacia atrás sobre lo que ya está registrado.
 const STAGE_PRESETS=['Lievito out of the fridge','1st refresh','2nd refresh','3rd refresh',
                      'Primo impasto','Secondo impasto','Final proof','Bake'];
-let sess=null;
+// Cada elaboración es una hoja. Varias pueden estar abiertas a la vez — una
+// masa madre de mantenimiento y un panettone de tres días no se pisan.
+let sessions=[], activeSess=null, sess=null;
 function loadSess(){
-  try{sess=JSON.parse(localStorage.getItem('pb-session')||'null');}catch(e){sess=null;}
+  try{sessions=JSON.parse(localStorage.getItem('pb-sessions')||'[]')||[];}catch(e){sessions=[];}
+  // Migración de la versión de una sola sesión: no se pierde la que hubiera.
+  if(!sessions.length){
+    let old=null; try{old=JSON.parse(localStorage.getItem('pb-session')||'null');}catch(e){}
+    if(old){ old.id=old.startedAt||Date.now(); sessions=[old]; saveSessions(); }
+  }
+  try{activeSess=+localStorage.getItem('pb-active-sess')||null;}catch(e){}
+  if(!sessions.find(s=>s.id===activeSess)) activeSess=sessions.length?sessions[0].id:null;
+  sess=sessions.find(s=>s.id===activeSess)||null;
   const pres=document.getElementById('stage-presets');
   if(pres) pres.innerHTML=STAGE_PRESETS.map(n=>
     `<button class="gtab" style="flex:none;padding:5px 8px;font-size:10px" onclick="addStage('${n.replace(/'/g,"\\'")}')">${n}</button>`).join('');
-  renderSess();
+  renderSessBar(); renderSess();
 }
-function saveSess(){ try{localStorage.setItem('pb-session',JSON.stringify(sess));}catch(e){} }
-function newSession(){
-  const n=document.getElementById('sess-name').value.trim()||'Session';
-  if(sess&&!confirm(`Start a new session?\n\n"${sess.name}" and its ${sess.stages.length} stages stay in the reports you have already written, but the live tracking starts over.`))return;
-  sess={name:n,startedAt:Date.now(),stages:[],pauses:[]};
+function saveSessions(){
+  try{
+    localStorage.setItem('pb-sessions',JSON.stringify(sessions));
+    if(activeSess) localStorage.setItem('pb-active-sess',String(activeSess));
+  }catch(e){}
+}
+function saveSess(){ saveSessions(); }
+function renderSessBar(){
+  const bar=document.getElementById('sess-bar'); if(!bar)return;
+  bar.innerHTML=sessions.map(s=>
+    `<button class="sheet${s.id===activeSess?' active':''}" onclick="pickSession(${s.id})">${s.name}`+
+    `<span class="x" onclick="event.stopPropagation();closeSession(${s.id})">✕</span></button>`).join('')+
+    `<button class="sheet add" onclick="newSession()" title="New session">＋</button>`;
+}
+function pickSession(id){
+  if(id===activeSess) return;
+  activeSess=id; sess=sessions.find(s=>s.id===id)||null;
   stagePick='all';
-  saveSess(); renderSess(); renderHistory();
+  saveSessions(); renderSessBar(); renderSess();
+  const rn=document.getElementById('rep-name');
+  if(rn){ rn.value=''; rn.placeholder=sess?sess.name:'Panettone · primo impasto'; }
+  renderReports();
+  fetchHistory();               // cada sesión trae su propio tramo de lecturas
+}
+function newSession(){
+  const n=(prompt('Name for the new session','Panettone')||'').trim();
+  if(!n) return;
+  const s={id:Date.now(),name:n,startedAt:Date.now(),stages:[],pauses:[]};
+  sessions.push(s); activeSess=s.id; sess=s; stagePick='all';
+  saveSessions(); renderSessBar(); renderSess(); renderReports(); fetchHistory();
+  const rn=document.getElementById('rep-name'); if(rn){ rn.value=''; rn.placeholder=n; }
+  showToast('▶ Session: '+n);
+}
+function closeSession(id){
+  const s=sessions.find(x=>x.id===id); if(!s)return;
+  if(!confirm(`Close the sheet "${s.name}"?\n\nIts stages and photos go with it. Reports already written stay.`))return;
+  sessions=sessions.filter(x=>x.id!==id);
+  if(activeSess===id){ activeSess=sessions.length?sessions[0].id:null;
+                       sess=sessions.find(x=>x.id===activeSess)||null; stagePick='all'; }
+  saveSessions(); renderSessBar(); renderSess(); renderReports(); fetchHistory();
+}
+function renameSession(){
+  if(!sess)return;
+  const n=(document.getElementById('sess-name').value||'').trim();
+  if(!n)return;
+  sess.name=n; saveSessions(); renderSessBar(); renderSess();
   const rn=document.getElementById('rep-name'); if(rn&&!rn.value.trim()) rn.placeholder=n;
-  showToast('▶ Session started: '+n);
+  showToast('Renamed');
 }
 function addStage(preset){
   if(!sess){showToast('Start a session first');return;}
@@ -1970,7 +2029,7 @@ function renderSess(){
   const clock=document.getElementById('sess-clock');
   const btn=document.getElementById('btn-pause');
   if(!sess){
-    box.innerHTML='<div style="color:var(--muted);padding:8px 0">No session. Name it and press New.</div>';
+    box.innerHTML='<div style="color:var(--muted);padding:8px 0">No session open. Use ＋ in the top bar.</div>';
     clock.textContent='--'; btn.textContent='⏸ Pause session'; return;
   }
   document.getElementById('sess-name').value=sess.name;
@@ -2066,9 +2125,12 @@ async function deleteReport(id){
 }
 function renderReports(){
   const box=document.getElementById('rep-list'); if(!box)return;
-  if(!reports.length){ box.innerHTML=''; return; }
+  // Solo los de esta hoja. Los de otras sesiones siguen guardados, pero
+  // mezclarlos aquí convertiría la lista en un cajón de sastre.
+  const mine=reports.filter(r=>!r.sess||r.sess===activeSess);
+  if(!mine.length){ box.innerHTML=''; return; }
   box.innerHTML='<div style="font-size:10px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;margin:14px 0 4px">Saved</div>'+
-    reports.slice().reverse().map(r=>`
+    mine.slice().reverse().map(r=>`
       <div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);font-size:11px">
         <span style="color:var(--muted);min-width:64px">${new Date(r.id).toLocaleDateString('en-GB',{day:'2-digit',month:'short'})}</span>
         <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.title}</span>
@@ -2121,7 +2183,7 @@ async function openReport(data,bodyHtml,photos){
     drawChart(rowsIn(sess?{from:sess.startedAt,to:Date.now()}:null),'report-chart',900,300);
     chart=document.getElementById('report-chart').innerHTML;
   }
-  saveReport({id:Date.now(),title:data.dough,meta,html:bodyHtml,chart});
+  saveReport({id:Date.now(),sess:activeSess,title:data.dough,meta,html:bodyHtml,chart});
   showReportView(data.dough,meta,bodyHtml,chart);
 }
 function showReportView(title,meta,bodyHtml,chart){
