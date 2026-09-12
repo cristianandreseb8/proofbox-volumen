@@ -32,9 +32,30 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
 .card.dragging{opacity:.6;border-color:var(--amber);box-shadow:0 6px 24px rgba(0,0,0,.5)}
 #stack.sorting .card{transition:transform .12s ease}
 .card-label{font-size:10px;letter-spacing:.12em;color:var(--muted);text-transform:uppercase;margin-bottom:10px}
-.mode-toggle{display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:4px;margin-bottom:12px}
-.mode-btn{padding:8px;border:none;border-radius:7px;background:transparent;color:var(--muted);font-family:'DM Mono',monospace;font-size:12px;cursor:pointer}
-.mode-btn.active{background:var(--surface);color:var(--amber-l);border:1px solid var(--amber-d)}
+/* Barra de hojas, fija arriba. Es lo que permite que el gráfico grande y el
+   informe dejen de ser ventanas modales: siempre hay una forma visible de ir a
+   otra hoja sin cerrar la actual. */
+.sheet-bar{position:fixed;top:0;left:0;right:0;z-index:1100;display:flex;gap:3px;align-items:flex-end;
+  padding:6px 8px 0;background:#0a0908;border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:none}
+.sheet-bar::-webkit-scrollbar{display:none}
+.sheet{padding:8px 13px;border:1px solid var(--border);border-bottom:none;border-radius:8px 8px 0 0;
+  background:var(--bg);color:var(--muted);font-family:'DM Mono',monospace;font-size:12px;cursor:pointer;white-space:nowrap}
+.sheet.active{background:var(--surface);color:var(--amber-l);border-color:var(--amber-d)}
+.sheet.tidy{border-radius:8px;border-bottom:1px solid var(--border);margin-bottom:5px;display:none}
+body{padding-top:45px}
+
+/* Escritorio: el tablero libre. En móvil no se activa nada de esto y la vista
+   sigue siendo exactamente la columna de ahora. */
+@media (min-width:900px){
+  .app{max-width:none;padding:16px 22px 80px}
+  #stack.free{position:relative}
+  #stack.free>.card,#stack.free>div[id^="panel-"]{position:absolute;margin:0;overflow:auto}
+  #stack.free>.card .drag-handle{cursor:grab;opacity:.5}
+  .resize-grip{position:absolute;right:0;bottom:0;width:18px;height:18px;cursor:nwse-resize;
+    background:linear-gradient(135deg,transparent 50%,var(--border) 50%,var(--border) 70%,transparent 70%);display:none}
+  #stack.free>.card>.resize-grip{display:block}
+  .card.floating{z-index:50;box-shadow:0 10px 34px rgba(0,0,0,.55);border-color:var(--amber-d)}
+}
 .track{height:10px;background:var(--bg);border-radius:5px;overflow:hidden;border:1px solid var(--border)}
 .fill{height:100%;border-radius:5px;background:linear-gradient(90deg,var(--amber-d),var(--amber-l));transition:width .8s ease}
 .fill.done{background:linear-gradient(90deg,#1a6b3a,var(--green))}
@@ -75,7 +96,7 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
    provisionales — cámbialos por los del libro cuando los tengamos. El gráfico
    se redibuja dentro y hereda estas variables, por eso sale en tinta y no en
    ámbar sobre negro. */
-.report-view{position:fixed;inset:0;background:#f2efe9;z-index:950;display:none;overflow:auto;
+.report-view{position:fixed;top:45px;left:0;right:0;bottom:0;background:#f2efe9;z-index:950;display:none;overflow:auto;
   --ink:#1d1a16; --accent:#8c3b1e; --rule:#d8d0c4; --soft:#6b6459;
   --amber-l:#8c3b1e; --amber:#8c3b1e; --amber-d:#c9a98f; --border:#d8d0c4; --muted:#6b6459; --text:#1d1a16}
 .report-view.show{display:block}
@@ -116,7 +137,7 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
   .report-page h2{break-after:avoid}
   .report-chart,.report-page table{break-inside:avoid}
 }
-.chart-full{position:fixed;inset:0;background:var(--bg);z-index:900;display:none;flex-direction:column;padding:10px 12px 14px}
+.chart-full{position:fixed;top:45px;left:0;right:0;bottom:0;background:var(--bg);z-index:900;display:none;flex-direction:column;padding:10px 12px 14px}
 .chart-full.show{display:flex}
 .chart-full-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
 .chart-full-head b{flex:1;font-size:12px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;font-weight:500}
@@ -189,6 +210,16 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
   <b id="alarm-msg">⏰</b>
   <button onclick="stopAlarm()">⏹ Stop</button>
 </div>
+<div class="sheet-bar">
+    <button class="sheet active" id="mode-meta" onclick="setDMode('meta')">🎯 Target</button>
+    <button class="sheet" id="mode-ratio" onclick="setDMode('ratio')">📈 Rise ×</button>
+    <button class="sheet" id="mode-chart" onclick="setDMode('chart')">📊 Chart</button>
+    <button class="sheet" id="mode-report" onclick="setDMode('report')">📄 Report</button>
+    <button class="sheet" id="mode-settings" onclick="setDMode('settings')">⚙ Settings</button>
+    <span style="flex:1"></span>
+    <button class="sheet tidy" id="btn-tidy" onclick="tidyLayout()" title="Arrange the boxes">⌗ Tidy</button>
+</div>
+
 <div class="app">
   <div class="header">
     <div class="logo">Proof<span>Box</span> Vol</div>
@@ -196,11 +227,6 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
       <div class="dot" id="dot"></div>
       <span id="status-txt" style="color:var(--red)">Connecting...</span>
     </div>
-  </div>
-  <div class="mode-toggle">
-    <button class="mode-btn active" id="mode-meta" onclick="setDMode('meta')">🎯 Target</button>
-    <button class="mode-btn" id="mode-ratio" onclick="setDMode('ratio')">📈 Rise ×</button>
-    <button class="mode-btn" id="mode-settings" onclick="setDMode('settings')">⚙ Settings</button>
   </div>
 
   <button class="new-dough" id="btn-new-dough" onclick="newDough()">🆕 New dough · start from scratch</button>
@@ -952,20 +978,14 @@ function drawChartFull(){
   if(t) t.textContent=(w?w.name+' · ':'')+'growth × over elapsed time';
 }
 function openChartFull(){
-  const ov=document.getElementById('chart-full');
   document.getElementById('smooth-sel-full').value=String(smoothSecs());
-  ov.classList.add('show');
-  drawChartFull();
-  if(ov.requestFullscreen) ov.requestFullscreen().catch(()=>{});
+  setDMode('chart');
 }
-function closeChartFull(){
-  document.getElementById('chart-full').classList.remove('show');
-  if(document.fullscreenElement&&document.exitFullscreen) document.exitFullscreen().catch(()=>{});
-}
+function closeChartFull(){ setDMode(currentMode); }
 // Girar el móvil a horizontal es la mejor manera de mirar una curva de tiempo,
 // así que hay que redibujar cuando cambia el tamaño.
 addEventListener('resize',()=>{ if(fullOpen()) drawChartFull(); });
-addEventListener('keydown',e=>{ if(e.key==='Escape') closeChartFull(); });
+addEventListener('keydown',e=>{ if(e.key==='Escape'&&(fullOpen()||document.getElementById('report-view').classList.contains('show'))) setDMode(currentMode); });
 
 async function downloadCsv(){
   showToast('Preparing CSV...');
@@ -1017,6 +1037,87 @@ function resetOrder(){
   showToast('Layout restored — reopening');
   setTimeout(()=>location.reload(),700);
 }
+// ═══ TABLERO LIBRE (solo escritorio) ═════════════════════════════════════
+// En móvil no se activa nada de esto: la vista sigue siendo la columna de
+// siempre con su arrastre para reordenar. En pantalla ancha las cajas se
+// colocan y se redimensionan a mano, que es donde hay sitio para hacerlo.
+function isDesktop(){ return window.matchMedia('(min-width:900px)').matches; }
+const BOARD_KEY='pb-board';
+let board={};
+function loadBoard(){ try{board=JSON.parse(localStorage.getItem(BOARD_KEY)||'{}')||{};}catch(e){board={};} }
+function saveBoard(){ try{localStorage.setItem(BOARD_KEY,JSON.stringify(board));}catch(e){} }
+function applyBoard(){
+  const stack=document.getElementById('stack');
+  const free=isDesktop();
+  stack.classList.toggle('free',free);
+  // Aquí y no solo en setDMode: girar el móvil o ensanchar la ventana también
+  // cambia si el tablero está activo.
+  const tb=document.getElementById('btn-tidy');
+  if(tb) tb.style.display=(free&&stack.style.display!=='none')?'block':'none';
+  for(const el of stack.children){
+    if(!el.id) continue;
+    if(!free){ el.style.left=el.style.top=el.style.width=el.style.height=''; continue; }
+    if(!el.querySelector(':scope>.resize-grip')){
+      const g=document.createElement('div'); g.className='resize-grip'; el.appendChild(g);
+      g.addEventListener('pointerdown',e=>startResize(e,el));
+    }
+    const b=board[el.id];
+    if(b){ el.style.left=b.x+'px'; el.style.top=b.y+'px'; el.style.width=b.w+'px';
+           if(b.h) el.style.height=b.h+'px'; }
+  }
+  if(free&&!Object.keys(board).length) tidyLayout();
+  else fitStack();   // en móvil esto la devuelve a altura automática
+}
+// La pila es absoluta, así que no tiene altura propia: se la damos nosotros o
+// la página no se puede desplazar hasta la caja más baja.
+function fitStack(){
+  const stack=document.getElementById('stack');
+  if(!stack.classList.contains('free')){ stack.style.height=''; return; }
+  let low=0;
+  for(const el of stack.children) if(el.id&&el.style.display!=='none')
+    low=Math.max(low,el.offsetTop+el.offsetHeight);
+  stack.style.height=(low+40)+'px';
+}
+// Ordenar: columnas de ancho fijo, cada caja a la columna más corta. Da un
+// resultado compacto sin huecos grandes, que es lo que se espera de un botón
+// llamado "ordenar".
+function tidyLayout(){
+  const stack=document.getElementById('stack');
+  if(!isDesktop()) return;
+  const W=340, GAP=14;
+  const cols=Math.max(1,Math.floor((stack.clientWidth+GAP)/(W+GAP)));
+  const y=new Array(cols).fill(0);
+  for(const el of stack.children){
+    if(!el.id||el.style.display==='none') continue;
+    const c=y.indexOf(Math.min(...y));
+    el.style.left=(c*(W+GAP))+'px'; el.style.top=y[c]+'px';
+    el.style.width=W+'px'; el.style.height='';
+    board[el.id]={x:c*(W+GAP),y:y[c],w:W};
+    y[c]+=el.offsetHeight+GAP;
+  }
+  saveBoard(); fitStack();
+}
+function startResize(e,el){
+  e.preventDefault(); e.stopPropagation();
+  const x0=e.clientX, y0=e.clientY, w0=el.offsetWidth, h0=el.offsetHeight;
+  const grip=e.currentTarget;
+  try{grip.setPointerCapture(e.pointerId);}catch(err){}
+  const move=ev=>{
+    el.style.width =Math.max(240,w0+ev.clientX-x0)+'px';
+    el.style.height=Math.max(120,h0+ev.clientY-y0)+'px';
+  };
+  const end=()=>{
+    grip.removeEventListener('pointermove',move);
+    grip.removeEventListener('pointerup',end);
+    board[el.id]=Object.assign(board[el.id]||{},{w:el.offsetWidth,h:el.offsetHeight});
+    saveBoard(); fitStack();
+    if(el.id==='panel-history') renderHistory();
+  };
+  grip.addEventListener('pointermove',move);
+  grip.addEventListener('pointerup',end);
+}
+addEventListener('resize',()=>{ applyBoard(); });
+
 // Busca ante qué tarjeta hay que soltar, comparando el dedo con el CENTRO de
 // cada una. Antes se miraba si el dedo caía dentro de los bordes de la de al
 // lado, y como al reinsertar cambiaba la geometría bajo el dedo, el bloque
@@ -1037,8 +1138,28 @@ function initSort(){
     h.addEventListener('pointerdown',e=>{
       e.preventDefault();
       let el=h; while(el.parentElement!==stack) el=el.parentElement;
-      dragEl=el; dragEl.classList.add('dragging'); stack.classList.add('sorting');
       try{h.setPointerCapture(e.pointerId);}catch(err){}
+      // Escritorio: mover libre por el tablero. Móvil: reordenar la columna.
+      if(isDesktop()&&stack.classList.contains('free')){
+        const r=stack.getBoundingClientRect();
+        const ox=e.clientX-(el.offsetLeft+r.left), oy=e.clientY-(el.offsetTop+r.top);
+        el.classList.add('floating');
+        const move=ev=>{
+          const b=stack.getBoundingClientRect();
+          el.style.left=Math.max(0,ev.clientX-b.left-ox)+'px';
+          el.style.top =Math.max(0,ev.clientY-b.top -oy)+'px';
+        };
+        const stop=()=>{
+          h.removeEventListener('pointermove',move); h.removeEventListener('pointerup',stop);
+          el.classList.remove('floating');
+          board[el.id]=Object.assign(board[el.id]||{},
+            {x:el.offsetLeft,y:el.offsetTop,w:el.offsetWidth});
+          saveBoard(); fitStack();
+        };
+        h.addEventListener('pointermove',move); h.addEventListener('pointerup',stop);
+        return;
+      }
+      dragEl=el; dragEl.classList.add('dragging'); stack.classList.add('sorting');
     });
     h.addEventListener('pointermove',e=>{
       if(!dragEl)return;
@@ -1322,15 +1443,25 @@ function applyVisibility(){
     el.style.display=((!only||only===currentMode)&&!hiddenBlocks[el.id])?'block':'none';
   }
 }
+// Hojas, como las de una hoja de cálculo. Cambiar de hoja no destruye nada:
+// el gráfico grande y el informe dejan de ser ventanas que hay que cerrar y
+// pasan a ser sitios a los que se vuelve.
+const SHEETS=['meta','ratio','chart','report','settings'];
 function setDMode(mode){
-  const settings = mode==='settings';
-  if(!settings) currentMode=mode;
-  document.getElementById('stack').style.display        = settings?'none':'block';
-  document.getElementById('panel-settings').style.display = settings?'block':'none';
-  document.getElementById('btn-new-dough').style.display   = settings?'none':'block';
-  if(!settings) applyVisibility();
-  ['meta','ratio','settings'].forEach(m=>{
-    document.getElementById('mode-'+m).className='mode-btn'+(m===mode?' active':'');
+  if(!SHEETS.includes(mode)) mode='meta';
+  const isBoard = mode==='meta'||mode==='ratio';
+  if(isBoard) currentMode=mode;
+  document.getElementById('stack').style.display          = isBoard?'block':'none';
+  document.getElementById('panel-settings').style.display = mode==='settings'?'block':'none';
+  document.getElementById('btn-new-dough').style.display  = isBoard?'block':'none';
+  document.getElementById('chart-full').classList.toggle('show',mode==='chart');
+  document.getElementById('report-view').classList.toggle('show',mode==='report');
+  document.getElementById('btn-tidy').style.display = (isBoard&&isDesktop())?'block':'none';
+  if(isBoard){ applyVisibility(); applyBoard(); }
+  if(mode==='chart') drawChartFull();
+  SHEETS.forEach(m=>{
+    const b=document.getElementById('mode-'+m);
+    if(b) b.className='sheet'+(m===mode?' active':'');
   });
   try{localStorage.setItem('pb-mode',mode);}catch(e){}
 }
@@ -1997,9 +2128,9 @@ function showReportView(title,meta,bodyHtml,chart){
   document.getElementById('report-body').innerHTML=bodyHtml;
   document.getElementById('report-meta').textContent=meta;
   document.getElementById('report-chart').innerHTML=chart||'';
-  document.getElementById('report-view').classList.add('show');
+  setDMode('report');
 }
-function closeReport(){ document.getElementById('report-view').classList.remove('show'); }
+function closeReport(){ setDMode(currentMode); }
 
 function markStart(){
   // Pisa el cero de la masa en curso, así que no puede dispararse por un roce.
@@ -2084,6 +2215,7 @@ function forceReconnect(){
   mqttClient=null;
   connect();
 }
+loadBoard();
 applyOrder();
 initSort();
 buildVisList();
