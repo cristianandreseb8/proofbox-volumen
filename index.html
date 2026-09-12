@@ -47,11 +47,11 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
 .sess-bar{top:0;background:#070605;padding-bottom:0}
 .sess-bar .sheet{font-size:11px;padding:6px 11px}
 .sess-bar .sheet.active{background:#0a0908;color:var(--text);border-color:var(--border)}
-.view-bar{top:35px}
+.view-bar{top:var(--bar1,35px)}
 .sheet.add{color:var(--amber);padding:6px 10px}
 .sheet .x{margin-left:7px;opacity:.45}
 .sheet .x:hover{opacity:1;color:var(--red)}
-body{padding-top:80px}
+body{padding-top:var(--bars,80px)}
 
 /* El tablero libre. Se activa por la clase .free, no por una media query: el
    ancho de ventana es solo el valor por defecto y el botón ⊞ Board manda. Si
@@ -106,7 +106,7 @@ body.board .app{max-width:none;padding:16px 22px 80px}
    provisionales — cámbialos por los del libro cuando los tengamos. El gráfico
    se redibuja dentro y hereda estas variables, por eso sale en tinta y no en
    ámbar sobre negro. */
-.report-view{position:fixed;top:45px;left:0;right:0;bottom:0;background:#f2efe9;z-index:950;display:none;overflow:auto;
+.report-view{position:fixed;top:var(--bars,80px);left:0;right:0;bottom:0;background:#f2efe9;z-index:950;display:none;overflow:auto;
   --ink:#1d1a16; --accent:#8c3b1e; --rule:#d8d0c4; --soft:#6b6459;
   --amber-l:#8c3b1e; --amber:#8c3b1e; --amber-d:#c9a98f; --border:#d8d0c4; --muted:#6b6459; --text:#1d1a16}
 .report-view.show{display:block}
@@ -147,7 +147,7 @@ body.board .app{max-width:none;padding:16px 22px 80px}
   .report-page h2{break-after:avoid}
   .report-chart,.report-page table{break-inside:avoid}
 }
-.chart-full{position:fixed;top:45px;left:0;right:0;bottom:0;background:var(--bg);z-index:900;display:none;flex-direction:column;padding:10px 12px 14px}
+.chart-full{position:fixed;top:var(--bars,80px);left:0;right:0;bottom:0;background:var(--bg);z-index:900;display:none;flex-direction:column;padding:10px 12px 14px}
 .chart-full.show{display:flex}
 .chart-full-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
 .chart-full-head b{flex:1;font-size:12px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;font-weight:500}
@@ -161,14 +161,14 @@ body.board .app{max-width:none;padding:16px 22px 80px}
 .chart-readout b{font-size:14px}
 .chart-full-box{touch-action:none}
 .series-legend{display:flex;flex-wrap:wrap;gap:12px;font-size:10px;color:var(--muted);margin-top:6px}
-.alarm-banner{position:fixed;top:0;left:0;right:0;background:var(--red);color:#fff;padding:14px 16px;z-index:1000;display:none;align-items:center;gap:12px;box-shadow:0 4px 20px rgba(0,0,0,.5)}
+.alarm-banner{position:fixed;top:0;left:0;right:0;background:var(--red);color:#fff;padding:14px 16px;z-index:2000;display:none;align-items:center;gap:12px;box-shadow:0 4px 20px rgba(0,0,0,.5)}
 .alarm-banner.show{display:flex}
 .alarm-banner b{flex:1;font-size:14px}
 .alarm-banner button{background:#fff;color:var(--red);border:none;border-radius:8px;padding:10px 16px;font-family:'DM Mono',monospace;font-size:13px;font-weight:500;cursor:pointer;white-space:nowrap}
 .vis-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--border);font-size:12px}
 .vis-row:last-child{border-bottom:none}
 .vis-row input{width:18px;height:18px;accent-color:var(--amber);flex:none}
-.toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);background:var(--green);color:#fff;padding:14px 24px;border-radius:12px;font-size:14px;font-weight:500;z-index:999;display:none;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,.4);max-width:320px}
+.toast{position:fixed;top:calc(var(--bars,80px) + 12px);z-index:1200;left:50%;transform:translateX(-50%);background:var(--green);color:#fff;padding:14px 24px;border-radius:12px;font-size:14px;font-weight:500;display:none;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,.4);max-width:320px}
 .toast.show{display:block;animation:toastIn .3s ease}
 @keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(-10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
 .offset-row{display:flex;gap:8px;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}
@@ -1060,6 +1060,20 @@ function resetOrder(){
 // pista de por qué. Ahora hay un interruptor y el ancho es solo el valor por
 // defecto: 'auto' | 'on' | 'off'.
 function boardMode(){ try{return localStorage.getItem('pb-boardmode')||'auto';}catch(e){return 'auto';} }
+// Las barras son dos filas y su alto depende de la fuente, de cuántas sesiones
+// haya abiertas y de si se parten en dos líneas. Medirlo es la única forma de
+// que el informe, el gráfico y los avisos no queden debajo.
+function fitBars(){
+  const a=document.querySelector('.sess-bar'), b=document.querySelector('.view-bar');
+  if(!a||!b) return;
+  // El borde inferior real, no offsetHeight: con bordes y fracciones de píxel
+  // se quedaba un par de píxeles corto y el contenido asomaba por debajo.
+  const h1=Math.ceil(a.getBoundingClientRect().height);
+  document.documentElement.style.setProperty('--bar1',h1+'px');
+  document.documentElement.style.setProperty('--bars',Math.ceil(b.getBoundingClientRect().bottom)+'px');
+}
+addEventListener('resize',fitBars);
+
 function isDesktop(){
   const m=boardMode();
   if(m==='on')  return true;
@@ -2005,6 +2019,7 @@ function renderSessBar(){
     `<button class="sheet${s.id===activeSess?' active':''}" onclick="pickSession(${s.id})">${s.name}`+
     `<span class="x" onclick="event.stopPropagation();closeSession(${s.id})">✕</span></button>`).join('')+
     `<button class="sheet add" onclick="newSession()" title="New session">＋</button>`;
+  fitBars();
 }
 function pickSession(id){
   if(id===activeSess) return;
@@ -2335,6 +2350,7 @@ function forceReconnect(){
   mqttClient=null;
   connect();
 }
+fitBars();
 loadBoard();
 applyOrder();
 initSort();
