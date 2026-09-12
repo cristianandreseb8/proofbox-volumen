@@ -399,7 +399,10 @@ body.board .app{max-width:none;padding:16px 22px 80px}
       <button class="gtab" id="lang-es" onclick="setRepLang('es')">ES</button>
       <button class="gtab" id="lang-de" onclick="setRepLang('de')">DE</button>
     </div>
-    <div id="rep-opts" style="margin-bottom:10px"></div>
+    <details id="rep-opts-box" style="margin-bottom:10px">
+      <summary id="rep-opts-sum" style="font-size:11px;color:var(--amber);cursor:pointer;padding:6px 0">Sections</summary>
+      <div id="rep-opts"></div>
+    </details>
     <button class="cal-btn" onclick="makeReport()" id="btn-report">📄 Write the report</button>
     <div id="rep-state" style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.4"></div>
     <div id="rep-list"></div>
@@ -1800,9 +1803,20 @@ function loadRep(){
   box.querySelectorAll('input').forEach(cb=>cb.addEventListener('change',()=>{
     repSel[cb.dataset.k]=cb.checked;
     try{localStorage.setItem('pb-repopts',JSON.stringify(repSel));}catch(e){}
+    repSummary();
   }));
+  repSummary();
   setRepLang(repLang,true);
   showApiState();
+}
+// Plegado, el resumen tiene que decir qué hay dentro sin abrirlo: ocho casillas
+// escondidas detrás de la palabra "Sections" no se sabe si están marcadas.
+function repSummary(){
+  const el=document.getElementById('rep-opts-sum'); if(!el)return;
+  const on=REP_OPTS.filter(([k])=>repSel[k]);
+  el.textContent=on.length
+    ? `Sections · ${on.length} of ${REP_OPTS.length} — ${on.map(([,n])=>n).join(', ')}`
+    : 'Sections · none selected';
 }
 function setRepLang(l,quiet){
   repLang=l;
