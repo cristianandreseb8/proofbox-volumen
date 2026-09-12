@@ -53,20 +53,19 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
 .sheet .x:hover{opacity:1;color:var(--red)}
 body{padding-top:80px}
 
-/* Escritorio: el tablero libre. En móvil no se activa nada de esto y la vista
-   sigue siendo exactamente la columna de ahora. */
-@media (min-width:900px){
-  .app{max-width:none;padding:16px 22px 80px}
-  #stack.free{position:relative}
-  #stack.free>.card,#stack.free>div[id^="panel-"]{position:absolute;margin:0;overflow:auto}
-  #stack.free>.card .drag-handle{display:none}
-  #stack.free>.card{cursor:grab}
-  #stack.free>.card.floating{cursor:grabbing}
-  .resize-grip{position:absolute;right:0;bottom:0;width:18px;height:18px;cursor:nwse-resize;
-    background:linear-gradient(135deg,transparent 50%,var(--border) 50%,var(--border) 70%,transparent 70%);display:none}
-  #stack.free>.card>.resize-grip{display:block}
-  .card.floating{z-index:50;box-shadow:0 10px 34px rgba(0,0,0,.55);border-color:var(--amber-d)}
-}
+/* El tablero libre. Se activa por la clase .free, no por una media query: el
+   ancho de ventana es solo el valor por defecto y el botón ⊞ Board manda. Si
+   dependiera del @media, forzarlo en una ventana estrecha no haría nada. */
+body.board .app{max-width:none;padding:16px 22px 80px}
+#stack.free{position:relative}
+#stack.free>.card,#stack.free>div[id^="panel-"]{position:absolute;margin:0;overflow:auto}
+#stack.free>.card .drag-handle{display:none}
+#stack.free>.card{cursor:grab}
+#stack.free>.card.floating{cursor:grabbing}
+.resize-grip{position:absolute;right:0;bottom:0;width:18px;height:18px;cursor:nwse-resize;
+  background:linear-gradient(135deg,transparent 50%,var(--border) 50%,var(--border) 70%,transparent 70%);display:none}
+#stack.free>.card>.resize-grip{display:block}
+.card.floating{z-index:50;box-shadow:0 10px 34px rgba(0,0,0,.55);border-color:var(--amber-d)}
 .track{height:10px;background:var(--bg);border-radius:5px;overflow:hidden;border:1px solid var(--border)}
 .fill{height:100%;border-radius:5px;background:linear-gradient(90deg,var(--amber-d),var(--amber-l));transition:width .8s ease}
 .fill.done{background:linear-gradient(90deg,#1a6b3a,var(--green))}
@@ -175,7 +174,7 @@ body{padding-top:80px}
 .offset-row{display:flex;gap:8px;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}
 .log-row{display:flex;justify-content:space-between;align-items:center;font-size:12px;margin-bottom:10px}
 .log-btns{display:flex;gap:8px}
-.new-dough{width:100%;padding:12px;margin-bottom:12px;background:var(--surface);border:1px solid var(--amber-d);border-radius:10px;color:var(--amber-l);font-family:'DM Mono',monospace;font-size:13px;cursor:pointer}
+.new-dough{padding:5px 10px;background:transparent;border:1px solid var(--amber-d);border-radius:7px;color:var(--amber-l);font-family:'DM Mono',monospace;font-size:11px;cursor:pointer;white-space:nowrap}
 .new-dough:active{background:var(--amber-d);color:var(--text)}
 .interval-row{display:flex;gap:8px;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}
 #interval-sel{color:var(--text);font-family:'DM Mono',monospace;font-size:13px;outline:none}
@@ -229,19 +228,22 @@ body{padding-top:80px}
     <button class="sheet" id="mode-report" onclick="setDMode('report')">📄 Report</button>
     <button class="sheet" id="mode-settings" onclick="setDMode('settings')">⚙ Settings</button>
     <span style="flex:1"></span>
-    <button class="sheet tidy" id="btn-tidy" onclick="tidyLayout()" title="Arrange the boxes">⌗ Tidy</button>
+    <button class="sheet tidy" id="btn-board" onclick="toggleBoard()" title="Free board or single column">⊞ Board</button>
+    <button class="sheet tidy" id="btn-tidy" onclick="tidyLayout()" title="Align the boxes where they are">⌗ Tidy</button>
 </div>
 
 <div class="app">
   <div class="header">
     <div class="logo">Proof<span>Box</span> Vol</div>
-    <div class="status-row" onclick="forceReconnect()" style="cursor:pointer" title="Tap to reconnect">
-      <div class="dot" id="dot"></div>
-      <span id="status-txt" style="color:var(--red)">Connecting...</span>
+    <div style="display:flex;align-items:center;gap:10px">
+      <button class="new-dough" id="btn-new-dough" onclick="newDough()" title="Start a new dough">🆕 New dough</button>
+      <div class="status-row" onclick="forceReconnect()" style="cursor:pointer" title="Tap to reconnect">
+        <div class="dot" id="dot"></div>
+        <span id="status-txt" style="color:var(--red)">Connecting...</span>
+      </div>
     </div>
   </div>
 
-  <button class="new-dough" id="btn-new-dough" onclick="newDough()">🆕 New dough · start from scratch</button>
 
   <div id="stack">
 
@@ -1053,7 +1055,29 @@ function resetOrder(){
 // En móvil no se activa nada de esto: la vista sigue siendo la columna de
 // siempre con su arrastre para reordenar. En pantalla ancha las cajas se
 // colocan y se redimensionan a mano, que es donde hay sitio para hacerlo.
-function isDesktop(){ return window.matchMedia('(min-width:900px)').matches; }
+// El tablero se activaba solo por ancho de ventana. Si trabajás con la ventana
+// a media pantalla no llegabas al corte y nada de esto existía, sin ninguna
+// pista de por qué. Ahora hay un interruptor y el ancho es solo el valor por
+// defecto: 'auto' | 'on' | 'off'.
+function boardMode(){ try{return localStorage.getItem('pb-boardmode')||'auto';}catch(e){return 'auto';} }
+function isDesktop(){
+  const m=boardMode();
+  if(m==='on')  return true;
+  if(m==='off') return false;
+  return window.matchMedia('(min-width:820px)').matches;
+}
+function toggleBoard(){
+  const next=isDesktop()?'off':'on';
+  try{localStorage.setItem('pb-boardmode',next);}catch(e){}
+  applyBoard(); renderBoardBtn();
+  showToast(next==='on'?'Free board on — drag the cards anywhere':'Back to a single column');
+}
+function renderBoardBtn(){
+  const b=document.getElementById('btn-board'); if(!b)return;
+  const on=isDesktop();
+  b.textContent=on?'⊞ Board':'▤ Column';
+  b.style.color=on?'var(--amber-l)':'var(--muted)';
+}
 const BOARD_KEY='pb-board';
 let board={};
 function loadBoard(){ try{board=JSON.parse(localStorage.getItem(BOARD_KEY)||'{}')||{};}catch(e){board={};} }
@@ -1095,10 +1119,15 @@ function applyBoard(){
   const stack=document.getElementById('stack');
   const free=isDesktop();
   stack.classList.toggle('free',free);
+  document.body.classList.toggle('board',free);
   // Aquí y no solo en setDMode: girar el móvil o ensanchar la ventana también
   // cambia si el tablero está activo.
+  const onBoardSheet=stack.style.display!=='none';
   const tb=document.getElementById('btn-tidy');
-  if(tb) tb.style.display=(free&&stack.style.display!=='none')?'block':'none';
+  if(tb) tb.style.display=(free&&onBoardSheet)?'block':'none';
+  const bb=document.getElementById('btn-board');
+  if(bb) bb.style.display=onBoardSheet?'block':'none';
+  renderBoardBtn();
   for(const el of stack.children){
     if(!el.id) continue;
     if(!free){ el.style.left=el.style.top=el.style.width=el.style.height=''; continue; }
@@ -1496,7 +1525,6 @@ function setDMode(mode){
   document.getElementById('btn-new-dough').style.display  = isBoard?'block':'none';
   document.getElementById('chart-full').classList.toggle('show',mode==='chart');
   document.getElementById('report-view').classList.toggle('show',mode==='report');
-  document.getElementById('btn-tidy').style.display = (isBoard&&isDesktop())?'block':'none';
   if(isBoard){ applyVisibility(); applyBoard(); }
   if(mode==='chart') drawChartFull();
   SHEETS.forEach(m=>{
