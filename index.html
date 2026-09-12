@@ -71,6 +71,44 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
 .sensor-val{font-size:13px;font-weight:500;color:var(--text);margin-bottom:2px}
 .sensor-lbl{font-size:9px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase}
 .reset-btn{width:100%;padding:8px;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--muted);font-family:'DM Mono',monospace;font-size:11px;cursor:pointer;margin-top:8px}
+/* Informe: fondo blanco y paleta de tinta. Los tres colores de abajo son
+   provisionales — cámbialos por los del libro cuando los tengamos. El gráfico
+   se redibuja dentro y hereda estas variables, por eso sale en tinta y no en
+   ámbar sobre negro. */
+.report-view{position:fixed;inset:0;background:#f2efe9;z-index:950;display:none;overflow:auto;
+  --ink:#1d1a16; --accent:#8c3b1e; --rule:#d8d0c4; --soft:#6b6459;
+  --amber-l:#8c3b1e; --amber:#8c3b1e; --amber-d:#c9a98f; --border:#d8d0c4; --muted:#6b6459; --text:#1d1a16}
+.report-view.show{display:block}
+.report-bar{position:sticky;top:0;display:flex;gap:8px;padding:10px 14px;background:#fff;border-bottom:1px solid var(--rule)}
+.report-bar button{background:#fff;border:1px solid var(--rule);border-radius:8px;padding:8px 14px;
+  font-family:'DM Mono',monospace;font-size:12px;color:var(--ink);cursor:pointer}
+.report-page{background:#fff;max-width:760px;margin:20px auto 60px;padding:46px 52px;color:var(--ink);
+  font-family:'DM Mono',monospace;font-size:12.5px;line-height:1.65;box-shadow:0 2px 18px rgba(0,0,0,.08)}
+.report-head{border-bottom:2px solid var(--accent);padding-bottom:14px;margin-bottom:26px}
+.report-brand{font-family:'Syne',sans-serif;font-size:22px;font-weight:700;letter-spacing:.03em}
+.report-brand span{color:var(--accent)}
+.report-meta{font-size:11px;color:var(--soft);margin-top:6px}
+.report-page h1{font-family:'Syne',sans-serif;font-size:22px;color:var(--accent);margin:0 0 14px;line-height:1.25}
+.report-page h2{font-family:'Syne',sans-serif;font-size:15px;margin:26px 0 8px;padding-bottom:5px;border-bottom:1px solid var(--rule)}
+.report-page p{margin:0 0 11px}
+.report-page ul{margin:0 0 12px;padding-left:19px}
+.report-page li{margin-bottom:5px}
+.report-page table{width:100%;border-collapse:collapse;margin:12px 0;font-size:11.5px}
+.report-page th{text-align:left;border-bottom:1.5px solid var(--accent);padding:7px 9px 7px 0;font-weight:500}
+.report-page td{border-bottom:1px solid var(--rule);padding:7px 9px 7px 0}
+.report-page strong{color:var(--accent)}
+/* Altura explícita: en grande el SVG se dibuja con height:100%, y sin una
+   altura aquí eso resuelve a cero y el gráfico no se ve. */
+.report-chart{margin:18px 0 6px;height:300px}
+.report-foot{margin-top:34px;padding-top:12px;border-top:1px solid var(--rule);font-size:10px;color:var(--soft)}
+@media print{
+  body>*:not(.report-view){display:none!important}
+  .report-view{position:static;display:block;background:#fff;overflow:visible}
+  .report-bar{display:none}
+  .report-page{box-shadow:none;margin:0;max-width:none;padding:0}
+  .report-page h2{break-after:avoid}
+  .report-chart,.report-page table{break-inside:avoid}
+}
 .chart-full{position:fixed;inset:0;background:var(--bg);z-index:900;display:none;flex-direction:column;padding:10px 12px 14px}
 .chart-full.show{display:flex}
 .chart-full-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
@@ -106,6 +144,23 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
 </head>
 <body>
 <div class="toast" id="toast"></div>
+<div class="report-view" id="report-view">
+  <div class="report-bar">
+    <button onclick="closeReport()">✕ Close</button>
+    <span style="flex:1"></span>
+    <button onclick="window.print()">⬇ Save as PDF</button>
+  </div>
+  <div class="report-page" id="report-page">
+    <div class="report-head">
+      <div class="report-brand">Proof<span>Box</span></div>
+      <div class="report-meta" id="report-meta"></div>
+    </div>
+    <div id="report-body"></div>
+    <div id="report-chart" class="report-chart"></div>
+    <div class="report-foot">Measured with ProofBox · volume by time-of-flight, temperature by immersion probe</div>
+  </div>
+</div>
+
 <div class="chart-full" id="chart-full">
   <div class="chart-full-head">
     <b>Growth × over elapsed time</b>
@@ -163,7 +218,7 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
         <span style="color:var(--text)">Now: <b id="meta-ratio-now">--×</b></span>
         <span style="color:var(--muted)">Target: <b id="meta-ratio-goal">--×</b></span>
       </div>
-      <div class="cm-grown">Grown: <b id="cm-grown">--cm</b></div>
+      <div class="cm-grown">Grown: <b id="cm-grown">--cm</b><span id="myratio-line"></span></div>
       <div class="track"><div class="fill" id="bar-meta" style="width:0%"></div></div>
       <div class="marks"><span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span></div>
   </div>
@@ -243,6 +298,13 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
           <span class="unit-lbl">cm</span>
           <button class="mark-btn" onclick="setGoalCm()">Apply</button>
         </div>
+        <div class="input-row" style="margin-bottom:0">
+          <span style="font-size:11px;color:var(--muted);flex:1">You know that is</span>
+          <input class="num-input" type="number" id="input-myratio" placeholder="2.7" step="0.1" min="1" style="width:70px;flex:none">
+          <span class="unit-lbl">×</span>
+          <button class="mark-btn" onclick="setMyRatio()">Set</button>
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-top:6px;line-height:1.4">Read off your graduated jar. Yours, not the app's — it is what the progress and the report will use.</div>
       </div>
       <div id="goal-finger" style="display:none">
         <button class="mark-btn" id="btn-goal-finger" onclick="setGoalFinger()" style="width:100%">🖐 Mark target with your hand</button>
@@ -257,6 +319,23 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
       <div id="goal-status" style="font-size:11px;color:var(--muted);margin-top:8px;text-align:center"></div>
       <button class="mark-btn" id="btn-undo" onclick="undoLast()" style="width:100%;margin-top:10px">↶ Undo last change</button>
       <button class="reset-small" onclick="resetMeta()">↺ Reset target</button>
+  </div>
+
+  <div class="card sortable" id="panel-report">
+    <div class="drag-handle" title="Drag to reorder">⠿</div>
+    <div class="card-label">Fermentation report</div>
+
+    <div class="input-row">
+      <input class="num-input" type="text" id="rep-name" placeholder="Panettone · primo impasto" style="flex:1;font-size:12px">
+    </div>
+    <div class="goal-tabs" style="grid-template-columns:1fr 1fr 1fr">
+      <button class="gtab active" id="lang-en" onclick="setRepLang('en')">EN</button>
+      <button class="gtab" id="lang-es" onclick="setRepLang('es')">ES</button>
+      <button class="gtab" id="lang-de" onclick="setRepLang('de')">DE</button>
+    </div>
+    <div id="rep-opts" style="margin-bottom:10px"></div>
+    <button class="cal-btn" onclick="makeReport()" id="btn-report">📄 Write the report</button>
+    <div id="rep-state" style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.4"></div>
   </div>
 
   <div class="card sortable" id="panel-log">
@@ -314,6 +393,17 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
       <button class="mark-btn" onclick="setOffset()">Apply</button>
     </div>
     <button class="reset-btn" onclick="if(confirm('Reset WiFi?'))sendCmd({cmd:'resetwifi'})">⚙ Change WiFi network</button>
+  </div>
+
+  <div class="card">
+    <div class="card-label">Claude API</div>
+    <div class="input-row">
+      <input class="num-input" type="password" id="api-key" placeholder="sk-ant-..." autocomplete="off" style="flex:1;font-size:12px">
+      <button class="mark-btn" onclick="saveApiKey()">Save</button>
+    </div>
+    <div id="api-state" style="font-size:11px;color:var(--muted);margin-top:6px"></div>
+    <div style="font-size:10px;color:var(--muted);margin-top:8px;line-height:1.5">Used to write the fermentation reports. The key is kept in this browser only and goes straight to Anthropic — it never passes through GitHub Pages or any server of ours. Anyone with access to this phone can read it, so use a key you can revoke.</div>
+    <button class="reset-btn" onclick="clearApiKey()">↺ Forget the key</button>
   </div>
 
   <div class="card">
@@ -900,6 +990,7 @@ function loadAlarms(){
   try{const t=JSON.parse(localStorage.getItem('pb-timer')||'null'); if(t)timer=t;}catch(e){}
   try{const a=JSON.parse(localStorage.getItem('pb-pctalarm')||'null'); if(a)pctAlarm=a;}catch(e){}
   if(pctAlarm.pct)document.getElementById('input-pct-alarm').value=pctAlarm.pct;
+  if(myRatio)document.getElementById('input-myratio').value=myRatio;
   renderTimer();
 }
 function timerLeft(){
@@ -1106,7 +1197,7 @@ async function clearAlarmFile(){
 const BLOCKS=[
   ['panel-meta','Progress'],['panel-timer','Timer'],['panel-temp','Temperature'],
   ['panel-cond','Conductivity'],['panel-grams','Dough weight'],
-  ['panel-goal','Start & target'],['panel-log','Session history'],['panel-history','Cloud history'],
+  ['panel-goal','Start & target'],['panel-report','Fermentation report'],['panel-log','Session history'],['panel-history','Cloud history'],
   ['panel-ratio','Rise × (on the Rise tab)']
 ];
 let hiddenBlocks={};
@@ -1136,7 +1227,7 @@ function showToast(msg,dur=6000){
   setTimeout(()=>t.classList.remove('show'),dur);
 }
 // Qué tarjetas pertenecen solo a un modo. Las que no están aquí se ven en los dos.
-const MODE_ONLY={'panel-meta':'meta','panel-grams':'meta','panel-goal':'meta','panel-log':'meta','panel-ratio':'ratio'};
+const MODE_ONLY={'panel-meta':'meta','panel-grams':'meta','panel-goal':'meta','panel-report':'meta','panel-log':'meta','panel-ratio':'ratio'};
 let currentMode='meta';
 // Pinta qué bloques se ven, sin tocar la pestaña activa. Separado de setDMode a
 // propósito: marcar una casilla en Ajustes no debe cambiarte de pantalla.
@@ -1198,6 +1289,16 @@ function updateUI(d){
   document.getElementById('meta-ratio-goal').textContent=d.metaGoalSet?fmt(d.metaRatioGoal)+'×':'--×';
   document.getElementById('cm-grown').textContent=fmt(cmS)+'cm';
   lastStart.set=d.metaStartSet===true;
+  // Progreso contra TU ratio, si lo has puesto. Se calcula sobre el crecimiento
+  // en cm, que es exacto, no sobre el × del sensor.
+  const ml=document.getElementById('myratio-line');
+  if(ml){
+    if(myRatio&&d.metaStartSet){
+      const startH=+d.metaStart, grown=cmS*10;
+      const pctMine=startH>0?Math.min(999,((startH+grown)/startH-1)/(myRatio-1)*100):0;
+      ml.textContent=` · ${fmt(pctMine,0)}% of your ${myRatio}×`;
+    }else ml.textContent='';
+  }
   noteSession(d);
   const avg=mpAverage(mp);
   if(avg!=null){
@@ -1362,6 +1463,207 @@ function restoreSnap(t){
   showToast('↩ Restored — check the progress in a second');
 }
 
+// ═══ INFORMES CON LA API DE CLAUDE ═══════════════════════════════════════
+// La credencial vive solo en este navegador y la petición va directa a
+// Anthropic. La página es estática (GitHub Pages): no hay servidor nuestro por
+// el que pase, ni se sube a ningún sitio.
+function apiKey(){ try{return localStorage.getItem('pb-apikey')||'';}catch(e){return '';} }
+function saveApiKey(){
+  const k=document.getElementById('api-key').value.trim();
+  if(!k){showToast('Paste it in the box first');return;}
+  try{localStorage.setItem('pb-apikey',k);}catch(e){}
+  document.getElementById('api-key').value='';
+  showApiState(); showToast('Saved on this device');
+}
+function clearApiKey(){
+  try{localStorage.removeItem('pb-apikey');}catch(e){}
+  showApiState(); showToast('Forgotten');
+}
+function showApiState(){
+  const el=document.getElementById('api-state'); if(!el)return;
+  const k=apiKey();
+  el.textContent = k ? 'Saved · ...'+k.slice(-6) : 'Nothing saved — reports are off';
+  el.style.color = k ? 'var(--green)' : 'var(--muted)';
+}
+
+const REP_OPTS=[
+  ['temp','Temperature'],['cond','Conductivity'],['phases','Phase analysis'],
+  ['chart','Growth chart'],['book','Compare with book references'],['raw','Readings table']
+];
+let repSel={temp:true,cond:false,phases:true,chart:true,book:true,raw:false};
+let repLang='en';
+function loadRep(){
+  try{const r=JSON.parse(localStorage.getItem('pb-repopts')||'null'); if(r)repSel=r;}catch(e){}
+  try{repLang=localStorage.getItem('pb-replang')||'en';}catch(e){}
+  const box=document.getElementById('rep-opts'); if(!box)return;
+  box.innerHTML=REP_OPTS.map(([k,n])=>
+    `<label class="vis-row"><input type="checkbox" data-k="${k}" ${repSel[k]?'checked':''}>${n}</label>`).join('');
+  box.querySelectorAll('input').forEach(cb=>cb.addEventListener('change',()=>{
+    repSel[cb.dataset.k]=cb.checked;
+    try{localStorage.setItem('pb-repopts',JSON.stringify(repSel));}catch(e){}
+  }));
+  setRepLang(repLang,true);
+  showApiState();
+}
+function setRepLang(l,quiet){
+  repLang=l;
+  ['en','es','de'].forEach(x=>document.getElementById('lang-'+x).className='gtab'+(x===l?' active':''));
+  if(!quiet){try{localStorage.setItem('pb-replang',l);}catch(e){}}
+}
+
+// ─── Análisis de fases, calculado aquí ────────────────────────────────────
+// Se resuelve en el navegador y se le entrega hecho al modelo. Pedirle que
+// deduzca fases de miles de puntos crudos es invitarle a inventar números;
+// esto son cuentas, y las cuentas las hace el código.
+function analysePhases(rows,t0){
+  const pts=rows.filter(r=>r.rise!=null).map(r=>({t:new Date(r.logged_at).getTime()-t0,v:+r.rise}));
+  if(pts.length<8) return null;
+  const xs=pts.map(p=>p.t);
+  const ys=smoothSeries(xs,pts.map(p=>p.v),10*60*1000);
+  const h=i=>xs[i]/3600000;
+  const rate=[0];
+  for(let i=1;i<ys.length;i++){
+    const dt=(xs[i]-xs[i-1])/3600000;
+    rate.push(dt>0?(ys[i]-ys[i-1])/dt:0);
+  }
+  const peak=Math.max(...rate), peakI=rate.indexOf(peak), thr=peak*0.2;
+  let lagEnd=0;     while(lagEnd<rate.length&&rate[lagEnd]<thr) lagEnd++;
+  let logEnd=peakI; while(logEnd<rate.length&&rate[logEnd]>=thr) logEnd++;
+  const maxV=Math.max(...ys), maxI=ys.indexOf(maxV);
+  let decayI=null;
+  for(let i=maxI;i<ys.length;i++) if(ys[i]<maxV*0.98){decayI=i;break;}
+  const endedInLog=logEnd>=rate.length-1;
+  return {
+    latency_h:+h(Math.min(lagEnd,xs.length-1)).toFixed(2),
+    log_peak_h:+h(peakI).toFixed(2),
+    log_peak_rate_x_per_h:+peak.toFixed(3),
+    log_end_h:endedInLog?null:+h(logEnd).toFixed(2),
+    max_rise_x:+maxV.toFixed(2),
+    max_rise_at_h:+h(maxI).toFixed(2),
+    decay_started_h:decayI!=null?+h(decayI).toFixed(2):null,
+    total_h:+h(xs.length-1).toFixed(2),
+    reached_stationary:!endedInLog,
+    reached_decay:decayI!=null
+  };
+}
+function seriesStats(rows,key){
+  const v=rows.map(r=>r[key]).filter(x=>x!=null).map(Number).filter(isFinite);
+  if(!v.length) return null;
+  return {min:+Math.min(...v).toFixed(1), max:+Math.max(...v).toFixed(1),
+          avg:+(v.reduce((a,b)=>a+b,0)/v.length).toFixed(1), n:v.length};
+}
+
+// Datos de conocimiento/pasta-madre-parametros.md. Van como referencia para que
+// el informe compare contra algo medido y no contra intuiciones.
+const BOOK={
+  source:"Italian technical book on grandi lievitati, pasta madre management (pp.138-141)",
+  phases:{latency_h:"~2", log_from_refresh_h:"6-8", log_after_latency_h:"4-6",
+          note:"The log peak arrives just before 8h from the refresh. At 4h the yeast has barely begun exponential growth."},
+  ph:{at_log_peak:4.12, after_overnight_rest:3.95},
+  worked_example:{flour:"strong, 15.5% protein, W 350-410", refreshes:1, refresh_duration_h:7.15,
+    inoculum_to_flour:"1:3", volume_at_maturation_x:2.7, lactic_g_per_kg:3.71,
+    acetic_g_per_kg:0.54, total_acidity:7.3, lactic_acetic_ratio:"6.86:1"},
+  flour_strength:"Flour strength does not change bacterial metabolism. It changes leavening time, final volume and acidification time only."
+};
+
+async function makeReport(){
+  const k=apiKey();
+  if(!k){showToast('Add your Claude API credential in Settings first',8000);return;}
+  if(!history.length){showToast('No readings logged yet');return;}
+  const btn=document.getElementById('btn-report'), st=document.getElementById('rep-state');
+  btn.disabled=true; st.style.color='var(--muted)'; st.textContent='Reading the session...';
+
+  const t0=chartT0()||new Date(history[0].logged_at).getTime();
+  const last=history[history.length-1];
+  const data={
+    dough:document.getElementById('rep-name').value.trim()||'Unnamed dough',
+    started:new Date(t0).toISOString(),
+    elapsed_h:+((new Date(last.logged_at).getTime()-t0)/3600000).toFixed(2),
+    readings:history.length,
+    final_rise_x:last.rise!=null?+(+last.rise).toFixed(2):null,
+    grams:last.grams||null,
+    grown_cm:last.cm_grown!=null?+(+last.cm_grown).toFixed(1):null,
+    baker_target_x:myRatio||null,
+    target_reached:last.meta_progress!=null?(+last.meta_progress>=100):null
+  };
+  if(repSel.phases) data.phases=analysePhases(history,t0);
+  if(repSel.temp)   data.temperature_c=seriesStats(history,'temp_c');
+  if(repSel.cond)   data.conductivity_pct=seriesStats(history,'cond_rel');
+  if(repSel.raw){
+    const step=Math.max(1,Math.floor(history.length/40));
+    data.sample=history.filter((_,i)=>i%step===0).map(r=>({
+      h:+((new Date(r.logged_at).getTime()-t0)/3600000).toFixed(2),
+      x:r.rise!=null?+(+r.rise).toFixed(2):null,
+      t:r.temp_c!=null?+(+r.temp_c).toFixed(1):null
+    }));
+  }
+
+  const LANG={en:'English',es:'Spanish',de:'German'}[repLang];
+  const sys=`You write fermentation reports for a professional baker.
+
+Write in ${LANG}. Precise and sober: this is a technical record, not marketing.
+
+Rules that matter:
+- Every number you state must come from the data given. Never invent a measurement.
+- baker_target_x, when present, is the baker's own reading from a graduated jar. It is authoritative. Do not replace it with the sensor's ratio.
+- If the dough was stopped before reaching a phase, say plainly that it did not get there, and only then estimate what would have followed under the same conditions, labelled as an estimate.
+- The ratio comes from a distance sensor and is a height measurement, not a true volume. Mention that limit once if a conclusion depends on it, not more.
+- Where book references are supplied, compare against them and say whether this ferment ran fast, slow or on time, with the numbers.
+
+Return clean semantic HTML for the report body: h1, h2, p, ul, table. No CSS, no inline styles, no html/body wrapper, no markdown fences.`;
+
+  const user=`Session data:\n${JSON.stringify(data,null,1)}\n\n`+
+    (repSel.book?`Book reference values:\n${JSON.stringify(BOOK,null,1)}\n\n`:'')+
+    `Sections requested: ${REP_OPTS.filter(([x])=>repSel[x]).map(([,n])=>n).join(', ')}.`;
+
+  try{
+    st.textContent='Claude is writing it...';
+    const Anthropic=(await import('https://esm.sh/@anthropic-ai/sdk')).default;
+    const client=new Anthropic({apiKey:k,dangerouslyAllowBrowser:true});
+    // client.beta.messages: betas y fallbacks solo existen en ese espacio.
+    // El fallback del servidor reintenta en otro modelo si este declina la
+    // petición, en la misma llamada, en vez de dejarte sin informe.
+    const res=await client.beta.messages.create({
+      model:'claude-opus-5',
+      max_tokens:16000,
+      thinking:{type:'adaptive'},
+      betas:['server-side-fallback-2026-07-01'],
+      fallbacks:'default',
+      system:sys,
+      messages:[{role:'user',content:user}]
+    });
+    if(res.stop_reason==='refusal') throw new Error('The model declined this request');
+    const html=res.content.filter(b=>b.type==='text').map(b=>b.text).join('\n');
+    if(!html.trim()) throw new Error('Empty response');
+    openReport(data,html);
+    st.textContent='Done — opened in the report view.';
+  }catch(e){
+    const m=String(e&&e.message||e);
+    st.textContent = /401|authentication|invalid.*key/i.test(m) ? 'Rejected — check the credential in Settings.'
+                   : /429|rate.limit/i.test(m) ? 'Rate limited. Wait a moment and try again.'
+                   : /credit|billing/i.test(m)  ? 'That account has no credit left.'
+                   : 'Could not write it: '+m;
+    st.style.color='var(--red)';
+  }finally{ btn.disabled=false; }
+}
+
+// ─── Vista imprimible ─────────────────────────────────────────────────────
+// Se imprime desde el navegador en vez de generar el PDF con una librería: el
+// texto sale vectorial y nítido, y "Guardar como PDF" existe igual en el móvil
+// y en el escritorio. html2pdf rasteriza y se ve peor.
+function openReport(data,bodyHtml){
+  const ov=document.getElementById('report-view');
+  document.getElementById('report-body').innerHTML=bodyHtml;
+  const when=new Date(data.started).toLocaleString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
+  document.getElementById('report-meta').textContent=`${data.dough} · ${when} · ${data.elapsed_h} h · ${data.readings} readings`;
+  ov.classList.add('show');
+  // El gráfico se redibuja aquí dentro: hereda las variables de color claras
+  // del contenedor, así que el mismo SVG sale en tinta sobre blanco.
+  if(repSel.chart) drawChart(history,'report-chart',900,300);
+  else document.getElementById('report-chart').innerHTML='';
+}
+function closeReport(){ document.getElementById('report-view').classList.remove('show'); }
+
 function markStart(){
   // Pisa el cero de la masa en curso, así que no puede dispararse por un roce.
   if(lastStart.set && !confirm('Mark the start again?\n\nThe dough already has a start marked and the current progress will be replaced. You can undo this afterwards.'))return;
@@ -1375,6 +1677,21 @@ function setGoalRatio(){
   const r=parseFloat(document.getElementById('input-ratio').value);
   if(!r||r<=1||r>10){document.getElementById('goal-status').textContent='⚠️ Ratio between 1.1 and 10';return;}
   sendCmd({cmd:'metaSetGoalRatio',ratio:r});document.getElementById('goal-status').textContent='⏳ Applying...';
+}
+// El usuario lee el ratio real en su bote graduado. Es un dato suyo, no una
+// medida del aparato: la app no puede saberlo y no debe discutirlo.
+let myRatio=null;
+try{myRatio=parseFloat(localStorage.getItem('pb-myratio'))||null;}catch(e){}
+function setMyRatio(){
+  const r=parseFloat(document.getElementById('input-myratio').value);
+  if(!r||r<=1){
+    myRatio=null; try{localStorage.removeItem('pb-myratio');}catch(e){}
+    showToast('Your ratio cleared');
+  }else{
+    myRatio=r; try{localStorage.setItem('pb-myratio',String(r));}catch(e){}
+    showToast(`Target set to ${r}× — yours`);
+  }
+  noteSession({dist:0,metaStartSet:lastStart.set});
 }
 function setGoalCm(){
   const cm=parseFloat(document.getElementById('input-cm').value);
@@ -1441,6 +1758,7 @@ let startMode='meta';
 try{startMode=localStorage.getItem('pb-mode')||'meta';}catch(e){}
 setDMode(startMode==='settings'?'meta':startMode);   // nunca abrir en Ajustes
 loadSeries();
+loadRep();
 loadLog();
 initReadout();
 loadAlarms();
