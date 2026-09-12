@@ -59,7 +59,9 @@ body{padding-top:80px}
   .app{max-width:none;padding:16px 22px 80px}
   #stack.free{position:relative}
   #stack.free>.card,#stack.free>div[id^="panel-"]{position:absolute;margin:0;overflow:auto}
-  #stack.free>.card .drag-handle{cursor:grab;opacity:.5}
+  #stack.free>.card .drag-handle{display:none}
+  #stack.free>.card{cursor:grab}
+  #stack.free>.card.floating{cursor:grabbing}
   .resize-grip{position:absolute;right:0;bottom:0;width:18px;height:18px;cursor:nwse-resize;
     background:linear-gradient(135deg,transparent 50%,var(--border) 50%,var(--border) 70%,transparent 70%);display:none}
   #stack.free>.card>.resize-grip{display:block}
@@ -1056,6 +1058,39 @@ const BOARD_KEY='pb-board';
 let board={};
 function loadBoard(){ try{board=JSON.parse(localStorage.getItem(BOARD_KEY)||'{}')||{};}catch(e){board={};} }
 function saveBoard(){ try{localStorage.setItem(BOARD_KEY,JSON.stringify(board));}catch(e){} }
+// Todo lo que responde a un clic. Si el puntero baja sobre algo de esta lista
+// la caja no se mueve: escribir en un campo o tocar una casilla no puede
+// arrastrar la tarjeta entera.
+function isInteractive(t){
+  return !!(t.closest&&t.closest('input,button,select,textarea,label,a,summary,option,svg,.gtab,.resize-grip,.track,.sheet'));
+}
+// En escritorio se arrastra desde CUALQUIER hueco de la caja, no solo del asa.
+function makeDraggable(el,stack){
+  if(el.dataset.dragWired) return;
+  el.dataset.dragWired='1';
+  el.addEventListener('pointerdown',e=>{
+    if(!isDesktop()||!stack.classList.contains('free')) return;
+    if(e.button!==0||isInteractive(e.target)) return;
+    e.preventDefault();
+    const r=stack.getBoundingClientRect();
+    const ox=e.clientX-(el.offsetLeft+r.left), oy=e.clientY-(el.offsetTop+r.top);
+    el.classList.add('floating');
+    try{el.setPointerCapture(e.pointerId);}catch(err){}
+    const move=ev=>{
+      const b=stack.getBoundingClientRect();
+      el.style.left=Math.max(0,ev.clientX-b.left-ox)+'px';
+      el.style.top =Math.max(0,ev.clientY-b.top -oy)+'px';
+    };
+    const stop=()=>{
+      el.removeEventListener('pointermove',move); el.removeEventListener('pointerup',stop);
+      el.classList.remove('floating');
+      board[el.id]=Object.assign(board[el.id]||{},{x:el.offsetLeft,y:el.offsetTop,w:el.offsetWidth});
+      saveBoard(); fitStack();
+    };
+    el.addEventListener('pointermove',move);
+    el.addEventListener('pointerup',stop);
+  });
+}
 function applyBoard(){
   const stack=document.getElementById('stack');
   const free=isDesktop();
@@ -1071,6 +1106,7 @@ function applyBoard(){
       const g=document.createElement('div'); g.className='resize-grip'; el.appendChild(g);
       g.addEventListener('pointerdown',e=>startResize(e,el));
     }
+    makeDraggable(el,stack);
     const b=board[el.id];
     if(b){ el.style.left=b.x+'px'; el.style.top=b.y+'px'; el.style.width=b.w+'px';
            if(b.h) el.style.height=b.h+'px'; }
@@ -1088,22 +1124,33 @@ function fitStack(){
     low=Math.max(low,el.offsetTop+el.offsetHeight);
   stack.style.height=(low+40)+'px';
 }
-// Ordenar: columnas de ancho fijo, cada caja a la columna más corta. Da un
-// resultado compacto sin huecos grandes, que es lo que se espera de un botón
-// llamado "ordenar".
+// Ordenar = ALINEAR donde ya está, no recolocar. Cada caja va a la columna que
+// le pilla más cerca y conserva su orden vertical dentro de ella. Antes
+// repartía por la columna más corta, que dejaba todo ordenado pero movido de
+// sitio: si habías puesto la temperatura arriba a la derecha, aparecía abajo a
+// la izquierda.
 function tidyLayout(){
   const stack=document.getElementById('stack');
   if(!isDesktop()) return;
-  const W=340, GAP=14;
-  const cols=Math.max(1,Math.floor((stack.clientWidth+GAP)/(W+GAP)));
-  const y=new Array(cols).fill(0);
-  for(const el of stack.children){
-    if(!el.id||el.style.display==='none') continue;
-    const c=y.indexOf(Math.min(...y));
-    el.style.left=(c*(W+GAP))+'px'; el.style.top=y[c]+'px';
-    el.style.width=W+'px'; el.style.height='';
-    board[el.id]={x:c*(W+GAP),y:y[c],w:W};
-    y[c]+=el.offsetHeight+GAP;
+  const W=340, GAP=14, STEP=W+GAP;
+  const cols=Math.max(1,Math.floor((stack.clientWidth+GAP)/STEP));
+  const items=[...stack.children].filter(el=>el.id&&el.style.display!=='none').map(el=>{
+    // Una caja que ensanchaste a mano sigue ancha: se redondea a un número
+    // entero de columnas en vez de aplastarla a una.
+    const span=Math.max(1,Math.min(cols,Math.round((el.offsetWidth+GAP)/STEP)));
+    const col =Math.max(0,Math.min(cols-span,Math.round(el.offsetLeft/STEP)));
+    return {el,span,col,y:el.offsetTop};
+  });
+  items.sort((a,b)=>a.col-b.col||a.y-b.y);
+  const bottom=new Array(cols).fill(0);
+  for(const it of items){
+    const cs=[]; for(let c=it.col;c<it.col+it.span;c++) cs.push(c);
+    const top=Math.max(...cs.map(c=>bottom[c]));
+    const w=it.span*W+(it.span-1)*GAP;
+    it.el.style.left=(it.col*STEP)+'px'; it.el.style.top=top+'px'; it.el.style.width=w+'px';
+    const h=it.el.offsetHeight;
+    board[it.el.id]=Object.assign(board[it.el.id]||{},{x:it.col*STEP,y:top,w});
+    cs.forEach(c=>bottom[c]=top+h+GAP);
   }
   saveBoard(); fitStack();
 }
@@ -1149,26 +1196,9 @@ function initSort(){
       e.preventDefault();
       let el=h; while(el.parentElement!==stack) el=el.parentElement;
       try{h.setPointerCapture(e.pointerId);}catch(err){}
-      // Escritorio: mover libre por el tablero. Móvil: reordenar la columna.
-      if(isDesktop()&&stack.classList.contains('free')){
-        const r=stack.getBoundingClientRect();
-        const ox=e.clientX-(el.offsetLeft+r.left), oy=e.clientY-(el.offsetTop+r.top);
-        el.classList.add('floating');
-        const move=ev=>{
-          const b=stack.getBoundingClientRect();
-          el.style.left=Math.max(0,ev.clientX-b.left-ox)+'px';
-          el.style.top =Math.max(0,ev.clientY-b.top -oy)+'px';
-        };
-        const stop=()=>{
-          h.removeEventListener('pointermove',move); h.removeEventListener('pointerup',stop);
-          el.classList.remove('floating');
-          board[el.id]=Object.assign(board[el.id]||{},
-            {x:el.offsetLeft,y:el.offsetTop,w:el.offsetWidth});
-          saveBoard(); fitStack();
-        };
-        h.addEventListener('pointermove',move); h.addEventListener('pointerup',stop);
-        return;
-      }
+      // El tablero se arrastra desde la caja entera (makeDraggable), así que
+      // el asa solo sirve para reordenar la columna del móvil.
+      if(isDesktop()&&stack.classList.contains('free')) return;
       dragEl=el; dragEl.classList.add('dragging'); stack.classList.add('sorting');
     });
     h.addEventListener('pointermove',e=>{
