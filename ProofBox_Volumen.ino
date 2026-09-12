@@ -1,5 +1,5 @@
 // ============================================================
-//  ProofBox — Módulo VOLUMEN v1.5
+//  ProofBox — Módulo VOLUMEN v1.4
 //  VL53L0X (volumen) + conductividad de 2 electrodos + WiFi + MQTT
 //  Modo Ratio × y Modo Meta (dedo / ratio / cm)
 //
@@ -99,27 +99,6 @@ bool  condOk     = false;  // hay circuito: los electrodos tocan algo
 // ─── TEMPERATURA ──────────────────────────────────────────────
 float tempC  = 0;
 bool  tempOk = false;
-
-// ─── BASE DEL BOTE (opcional) ─────────────────────────────────
-// Distancia del sensor al fondo del bote VACÍO. Sin esto no se puede saber la
-// altura real de la masa, solo el hueco de aire que queda encima.
-//
-// Nada de lo que ya funcionaba depende de este valor: el ratio × clásico y el
-// modo cm siguen exactamente igual. Esto solo AÑADE una lectura de volumen real
-// para quien quiera hilar fino. 0 = sin calibrar.
-//
-// Ojo: el ratio de altura solo equivale al de volumen en un recipiente RECTO.
-float containerBase = 0;
-
-// Altura real de la masa. Se deriva, no se guarda: así funciona aunque el bote
-// se calibre DESPUÉS de haber marcado el inicio.
-float doughHeightNow()   { return (containerBase > 0) ? max(0.0f, containerBase - distanceMM)   : 0; }
-float doughHeightStart() { return (containerBase > 0) ? max(0.0f, containerBase - metaStartDist) : 0; }
-float volumeRatio() {
-  float h0 = doughHeightStart(), h1 = doughHeightNow();
-  if (!metaStartSet || h0 < 3) return 0;        // menos de 3 mm no es una masa
-  return constrain(h1 / h0, 0.0f, 20.0f);
-}
 
 // ─── OFFSET DE CALIBRACIÓN DEL SENSOR ─────────────────────────
 // Ajusta este valor si la medida no coincide con la regla.
@@ -404,9 +383,6 @@ void publishStatus() {
   doc["tempC"]          = round(tempC * 10) / 10.0;
   doc["canUndo"]        = hasUndo;
   doc["metaStart"]      = round(metaStartDist);
-  doc["base"]           = round(containerBase);
-  doc["hgt"]            = round(doughHeightNow());
-  doc["vol"]            = round(volumeRatio() * 100) / 100.0;
   doc["condBaseSet"]    = condBaseUS > 0;
   char buf[512]; serializeJson(doc, buf);
   mqtt.publish(TOPIC_STATUS, buf, true);
@@ -520,29 +496,6 @@ void onMqttMessage(char* topic, byte* payload, unsigned int length) {
       Serial.println("↶ Nada que deshacer");
     }
   }
-  else if (cmd == "setContainerBase") {
-    // Con el bote VACÍO: la lectura de ahora es la distancia al fondo.
-    if (distanceMM > 10) {
-      containerBase = distanceMM;
-      prefs.putFloat("cBase", containerBase);
-      Serial.printf("📦 Base del bote: %.1fmm\n", containerBase);
-    } else {
-      Serial.println("📦 Lectura demasiado corta — ¿hay algo delante del sensor?");
-    }
-  }
-  else if (cmd == "setContainerBaseMm") {
-    float mm = doc["mm"]|0.0;
-    if (mm > 10 && mm < 3000) {
-      containerBase = mm;
-      prefs.putFloat("cBase", containerBase);
-      Serial.printf("📦 Base del bote a mano: %.1fmm\n", containerBase);
-    }
-  }
-  else if (cmd == "clearContainerBase") {
-    containerBase = 0;
-    prefs.remove("cBase");
-    Serial.println("📦 Base del bote borrada");
-  }
   else if (cmd == "setOffset") {
     float o = doc["offset"]|sensorOffset;
     sensorOffset = o;
@@ -595,11 +548,10 @@ void setup() {
   prefs.begin("proofboxvol", false);
   sensorOffset = prefs.getFloat("offset", 49.0);
   condBaseUS   = prefs.getFloat("condBase", 0.0);
-  containerBase = prefs.getFloat("cBase", 0.0);
   loadSession();
   loadUndo();
 
-  Serial.println("\n📏 ProofBox Volumen v1.5");
+  Serial.println("\n📏 ProofBox Volumen v1.4");
 
   // Conductividad: los pines de excitación arrancan en alta impedancia para no
   // meter continua en el líquido antes de la primera medida.
