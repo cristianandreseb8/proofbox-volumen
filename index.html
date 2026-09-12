@@ -104,6 +104,9 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
 .report-gallery figure{margin:0}
 .report-gallery img{width:100%;border:1px solid var(--rule);border-radius:3px;display:block}
 .report-gallery figcaption{font-size:10px;color:var(--soft);margin-top:4px}
+.stage-fig{margin:0 0 22px;break-inside:avoid}
+.stage-fig figcaption{font-size:11px;color:var(--accent);margin-bottom:4px;padding-bottom:3px;border-bottom:1px solid var(--rule)}
+.stage-fig svg{height:260px;width:100%}
 .report-foot{margin-top:34px;padding-top:12px;border-top:1px solid var(--rule);font-size:10px;color:var(--soft)}
 @media print{
   body>*:not(.report-view){display:none!important}
@@ -167,7 +170,7 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
 
 <div class="chart-full" id="chart-full">
   <div class="chart-full-head">
-    <b>Growth × over elapsed time</b>
+    <b id="chart-full-title">Growth × over elapsed time</b>
     <select class="num-input" id="smooth-sel-full" onchange="setSmooth(this.value)" style="width:150px;padding:6px 8px;font-size:12px">
       <option value="0">Raw</option>
       <option value="120">Light · 2 min</option>
@@ -371,7 +374,8 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
 
   <div class="card sortable" id="panel-history">
     <div class="drag-handle" title="Drag to reorder">⠿</div>
-    <div class="card-label">Cloud history · growth × over elapsed time</div>
+    <div class="card-label" id="hist-label">Cloud history · growth × over elapsed time</div>
+    <div id="stage-chips" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px"></div>
     <div class="log-row">
       <div>Elapsed: <b id="log-elapsed">--</b></div>
       <div style="color:var(--muted)">Points: <b id="log-count">0</b></div>
@@ -627,30 +631,85 @@ function updateFastTimer(sec){
     },sec*1000);
   }
 }
-function fetchHistory(){
-  const flt = sessionStart ? `&logged_at=gte.${encodeURIComponent(sessionStart)}` : '';
-  // Fetch the MOST RECENT first (desc) so new points always show up, then flip
-  // them back into chronological order for the chart.
-  fetch(`${SUPA_URL}/rest/v1/proofbox_readings?device_id=eq.${DEVICE_ID}${flt}&order=logged_at.desc&limit=2000`,
-    {headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY}})
-    .then(r=>{if(!r.ok)throw new Error(r.status);return r.json();})
-    .then(rows=>{history=rows.reverse();renderHistory();})
-    .catch(()=>{document.getElementById('log-last').textContent='error';});
+// El origen del histórico es el arranque de la SESIÓN cuando hay una: una
+// elaboración de panettone dura días y las etapas viejas tienen que seguir
+// teniendo sus lecturas. Sin esto, el gráfico de "1er refresco" saldría vacío
+// al día siguiente.
+function histFrom(){
+  const a=sess?sess.startedAt:null;
+  const b=sessionStart?new Date(sessionStart).getTime():null;
+  if(a&&b) return new Date(Math.min(a,b)).toISOString();
+  return a?new Date(a).toISOString():sessionStart;
+}
+async function fetchHistory(){
+  const from=histFrom();
+  const flt = from ? `&logged_at=gte.${encodeURIComponent(from)}` : '';
+  try{
+    // Paginado: el servidor corta en 1000 filas y varios días de registro pasan
+    // de eso con holgura.
+    let all=[], off=0;
+    while(true){
+      const r=await fetch(`${SUPA_URL}/rest/v1/proofbox_readings?device_id=eq.${DEVICE_ID}${flt}&order=logged_at.asc&limit=1000&offset=${off}`,
+        {headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY}});
+      if(!r.ok) throw new Error(r.status);
+      const page=await r.json();
+      all=all.concat(page);
+      if(page.length<1000||all.length>20000) break;
+      off+=1000;
+    }
+    history=all; renderHistory();
+  }catch(e){ const el=document.getElementById('log-elapsed'); if(el)el.textContent='error'; }
 }
 function renderHistory(){
-  const n=history.length;
-  document.getElementById('log-count').textContent=n;
-  const t0=chartT0();
+  renderStageChips();
+  const rows=chartRows(), w=chartWindow(), t0=chartT0();
+  document.getElementById('log-count').textContent=rows.length;
   document.getElementById('log-elapsed').textContent=
-    (n&&t0)?fmtElapsed(new Date(history[n-1].logged_at).getTime()-t0):'--';
-  drawChart(history);
+    (rows.length&&t0)?fmtElapsed(new Date(rows[rows.length-1].logged_at).getTime()-t0):'--';
+  const lab=document.getElementById('hist-label');
+  if(lab) lab.textContent=(w?w.name:'Cloud history')+' · growth × over elapsed time';
+  drawChart(rows);
   if(fullOpen()) drawChartFull();
 }
 // Cero del eje de tiempos: el momento en que se empezó este gráfico. Si no hay
 // sesión marcada, cae al primer punto registrado.
+// ─── Qué tramo se dibuja ──────────────────────────────────────────────────
+// Cada etapa es una experiencia aparte, a horas o días de la siguiente, así
+// que cada una tiene su propia curva con su propio cero. La selección es solo
+// una ventana sobre el mismo histórico: no se reinicia ningún registro, así
+// que se puede saltar de una etapa a otra sin perder nada.
+let stagePick='all';
+function stageWindow(id){
+  if(!sess) return null;
+  const s=sess.stages.find(x=>x.id===id); if(!s) return null;
+  return {from:s.startedAt, to:s.endedAt||Date.now(), name:s.name};
+}
+function chartWindow(){
+  if(stagePick!=='all'){ const w=stageWindow(+stagePick); if(w) return w; }
+  if(sess) return {from:sess.startedAt, to:Date.now(), name:sess.name+' · whole session'};
+  return null;
+}
+function rowsIn(win){
+  if(!win) return history;
+  return history.filter(r=>{const t=new Date(r.logged_at).getTime();return t>=win.from&&t<=win.to;});
+}
+function chartRows(){ return rowsIn(chartWindow()); }
 function chartT0(){
+  const w=chartWindow();
+  if(w) return w.from;
   if(sessionStart) return new Date(sessionStart).getTime();
   return history.length?new Date(history[0].logged_at).getTime():null;
+}
+function renderStageChips(){
+  const box=document.getElementById('stage-chips'); if(!box)return;
+  if(!sess||!sess.stages.length){ box.innerHTML=''; return; }
+  const chip=(v,n)=>`<button class="gtab" style="flex:none;padding:5px 9px;font-size:10px${String(stagePick)===String(v)?';border-color:var(--amber);color:var(--amber-l)':''}" onclick="pickStage('${v}')">${n}</button>`;
+  box.innerHTML=chip('all','Whole session')+sess.stages.map(s=>chip(s.id,s.name)).join('');
+}
+function pickStage(v){
+  stagePick=v;
+  renderStageChips(); renderHistory();
+  if(fullOpen()) drawChartFull();
 }
 // Ventana en segundos. Se elige por tiempo y no por número de puntos para que
 // el resultado sea el mismo registrando cada 5 s o cada 5 min.
@@ -676,7 +735,7 @@ function toggleSeries(key,on){
   seriesOn[key]=on;
   if(!SERIES.some(s=>seriesOn[s.key])) seriesOn.rise=true;   // nunca dejar el gráfico vacío
   try{localStorage.setItem('pb-series',JSON.stringify(seriesOn));}catch(e){}
-  buildSeriesRows(); drawChart(history); if(fullOpen()) drawChartFull();
+  buildSeriesRows(); drawChart(chartRows()); if(fullOpen()) drawChartFull();
 }
 function buildSeriesRows(){
   const html=SERIES.map(s=>
@@ -697,7 +756,7 @@ function setSmooth(v){
   try{localStorage.setItem('pb-smooth',String(parseInt(v)));}catch(e){}
   const a=document.getElementById('smooth-sel'), b=document.getElementById('smooth-sel-full');
   if(a)a.value=String(parseInt(v)); if(b)b.value=String(parseInt(v));
-  drawChart(history);
+  drawChart(chartRows());
   if(fullOpen()) drawChartFull();
   showToast(parseInt(v)?`Curve smoothed over ${parseInt(v)/60} min`:'Curve shown raw');
 }
@@ -886,9 +945,11 @@ function renderLegend(active){
 }
 function drawChartFull(){
   const box=document.getElementById('chart-full-box');
-  drawChart(history,'chart-full-box',
+  drawChart(chartRows(),'chart-full-box',
             Math.max(600,Math.round(box.clientWidth)),
             Math.max(240,Math.round(box.clientHeight)));
+  const w=chartWindow(), t=document.getElementById('chart-full-title');
+  if(t) t.textContent=(w?w.name+' · ':'')+'growth × over elapsed time';
 }
 function openChartFull(){
   const ov=document.getElementById('chart-full');
@@ -1601,7 +1662,8 @@ async function makeReport(){
   const t0=chartT0()||new Date(history[0].logged_at).getTime();
   const last=history[history.length-1];
   const data={
-    dough:document.getElementById('rep-name').value.trim()||'Unnamed dough',
+    // Por defecto toma el nombre de la sesión; escribir en el campo lo pisa.
+    dough:document.getElementById('rep-name').value.trim()||(sess&&sess.name)||'Unnamed dough',
     started:new Date(t0).toISOString(),
     elapsed_h:+((new Date(last.logged_at).getTime()-t0)/3600000).toFixed(2),
     readings:history.length,
@@ -1726,7 +1788,10 @@ function newSession(){
   const n=document.getElementById('sess-name').value.trim()||'Session';
   if(sess&&!confirm(`Start a new session?\n\n"${sess.name}" and its ${sess.stages.length} stages stay in the reports you have already written, but the live tracking starts over.`))return;
   sess={name:n,startedAt:Date.now(),stages:[],pauses:[]};
-  saveSess(); renderSess(); showToast('▶ Session started: '+n);
+  stagePick='all';
+  saveSess(); renderSess(); renderHistory();
+  const rn=document.getElementById('rep-name'); if(rn&&!rn.value.trim()) rn.placeholder=n;
+  showToast('▶ Session started: '+n);
 }
 function addStage(preset){
   if(!sess){showToast('Start a session first');return;}
@@ -1738,7 +1803,9 @@ function addStage(preset){
   if(cur&&!cur.endedAt) cur.endedAt=now;      // una etapa nueva cierra la anterior
   sess.stages.push({id:now,name:n,startedAt:now,endedAt:null,note:'',photos:[]});
   el.value='';
-  saveSess(); renderSess(); showToast('Stage: '+n);
+  stagePick=String(now);          // el gráfico salta a la etapa recién abierta
+  saveSess(); renderSess(); renderHistory();
+  showToast('Stage: '+n);
 }
 function endStage(id){
   const s=sess&&sess.stages.find(x=>x.id===id); if(!s)return;
@@ -1746,7 +1813,9 @@ function endStage(id){
 }
 function delStage(id){
   if(!confirm('Remove this stage?'))return;
-  sess.stages=sess.stages.filter(x=>x.id!==id); saveSess(); renderSess();
+  sess.stages=sess.stages.filter(x=>x.id!==id);
+  if(String(stagePick)===String(id)) stagePick='all';
+  saveSess(); renderSess(); renderHistory();
 }
 function noteStage(id){
   const s=sess.stages.find(x=>x.id===id); if(!s)return;
@@ -1897,11 +1966,28 @@ async function openReport(data,bodyHtml,photos){
   }
   if(gallery) gallery=`<h2>Photos</h2><div class="report-gallery">${gallery}</div>`;
   bodyHtml+=gallery;
+
+  // Un gráfico por etapa, cada uno con su propio cero. Un panettone son días
+  // con huecos largos entre etapas: una sola curva continua sería casi toda
+  // línea plana entre procesos, y no diría nada de ninguno.
+  let perStage='';
+  if(repSel.chart&&repSel.stages&&sess&&sess.stages.length){
+    const holder=document.getElementById('report-chart');
+    for(const s of sess.stages){
+      const rows=rowsIn({from:s.startedAt,to:s.endedAt||Date.now()});
+      if(rows.length<4) continue;
+      drawChart(rows,'report-chart',900,260);
+      const dur=fmtElapsed((s.endedAt||Date.now())-s.startedAt);
+      perStage+=`<figure class="stage-fig"><figcaption>${s.name} · ${dur} · ${rows.length} readings</figcaption>${holder.innerHTML}</figure>`;
+    }
+    holder.innerHTML='';
+  }
+  if(perStage) bodyHtml+=`<h2>Stage by stage</h2>${perStage}`;
   // El SVG se congela con el informe. Si se regenerara al reabrir, un informe
   // de la semana pasada mostraría la curva de la masa de hoy.
   let chart='';
   if(repSel.chart){
-    drawChart(history,'report-chart',900,300);
+    drawChart(rowsIn(sess?{from:sess.startedAt,to:Date.now()}:null),'report-chart',900,300);
     chart=document.getElementById('report-chart').innerHTML;
   }
   saveReport({id:Date.now(),title:data.dough,meta,html:bodyHtml,chart});
