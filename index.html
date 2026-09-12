@@ -259,6 +259,54 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
       <button class="reset-small" onclick="resetMeta()">↺ Reset target</button>
   </div>
 
+  <div class="card sortable" id="panel-vol">
+    <div class="drag-handle" title="Drag to reorder">⠿</div>
+    <div class="card-label">True volume ratio · optional</div>
+
+    <div class="big-row">
+      <div style="font-size:11px;color:var(--muted)">Dough height <b id="vol-h">--</b></div>
+      <div><span class="big-val" id="vol-x">--</span><span class="big-unit">×</span></div>
+    </div>
+
+    <div class="warn" id="warn-vol" style="margin:10px 0 0">📦 Not calibrated — the × above the Progress card is the classic one and is not a true volume ratio</div>
+
+    <details id="vol-help" style="margin-top:10px">
+      <summary style="font-size:11px;color:var(--amber);cursor:pointer">How to use this</summary>
+      <div style="font-size:11px;color:var(--muted);line-height:1.6;margin-top:8px">
+        <b style="color:var(--text)">What it is for.</b> The classic × divides distances from the sensor, so it depends on how high the sensor is mounted. This one measures the dough's real height, which in a straight-sided jar is a true volume ratio — 100&nbsp;g reaching the 270&nbsp;ml mark is 2.7×.
+        <br><br>
+        <b style="color:var(--text)">1.</b> Put the <b>empty</b> jar under the sensor and press <i>Measure empty jar</i>. That reading is the distance to the bottom.
+        <br>
+        <b style="color:var(--text)">2.</b> Add the dough and mark the start as always.
+        <br>
+        <b style="color:var(--text)">3.</b> Done. The number above is now a real volume ratio.
+        <br><br>
+        Can't empty the jar? Measure from the sensor to the bottom with a ruler and type it in.
+        <br><br>
+        <b style="color:var(--text)">The jar must be straight-sided.</b> If it widens towards the top, height and volume stop being proportional and this number lies.
+        <br><br>
+        You can calibrate <b>after</b> marking the start — the height is derived, not stored, so it corrects itself retroactively.
+      </div>
+    </details>
+
+    <button class="cal-btn" onclick="setJarBase()">📦 Measure empty jar</button>
+    <div class="offset-row">
+      <span style="font-size:11px;color:var(--muted);flex:1">Or by hand</span>
+      <input class="num-input" type="number" id="input-base" placeholder="200" style="width:70px;flex:none">
+      <span class="unit-lbl">mm</span>
+      <button class="mark-btn" onclick="setJarBaseMm()">Apply</button>
+    </div>
+    <div class="offset-row">
+      <span style="font-size:11px;color:var(--muted);flex:1">Target helper</span>
+      <input class="num-input" type="number" id="input-g" placeholder="100" style="width:56px;flex:none">
+      <span class="unit-lbl">g →</span>
+      <input class="num-input" type="number" id="input-ml" placeholder="270" style="width:60px;flex:none">
+      <span class="unit-lbl">ml</span>
+      <button class="mark-btn" onclick="mlToRatio()">=</button>
+    </div>
+    <button class="reset-btn" onclick="clearJarBase()">↺ Forget the jar</button>
+  </div>
+
   <div class="card sortable" id="panel-log">
     <div class="drag-handle" title="Drag to reorder">⠿</div>
     <div class="card-label">Session history</div>
@@ -1106,7 +1154,7 @@ async function clearAlarmFile(){
 const BLOCKS=[
   ['panel-meta','Progress'],['panel-timer','Timer'],['panel-temp','Temperature'],
   ['panel-cond','Conductivity'],['panel-grams','Dough weight'],
-  ['panel-goal','Start & target'],['panel-log','Session history'],['panel-history','Cloud history'],
+  ['panel-goal','Start & target'],['panel-vol','True volume ratio'],['panel-log','Session history'],['panel-history','Cloud history'],
   ['panel-ratio','Rise × (on the Rise tab)']
 ];
 let hiddenBlocks={};
@@ -1136,7 +1184,7 @@ function showToast(msg,dur=6000){
   setTimeout(()=>t.classList.remove('show'),dur);
 }
 // Qué tarjetas pertenecen solo a un modo. Las que no están aquí se ven en los dos.
-const MODE_ONLY={'panel-meta':'meta','panel-grams':'meta','panel-goal':'meta','panel-log':'meta','panel-ratio':'ratio'};
+const MODE_ONLY={'panel-meta':'meta','panel-grams':'meta','panel-goal':'meta','panel-vol':'meta','panel-log':'meta','panel-ratio':'ratio'};
 let currentMode='meta';
 // Pinta qué bloques se ven, sin tocar la pestaña activa. Separado de setDMode a
 // propósito: marcar una casilla en Ajustes no debe cambiarte de pantalla.
@@ -1239,6 +1287,11 @@ function updateUI(d){
     ?`${fmt(d.cond25!=null?d.cond25:d.cond,1)} µS · ${fmt(d.condKohm,1)} kΩ`
       +(d.tempOk?' · at 25\u00b0':'')+(condBaseSet?'':' · no base marked')
     :'no reading';
+
+  const baseSet=+d.base>0;
+  document.getElementById('vol-h').textContent=baseSet?Math.round(d.hgt)+'mm':'--';
+  document.getElementById('vol-x').textContent=(baseSet&&+d.vol>0)?fmt(d.vol,2):'--';
+  document.getElementById('warn-vol').classList.toggle('show',!baseSet);
 
   const ub=document.getElementById('btn-undo');
   if(ub){ ub.disabled=d.canUndo!==true; ub.style.opacity=d.canUndo===true?'1':'.4'; }
@@ -1360,6 +1413,37 @@ function restoreSnap(t){
   if(e.goal) setTimeout(()=>sendCmd({cmd:'metaSetGoalRatio',ratio:e.goal}),400);
   metaFired=false; mpBuf=[]; try{localStorage.setItem('pb-metafired','0');}catch(e2){}
   showToast('↩ Restored — check the progress in a second');
+}
+
+// ─── RATIO DE VOLUMEN REAL (opcional) ─────────────────────────────────────
+// Añadido, no sustituto: el × clásico y el modo cm siguen intactos. El modo cm
+// es exacto de por sí porque resta distancias en vez de dividirlas, así que no
+// necesitaba arreglo.
+function setJarBase(){
+  if(!confirm('Is the jar EMPTY and under the sensor?\n\nThis reading becomes the distance to the bottom.'))return;
+  sendCmd({cmd:'setContainerBase'});
+  showToast('📦 Jar measured');
+}
+function setJarBaseMm(){
+  const mm=parseFloat(document.getElementById('input-base').value);
+  if(!mm||mm<=10){showToast('Type the sensor-to-bottom distance in mm');return;}
+  sendCmd({cmd:'setContainerBaseMm',mm});
+  showToast('📦 Jar set to '+mm+'mm');
+}
+function clearJarBase(){
+  if(!confirm('Forget the jar calibration?\n\nEverything else keeps working exactly the same.'))return;
+  sendCmd({cmd:'clearContainerBase'});
+}
+// 100 g -> 270 ml es 2.7x asumiendo que la masa pesa ~1 g por ml antes de
+// fermentar, que para masa sin fermentar es una aproximación razonable.
+function mlToRatio(){
+  const g=parseFloat(document.getElementById('input-g').value);
+  const ml=parseFloat(document.getElementById('input-ml').value);
+  if(!g||!ml||g<=0){showToast('Fill in grams and target ml');return;}
+  const r=Math.round(ml/g*100)/100;
+  document.getElementById('input-ratio').value=r;
+  setGoalTab('ratio');
+  showToast(`${g}g → ${ml}ml is ${r}× · now press Apply`);
 }
 
 function markStart(){
