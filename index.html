@@ -100,6 +100,10 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
 /* Altura explícita: en grande el SVG se dibuja con height:100%, y sin una
    altura aquí eso resuelve a cero y el gráfico no se ve. */
 .report-chart{margin:18px 0 6px;height:300px}
+.report-gallery{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:12px 0}
+.report-gallery figure{margin:0}
+.report-gallery img{width:100%;border:1px solid var(--rule);border-radius:3px;display:block}
+.report-gallery figcaption{font-size:10px;color:var(--soft);margin-top:4px}
 .report-foot{margin-top:34px;padding-top:12px;border-top:1px solid var(--rule);font-size:10px;color:var(--soft)}
 @media print{
   body>*:not(.report-view){display:none!important}
@@ -321,6 +325,25 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
       <button class="reset-small" onclick="resetMeta()">↺ Reset target</button>
   </div>
 
+  <div class="card sortable" id="panel-session">
+    <div class="drag-handle" title="Drag to reorder">⠿</div>
+    <div class="big-row">
+      <div class="card-label" style="margin:0">Session</div>
+      <div style="font-size:11px;color:var(--muted)" id="sess-clock">--</div>
+    </div>
+    <div class="input-row" style="margin-top:10px">
+      <input class="num-input" type="text" id="sess-name" placeholder="Panettone" style="flex:1;font-size:12px">
+      <button class="mark-btn" onclick="newSession()">New</button>
+    </div>
+    <div id="sess-stages" style="font-size:11px"></div>
+    <div class="input-row" style="margin-top:10px">
+      <input class="num-input" type="text" id="stage-name" placeholder="Stage name" style="flex:1;font-size:12px">
+      <button class="mark-btn" onclick="addStage()">＋ Stage</button>
+    </div>
+    <div id="stage-presets" style="display:flex;flex-wrap:wrap;gap:5px;margin-top:8px"></div>
+    <button class="mark-btn" id="btn-pause" onclick="togglePause()" style="width:100%;margin-top:10px">⏸ Pause session</button>
+  </div>
+
   <div class="card sortable" id="panel-report">
     <div class="drag-handle" title="Drag to reorder">⠿</div>
     <div class="card-label">Fermentation report</div>
@@ -336,6 +359,7 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-
     <div id="rep-opts" style="margin-bottom:10px"></div>
     <button class="cal-btn" onclick="makeReport()" id="btn-report">📄 Write the report</button>
     <div id="rep-state" style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.4"></div>
+    <div id="rep-list"></div>
   </div>
 
   <div class="card sortable" id="panel-log">
@@ -1197,7 +1221,7 @@ async function clearAlarmFile(){
 const BLOCKS=[
   ['panel-meta','Progress'],['panel-timer','Timer'],['panel-temp','Temperature'],
   ['panel-cond','Conductivity'],['panel-grams','Dough weight'],
-  ['panel-goal','Start & target'],['panel-report','Fermentation report'],['panel-log','Session history'],['panel-history','Cloud history'],
+  ['panel-goal','Start & target'],['panel-session','Session & stages'],['panel-report','Fermentation report'],['panel-log','Session history'],['panel-history','Cloud history'],
   ['panel-ratio','Rise × (on the Rise tab)']
 ];
 let hiddenBlocks={};
@@ -1227,7 +1251,7 @@ function showToast(msg,dur=6000){
   setTimeout(()=>t.classList.remove('show'),dur);
 }
 // Qué tarjetas pertenecen solo a un modo. Las que no están aquí se ven en los dos.
-const MODE_ONLY={'panel-meta':'meta','panel-grams':'meta','panel-goal':'meta','panel-report':'meta','panel-log':'meta','panel-ratio':'ratio'};
+const MODE_ONLY={'panel-meta':'meta','panel-grams':'meta','panel-goal':'meta','panel-session':'meta','panel-report':'meta','panel-log':'meta','panel-ratio':'ratio'};
 let currentMode='meta';
 // Pinta qué bloques se ven, sin tocar la pestaña activa. Separado de setDMode a
 // propósito: marcar una casilla en Ajustes no debe cambiarte de pantalla.
@@ -1487,10 +1511,11 @@ function showApiState(){
 }
 
 const REP_OPTS=[
-  ['temp','Temperature'],['cond','Conductivity'],['phases','Phase analysis'],
-  ['chart','Growth chart'],['book','Compare with book references'],['raw','Readings table']
+  ['stages','Session stages'],['photos','Photos'],['temp','Temperature'],
+  ['cond','Conductivity'],['phases','Phase analysis'],['chart','Growth chart'],
+  ['book','Compare with book references'],['raw','Readings table']
 ];
-let repSel={temp:true,cond:false,phases:true,chart:true,book:true,raw:false};
+let repSel={stages:true,photos:true,temp:true,cond:false,phases:true,chart:true,book:true,raw:false};
 let repLang='en';
 function loadRep(){
   try{const r=JSON.parse(localStorage.getItem('pb-repopts')||'null'); if(r)repSel=r;}catch(e){}
@@ -1589,6 +1614,30 @@ async function makeReport(){
   if(repSel.phases) data.phases=analysePhases(history,t0);
   if(repSel.temp)   data.temperature_c=seriesStats(history,'temp_c');
   if(repSel.cond)   data.conductivity_pct=seriesStats(history,'cond_rel');
+
+  // Etapas: cada una se analiza sobre SUS lecturas, acotadas por marca de
+  // tiempo. Por eso una etapa iniciada a posteriori sigue teniendo sus datos.
+  let photos=[];
+  if(repSel.stages&&sess){
+    data.session={name:sess.name,started:new Date(sess.startedAt).toISOString(),
+                  total_h:+((Date.now()-sess.startedAt-pausedMs())/3600000).toFixed(2),
+                  paused_h:+(pausedMs()/3600000).toFixed(2)};
+    data.stages=sess.stages.map(s=>{
+      const end=s.endedAt||Date.now();
+      const rows=history.filter(r=>{const t=new Date(r.logged_at).getTime();return t>=s.startedAt&&t<=end;});
+      const o={name:s.name, started:new Date(s.startedAt).toISOString(),
+               duration_h:+((end-s.startedAt)/3600000).toFixed(2),
+               still_running:!s.endedAt, readings:rows.length};
+      if(s.note) o.note=s.note;
+      if(rows.length>3){
+        o.rise_from_to=[+(+rows[0].rise||1).toFixed(2),+(+rows[rows.length-1].rise||1).toFixed(2)];
+        const tp=seriesStats(rows,'temp_c'); if(tp&&repSel.temp) o.temperature_c=tp;
+      }
+      if((s.photos||[]).length) o.photos=s.photos.length;
+      return o;
+    });
+    if(repSel.photos) sess.stages.forEach(s=>(s.photos||[]).forEach(pid=>photos.push({stage:s.name,id:pid})));
+  }
   if(repSel.raw){
     const step=Math.max(1,Math.floor(history.length/40));
     data.sample=history.filter((_,i)=>i%step===0).map(r=>({
@@ -1612,11 +1661,21 @@ Rules that matter:
 
 Return clean semantic HTML for the report body: h1, h2, p, ul, table. No CSS, no inline styles, no html/body wrapper, no markdown fences.`;
 
-  const user=`Session data:\n${JSON.stringify(data,null,1)}\n\n`+
+  const text=`Session data:\n${JSON.stringify(data,null,1)}\n\n`+
     (repSel.book?`Book reference values:\n${JSON.stringify(BOOK,null,1)}\n\n`:'')+
+    (photos.length?`${photos.length} photos follow, in stage order: ${photos.map(p=>p.stage).join(', ')}. Describe what they show where it informs the report — crumb, dome, colour, alveolation — and say nothing about what you cannot see.\n\n`:'')+
     `Sections requested: ${REP_OPTS.filter(([x])=>repSel[x]).map(([,n])=>n).join(', ')}.`;
 
   try{
+    st.textContent=photos.length?'Preparing photos...':'Claude is writing it...';
+    // Las fotos van al modelo además de al PDF: es lo que convierte el informe
+    // en algo que habla del producto y no solo de la curva.
+    const content=[{type:'text',text}];
+    for(const p of photos.slice(0,8)){
+      const d=await photoDataUrl(p.id);
+      if(d&&d.startsWith('data:image/')) content.push({type:'image',
+        source:{type:'base64',media_type:'image/jpeg',data:d.split(',')[1]}});
+    }
     st.textContent='Claude is writing it...';
     const Anthropic=(await import('https://esm.sh/@anthropic-ai/sdk')).default;
     const client=new Anthropic({apiKey:k,dangerouslyAllowBrowser:true});
@@ -1630,12 +1689,12 @@ Return clean semantic HTML for the report body: h1, h2, p, ul, table. No CSS, no
       betas:['server-side-fallback-2026-07-01'],
       fallbacks:'default',
       system:sys,
-      messages:[{role:'user',content:user}]
+      messages:[{role:'user',content}]
     });
     if(res.stop_reason==='refusal') throw new Error('The model declined this request');
     const html=res.content.filter(b=>b.type==='text').map(b=>b.text).join('\n');
     if(!html.trim()) throw new Error('Empty response');
-    openReport(data,html);
+    openReport(data,html,photos);
     st.textContent='Done — opened in the report view.';
   }catch(e){
     const m=String(e&&e.message||e);
@@ -1647,20 +1706,212 @@ Return clean semantic HTML for the report body: h1, h2, p, ul, table. No CSS, no
   }finally{ btn.disabled=false; }
 }
 
+// ═══ SESIÓN POR ETAPAS ═══════════════════════════════════════════════════
+// Una sesión es una elaboración entera — sacar el lievito de la nevera, los
+// refrescos, los impastos, el horno. Cada etapa guarda cuándo empezó y acabó,
+// y las lecturas se le asignan por marca de tiempo: nada que sincronizar, y
+// funciona hacia atrás sobre lo que ya está registrado.
+const STAGE_PRESETS=['Lievito out of the fridge','1st refresh','2nd refresh','3rd refresh',
+                     'Primo impasto','Secondo impasto','Final proof','Bake'];
+let sess=null;
+function loadSess(){
+  try{sess=JSON.parse(localStorage.getItem('pb-session')||'null');}catch(e){sess=null;}
+  const pres=document.getElementById('stage-presets');
+  if(pres) pres.innerHTML=STAGE_PRESETS.map(n=>
+    `<button class="gtab" style="flex:none;padding:5px 8px;font-size:10px" onclick="addStage('${n.replace(/'/g,"\\'")}')">${n}</button>`).join('');
+  renderSess();
+}
+function saveSess(){ try{localStorage.setItem('pb-session',JSON.stringify(sess));}catch(e){} }
+function newSession(){
+  const n=document.getElementById('sess-name').value.trim()||'Session';
+  if(sess&&!confirm(`Start a new session?\n\n"${sess.name}" and its ${sess.stages.length} stages stay in the reports you have already written, but the live tracking starts over.`))return;
+  sess={name:n,startedAt:Date.now(),stages:[],pauses:[]};
+  saveSess(); renderSess(); showToast('▶ Session started: '+n);
+}
+function addStage(preset){
+  if(!sess){showToast('Start a session first');return;}
+  const el=document.getElementById('stage-name');
+  const n=preset||el.value.trim();
+  if(!n){showToast('Name the stage first');return;}
+  const now=Date.now();
+  const cur=sess.stages[sess.stages.length-1];
+  if(cur&&!cur.endedAt) cur.endedAt=now;      // una etapa nueva cierra la anterior
+  sess.stages.push({id:now,name:n,startedAt:now,endedAt:null,note:'',photos:[]});
+  el.value='';
+  saveSess(); renderSess(); showToast('Stage: '+n);
+}
+function endStage(id){
+  const s=sess&&sess.stages.find(x=>x.id===id); if(!s)return;
+  s.endedAt=Date.now(); saveSess(); renderSess();
+}
+function delStage(id){
+  if(!confirm('Remove this stage?'))return;
+  sess.stages=sess.stages.filter(x=>x.id!==id); saveSess(); renderSess();
+}
+function noteStage(id){
+  const s=sess.stages.find(x=>x.id===id); if(!s)return;
+  const t=prompt('Note for "'+s.name+'"',s.note||''); if(t===null)return;
+  s.note=t; saveSess(); renderSess();
+}
+function togglePause(){
+  if(!sess){showToast('No session running');return;}
+  sess.pauses=sess.pauses||[];
+  const open=sess.pauses.find(p=>!p.to);
+  if(open){ open.to=Date.now(); showToast('▶ Resumed'); }
+  else{ sess.pauses.push({from:Date.now(),to:null}); showToast('⏸ Paused'); }
+  saveSess(); renderSess();
+}
+function sessPaused(){ return !!(sess&&(sess.pauses||[]).some(p=>!p.to)); }
+function pausedMs(){
+  return (sess&&sess.pauses||[]).reduce((a,p)=>a+((p.to||Date.now())-p.from),0);
+}
+function renderSess(){
+  const box=document.getElementById('sess-stages'); if(!box)return;
+  const clock=document.getElementById('sess-clock');
+  const btn=document.getElementById('btn-pause');
+  if(!sess){
+    box.innerHTML='<div style="color:var(--muted);padding:8px 0">No session. Name it and press New.</div>';
+    clock.textContent='--'; btn.textContent='⏸ Pause session'; return;
+  }
+  document.getElementById('sess-name').value=sess.name;
+  const run=Date.now()-sess.startedAt-pausedMs();
+  clock.textContent=`${sess.name} · ${fmtElapsed(run)}`+(sessPaused()?' · paused':'');
+  btn.textContent=sessPaused()?'▶ Resume session':'⏸ Pause session';
+  box.innerHTML=sess.stages.map(s=>{
+    const dur=(s.endedAt||Date.now())-s.startedAt;
+    const t=new Date(s.startedAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+    const thumbs=(s.photos||[]).map(pid=>`<img src="" data-photo="${pid}" style="width:38px;height:38px;object-fit:cover;border-radius:5px;border:1px solid var(--border)">`).join('');
+    return `<div style="padding:8px 0;border-bottom:1px solid var(--border)">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="color:var(--muted);min-width:38px">${t}</span>
+        <span style="flex:1">${s.name}${s.endedAt?'':' <span style="color:var(--green)">•</span>'}</span>
+        <span style="color:var(--muted)">${fmtElapsed(dur)}</span>
+      </div>
+      ${s.note?`<div style="color:var(--muted);margin:4px 0 0 46px;font-style:italic">${s.note}</div>`:''}
+      ${thumbs?`<div style="display:flex;gap:5px;margin:6px 0 0 46px">${thumbs}</div>`:''}
+      <div style="display:flex;gap:5px;margin:6px 0 0 46px">
+        <button class="mark-btn" style="padding:4px 8px;font-size:10px" onclick="pickPhoto(${s.id})">📷</button>
+        <button class="mark-btn" style="padding:4px 8px;font-size:10px" onclick="noteStage(${s.id})">✎ note</button>
+        ${s.endedAt?'':`<button class="mark-btn" style="padding:4px 8px;font-size:10px" onclick="endStage(${s.id})">■ end</button>`}
+        <button class="mark-btn" style="padding:4px 8px;font-size:10px;color:var(--muted)" onclick="delStage(${s.id})">✕</button>
+      </div>
+    </div>`;
+  }).join('');
+  box.querySelectorAll('img[data-photo]').forEach(async img=>{
+    const b=await idbDo('readonly',st=>st.get('photo-'+img.dataset.photo));
+    if(b) img.src=URL.createObjectURL(b);
+  });
+}
+setInterval(()=>{ if(sess&&document.getElementById('sess-clock')) renderSess(); },30000);
+
+// ─── Fotos ────────────────────────────────────────────────────────────────
+// Se reescalan antes de guardar. Una foto de móvil son 4 MB y en un informe
+// caben diez: sin reescalar, el PDF y la petición a la API se vuelven absurdos.
+function pickPhoto(stageId){
+  const inp=document.createElement('input');
+  inp.type='file'; inp.accept='image/*'; inp.capture='environment';
+  inp.onchange=()=>{ if(inp.files[0]) addPhoto(stageId,inp.files[0]); };
+  inp.click();
+}
+function shrinkImage(file,max){
+  return new Promise((res,rej)=>{
+    const img=new Image(), url=URL.createObjectURL(file);
+    img.onload=()=>{
+      const sc=Math.min(1,max/Math.max(img.width,img.height));
+      const c=document.createElement('canvas');
+      c.width=Math.round(img.width*sc); c.height=Math.round(img.height*sc);
+      c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+      URL.revokeObjectURL(url);
+      c.toBlob(b=>b?res(b):rej(new Error('encode failed')),'image/jpeg',0.75);
+    };
+    img.onerror=()=>{URL.revokeObjectURL(url);rej(new Error('not an image'));};
+    img.src=url;
+  });
+}
+async function addPhoto(stageId,file){
+  const s=sess&&sess.stages.find(x=>x.id===stageId); if(!s)return;
+  showToast('Saving photo...');
+  try{
+    const blob=await shrinkImage(file,1400);
+    const id=Date.now();
+    await idbDo('readwrite',st=>st.put(blob,'photo-'+id));
+    s.photos=s.photos||[]; s.photos.push(id);
+    saveSess(); renderSess(); showToast('📷 Photo added to '+s.name);
+  }catch(e){ showToast('Could not save that photo'); }
+}
+async function photoDataUrl(id){
+  const b=await idbDo('readonly',st=>st.get('photo-'+id)); if(!b)return null;
+  return await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.onerror=()=>r(null);fr.readAsDataURL(b);});
+}
+
+// ─── Informes guardados ───────────────────────────────────────────────────
+// Van a IndexedDB, no a localStorage: un informe con fotos pesa megas. Se
+// guardan al generarlos, así que cerrar la vista ya no pierde nada.
+let reports=[];
+async function loadReports(){
+  try{ reports=(await idbDo('readonly',st=>st.get('reports')))||[]; }catch(e){ reports=[]; }
+  renderReports();
+}
+async function saveReport(rec){
+  reports.push(rec);
+  reports=reports.slice(-40);
+  try{ await idbDo('readwrite',st=>st.put(reports,'reports')); }catch(e){}
+  renderReports();
+}
+async function deleteReport(id){
+  if(!confirm('Delete this report?'))return;
+  reports=reports.filter(r=>r.id!==id);
+  try{ await idbDo('readwrite',st=>st.put(reports,'reports')); }catch(e){}
+  renderReports();
+}
+function renderReports(){
+  const box=document.getElementById('rep-list'); if(!box)return;
+  if(!reports.length){ box.innerHTML=''; return; }
+  box.innerHTML='<div style="font-size:10px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;margin:14px 0 4px">Saved</div>'+
+    reports.slice().reverse().map(r=>`
+      <div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);font-size:11px">
+        <span style="color:var(--muted);min-width:64px">${new Date(r.id).toLocaleDateString('en-GB',{day:'2-digit',month:'short'})}</span>
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.title}</span>
+        <button class="mark-btn" style="padding:5px 9px;font-size:10px" onclick="reopenReport(${r.id})">Open</button>
+        <button class="mark-btn" style="padding:5px 8px;font-size:10px;color:var(--muted)" onclick="deleteReport(${r.id})">✕</button>
+      </div>`).join('');
+}
+function reopenReport(id){
+  const r=reports.find(x=>x.id===id); if(!r)return;
+  showReportView(r.title,r.meta,r.html,r.chart);
+}
+
 // ─── Vista imprimible ─────────────────────────────────────────────────────
 // Se imprime desde el navegador en vez de generar el PDF con una librería: el
 // texto sale vectorial y nítido, y "Guardar como PDF" existe igual en el móvil
 // y en el escritorio. html2pdf rasteriza y se ve peor.
-function openReport(data,bodyHtml){
-  const ov=document.getElementById('report-view');
-  document.getElementById('report-body').innerHTML=bodyHtml;
+async function openReport(data,bodyHtml,photos){
   const when=new Date(data.started).toLocaleString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
-  document.getElementById('report-meta').textContent=`${data.dough} · ${when} · ${data.elapsed_h} h · ${data.readings} readings`;
-  ov.classList.add('show');
-  // El gráfico se redibuja aquí dentro: hereda las variables de color claras
-  // del contenedor, así que el mismo SVG sale en tinta sobre blanco.
-  if(repSel.chart) drawChart(history,'report-chart',900,300);
-  else document.getElementById('report-chart').innerHTML='';
+  const meta=`${data.dough} · ${when} · ${data.elapsed_h} h · ${data.readings} readings`;
+  // Las fotos se incrustan como data URL: así el informe guardado es
+  // autocontenido y sigue completo aunque después borres una etapa.
+  let gallery='';
+  for(const p of (photos||[])){
+    const d=await photoDataUrl(p.id);
+    if(d) gallery+=`<figure><img src="${d}"><figcaption>${p.stage}</figcaption></figure>`;
+  }
+  if(gallery) gallery=`<h2>Photos</h2><div class="report-gallery">${gallery}</div>`;
+  bodyHtml+=gallery;
+  // El SVG se congela con el informe. Si se regenerara al reabrir, un informe
+  // de la semana pasada mostraría la curva de la masa de hoy.
+  let chart='';
+  if(repSel.chart){
+    drawChart(history,'report-chart',900,300);
+    chart=document.getElementById('report-chart').innerHTML;
+  }
+  saveReport({id:Date.now(),title:data.dough,meta,html:bodyHtml,chart});
+  showReportView(data.dough,meta,bodyHtml,chart);
+}
+function showReportView(title,meta,bodyHtml,chart){
+  document.getElementById('report-body').innerHTML=bodyHtml;
+  document.getElementById('report-meta').textContent=meta;
+  document.getElementById('report-chart').innerHTML=chart||'';
+  document.getElementById('report-view').classList.add('show');
 }
 function closeReport(){ document.getElementById('report-view').classList.remove('show'); }
 
@@ -1759,6 +2010,8 @@ try{startMode=localStorage.getItem('pb-mode')||'meta';}catch(e){}
 setDMode(startMode==='settings'?'meta':startMode);   // nunca abrir en Ajustes
 loadSeries();
 loadRep();
+loadSess();
+loadReports();
 loadLog();
 initReadout();
 loadAlarms();
