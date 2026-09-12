@@ -419,6 +419,16 @@ body.board .app{max-width:none;padding:16px 22px 80px}
     <div class="drag-handle" title="Drag to reorder">⠿</div>
     <div class="card-label" id="hist-label">Cloud history · growth × over elapsed time</div>
     <div id="stage-chips" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px"></div>
+    <details style="margin-bottom:10px">
+      <summary id="goals-sum" style="font-size:11px;color:var(--amber);cursor:pointer;padding:4px 0">Goal lines</summary>
+      <div id="goals-list" style="font-size:11px"></div>
+      <div class="input-row" style="margin-bottom:0;margin-top:8px">
+        <input class="num-input" type="number" id="sub-x" placeholder="1.5" step="0.1" min="1.01" style="width:66px;flex:none">
+        <span class="unit-lbl">×</span>
+        <input class="num-input" type="text" id="sub-label" placeholder="fold" style="flex:1;font-size:11px">
+        <button class="mark-btn" onclick="addSubGoal()">＋</button>
+      </div>
+    </details>
     <div class="log-row">
       <div>Elapsed: <b id="log-elapsed">--</b></div>
       <div style="color:var(--muted)">Points: <b id="log-count">0</b></div>
@@ -704,7 +714,7 @@ async function fetchHistory(){
   }catch(e){ const el=document.getElementById('log-elapsed'); if(el)el.textContent='error'; }
 }
 function renderHistory(){
-  renderStageChips();
+  renderStageChips(); renderGoals();
   const rows=chartRows(), w=chartWindow(), t0=chartT0();
   document.getElementById('log-count').textContent=rows.length;
   document.getElementById('log-elapsed').textContent=
@@ -742,6 +752,32 @@ function chartT0(){
   if(w) return w.from;
   if(sessionStart) return new Date(sessionStart).getTime();
   return history.length?new Date(history[0].logged_at).getTime():null;
+}
+function addSubGoal(){
+  if(!sess){showToast('Open a session first — goals belong to it');return;}
+  const v=parseFloat(document.getElementById('sub-x').value);
+  if(!v||v<=1){showToast('A ratio above 1, like 1.5');return;}
+  sess.goals=sess.goals||[];
+  sess.goals.push({v:+v.toFixed(2),label:(document.getElementById('sub-label').value||'').trim()});
+  document.getElementById('sub-x').value=''; document.getElementById('sub-label').value='';
+  saveSessions(); renderGoals(); renderHistory();
+}
+function delSubGoal(i){ sess.goals.splice(i,1); saveSessions(); renderGoals(); renderHistory(); }
+function renderGoals(){
+  const box=document.getElementById('goals-list'); if(!box)return;
+  const main=myRatio||lastGoalX||0;
+  const head=main>1
+    ? `<div style="padding:6px 0;border-bottom:1px solid var(--border);color:#e8867a">Target ${(+main).toFixed(2)}× <span style="color:var(--muted)">${myRatio?'· yours':'· from the device'}</span></div>`
+    : '<div style="padding:6px 0;color:var(--muted)">No target set yet</div>';
+  box.innerHTML=head+subGoals().map((g,i)=>
+    `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+       <span style="color:#7a8fa8;min-width:52px">${(+g.v).toFixed(2)}×</span>
+       <span style="flex:1;color:var(--muted)">${g.label||''}</span>
+       <button class="mark-btn" style="padding:4px 8px;font-size:10px;color:var(--muted)" onclick="delSubGoal(${i})">✕</button>
+     </div>`).join('');
+  const sum=document.getElementById('goals-sum');
+  if(sum) sum.textContent=`Goal lines · ${main>1?(+main).toFixed(2)+'× target':'no target'}`+
+    (subGoals().length?` + ${subGoals().length} sub-goal${subGoals().length>1?'s':''}`:'');
 }
 function renderStageChips(){
   const box=document.getElementById('stage-chips'); if(!box)return;
@@ -821,6 +857,31 @@ function smoothSeries(xs,ys,winMs){
   }
   return out;
 }
+// ─── Metas dibujadas sobre la curva ───────────────────────────────────────
+// La principal sale del aparato (o del ratio que escribiste vos, que manda).
+// Las intermedias las pones a mano: sirven para ver venir un plegado o un
+// punto de control antes de llegar, no solo para saber que ya pasó.
+let lastGoalX=0;
+function subGoals(){ return (sess&&sess.goals)||[]; }
+function goalMarks(){
+  const out=[];
+  const main=myRatio||lastGoalX||0;
+  if(main>1) out.push({v:+main,label:(myRatio?'your target':'target'),main:true});
+  for(const g of subGoals()) if(+g.v>1) out.push({v:+g.v,label:g.label||'',main:false});
+  return out.sort((a,b)=>a.v-b.v);
+}
+function goalSvg(marks,sy,W,p,reachedMax){
+  return marks.map(g=>{
+    const y=sy(g.v);
+    if(!isFinite(y)||y<p-2||y>1e5) return '';
+    const hit=reachedMax>=g.v;
+    const col=g.main?'#e8867a':'#7a8fa8';
+    const txt=(g.label?g.label+' · ':'')+g.v.toFixed(2)+'×';
+    return `<line x1="${p}" y1="${y.toFixed(1)}" x2="${W-p}" y2="${y.toFixed(1)}" stroke="${col}" stroke-width="1" `+
+           `stroke-dasharray="${hit?'':'5 4'}" opacity="${hit?.85:.55}"/>`+
+           `<text x="${W-p-3}" y="${(y-4).toFixed(1)}" text-anchor="end" font-size="9" fill="${col}" opacity=".9">${hit?'✓ ':''}${txt}</text>`;
+  }).join('');
+}
 function drawChart(rows,boxId,W,H){
   boxId=boxId||'log-chart'; W=W||340; H=H||90;
   const box=document.getElementById(boxId);
@@ -836,8 +897,13 @@ function drawChart(rows,boxId,W,H){
   const win=smoothSecs()*1000;
   const ys=smoothSeries(xs,raw,win);
   // La escala la fija el dato CRUDO: así la curva suavizada no se sale del
-  // marco y el pico de verdad sigue siendo el techo del gráfico.
-  const x0=0,x1=Math.max(...xs,60000),y0=Math.min(...raw,1),y1=Math.max(...raw,1.1);
+  // marco y el pico de verdad sigue siendo el techo del gráfico. Las metas
+  // también estiran el techo, porque una meta fuera del marco no se ve y es
+  // justo cuando más falta hace: antes de alcanzarla.
+  const marks=goalMarks();
+  const topGoal=marks.length?Math.max(...marks.map(g=>g.v)):0;
+  const x0=0,x1=Math.max(...xs,60000),y0=Math.min(...raw,1);
+  const y1=Math.max(...raw,1.1,topGoal?topGoal*1.03:0);
   const sx=t=>p+(x1===x0?0:(t-x0)/(x1-x0))*(W-2*p);
   const sy=v=>H-p-(y1===y0?0:(v-y0)/(y1-y0))*(H-2*p);
   const path=arr=>arr.map((v,i)=>(i?'L':'M')+sx(xs[i]).toFixed(1)+' '+sy(v).toFixed(1)).join(' ');
@@ -900,6 +966,7 @@ function drawChart(rows,boxId,W,H){
   }
   box.innerHTML=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:${W>500?'100%':H+'px'};display:block" preserveAspectRatio="none">
     ${grid}
+    ${goalSvg(marks,sy,W,p,Math.max(...raw))}
     ${seriesOn.rise?`<path d="${area}" fill="rgba(212,130,14,.12)"/>`:''}
     ${ghost}
     ${seriesOn.rise?`<path d="${line}" fill="none" stroke="var(--amber-l)" stroke-width="1.5" stroke-linejoin="round"/>`:''}
@@ -1590,6 +1657,7 @@ function updateUI(d){
   document.getElementById('meta-ratio-goal').textContent=d.metaGoalSet?fmt(d.metaRatioGoal)+'×':'--×';
   document.getElementById('cm-grown').textContent=fmt(cmS)+'cm';
   lastStart.set=d.metaStartSet===true;
+  if(d.metaGoalSet&&+d.metaRatioGoal>1) lastGoalX=+d.metaRatioGoal;
   // Progreso contra TU ratio, si lo has puesto. Se calcula sobre el crecimiento
   // en cm, que es exacto, no sobre el × del sensor.
   const ml=document.getElementById('myratio-line');
