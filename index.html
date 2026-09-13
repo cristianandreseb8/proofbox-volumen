@@ -187,6 +187,39 @@ body.board .app{max-width:none;padding:16px 22px 80px}
 </head>
 <body>
 <div class="toast" id="toast"></div>
+<div class="modal" id="past-modal">
+  <div class="modal-box">
+    <div class="card-label" style="margin-bottom:4px">Add a past stage</div>
+    <div style="font-size:10px;color:var(--muted);margin-bottom:12px;line-height:1.4">For what happened before the sensor was watching. Whatever you enter is marked as your own observation, never mixed in with measurements.</div>
+
+    <input class="num-input" type="text" id="pa-name" placeholder="Stage name" style="width:100%;font-size:13px;margin-bottom:8px">
+    <div id="pa-presets" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:12px"></div>
+
+    <div class="input-row">
+      <span style="font-size:11px;color:var(--muted);min-width:38px">From</span>
+      <input class="num-input" type="datetime-local" id="pa-from" style="flex:1;font-size:11px">
+    </div>
+    <div class="input-row">
+      <span style="font-size:11px;color:var(--muted);min-width:38px">To</span>
+      <input class="num-input" type="datetime-local" id="pa-to" style="flex:1;font-size:11px">
+    </div>
+
+    <div class="input-row">
+      <span style="font-size:11px;color:var(--muted);flex:1">It grew to</span>
+      <input class="num-input" type="number" id="pa-rise" placeholder="2.7" step="0.1" style="width:66px;flex:none">
+      <span class="unit-lbl">×</span>
+      <input class="num-input" type="number" id="pa-temp" placeholder="28" step="0.5" style="width:60px;flex:none">
+      <span class="unit-lbl">°C</span>
+    </div>
+    <input class="num-input" type="text" id="pa-note" placeholder="Note (optional)" style="width:100%;font-size:12px;margin-bottom:4px">
+
+    <div class="log-btns" style="margin-top:16px">
+      <button class="mark-btn" onclick="closePast()" style="flex:1">Cancel</button>
+      <button class="cal-btn" onclick="addPastStage()" style="flex:2;margin:0">＋ Add it</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal" id="next-modal">
   <div class="modal-box">
     <div class="card-label" style="margin-bottom:12px">Next stage</div>
@@ -424,6 +457,7 @@ body.board .app{max-width:none;padding:16px 22px 80px}
       <button class="mark-btn" onclick="renameSession()">Rename</button>
     </div>
     <button class="cal-btn" id="btn-next" onclick="openNext()" style="margin:10px 0 4px">▶ Start reading</button>
+    <button class="mark-btn" onclick="openPast()" style="width:100%;margin-bottom:4px">✎ Add a past stage</button>
     <div id="sess-stages" style="font-size:11px"></div>
     <div class="input-row" style="margin-top:10px">
       <input class="num-input" type="text" id="stage-name" placeholder="Stage name" style="flex:1;font-size:12px">
@@ -877,6 +911,49 @@ addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible
 // el timer eran seis acciones repartidas por tres tarjetas. En una elaboración
 // de tres días, olvidar una sola a las cuatro de la mañana arruina el informe
 // del final. Aquí se hacen todas juntas o no se hace ninguna.
+// ─── Etapas anotadas a posteriori ─────────────────────────────────────────
+// Lo que pasó sin el sensor delante. Se guardan con manual:true y todo lo que
+// escribas viaja etiquetado como observación tuya: el informe tiene que poder
+// distinguir lo medido de lo recordado, o las conclusiones se contaminan.
+function openPast(){
+  if(!sess){showToast('Open a session first');return;}
+  const p=document.getElementById('pa-presets');
+  p.innerHTML=STAGE_PRESETS.map(n=>
+    `<button class="gtab" style="flex:none;padding:5px 8px;font-size:10px" `+
+    `onclick="document.getElementById('pa-name').value='${n.replace(/'/g,"\\'")}'">${n}</button>`).join('');
+  const pad=n=>String(n).padStart(2,'0');
+  const local=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  // Por defecto, el hueco antes de lo que ya hay: es donde casi siempre encaja.
+  const first=sess.stages.length?Math.min(...sess.stages.map(s=>s.startedAt)):Date.now();
+  document.getElementById('pa-to').value=local(new Date(first));
+  document.getElementById('pa-from').value=local(new Date(first-3*3600000));
+  document.getElementById('pa-name').value='';
+  document.getElementById('past-modal').classList.add('show');
+}
+function closePast(){ document.getElementById('past-modal').classList.remove('show'); }
+function addPastStage(){
+  const name=(document.getElementById('pa-name').value||'').trim();
+  if(!name){showToast('Name the stage');return;}
+  const from=Date.parse(document.getElementById('pa-from').value);
+  const to  =Date.parse(document.getElementById('pa-to').value);
+  if(!from||!to||to<=from){showToast('Check the two times');return;}
+  const rise=parseFloat(document.getElementById('pa-rise').value);
+  const temp=parseFloat(document.getElementById('pa-temp').value);
+  sess.stages.push({id:Date.now(),name,startedAt:from,endedAt:to,
+    note:(document.getElementById('pa-note').value||'').trim(),photos:[],
+    manual:true,
+    manualRise:isFinite(rise)&&rise>0?+rise.toFixed(2):null,
+    manualTemp:isFinite(temp)?+temp.toFixed(1):null});
+  // Ordenar por hora: una etapa del pasado va delante de las que ya estaban.
+  sess.stages.sort((a,b)=>a.startedAt-b.startedAt);
+  // La sesión empieza cuando empieza su primera etapa, aunque sea anterior.
+  sess.startedAt=Math.min(sess.startedAt,from);
+  saveSessions(); renderSess(); renderHistory(); fetchHistory();
+  ['pa-rise','pa-temp','pa-note'].forEach(k=>document.getElementById(k).value='');
+  closePast();
+  showToast('✎ '+name+' added');
+}
+
 let nxMode='cm';
 function nxTab(m){
   nxMode=m;
@@ -1076,6 +1153,27 @@ function goalSvg(marks,sy,W,p,reachedMax){
            `<text x="${W-p-3}" y="${(y-4).toFixed(1)}" text-anchor="end" font-size="9" fill="${col}" opacity=".9">${hit?'✓ ':''}${txt}</text>`;
   }).join('');
 }
+// Las etapas, dibujadas sobre el eje de tiempos. Las anotadas a mano se rayan
+// en diagonal: no hay curva que enseñar ahí, y marcarlas igual que las medidas
+// haría creer que el sensor estuvo delante cuando no lo estuvo.
+function stageSvg(t0,x0,x1,sx,H,p,W){
+  if(!sess||stagePick!=='all') return '';
+  const big=W>500;
+  return sess.stages.map(s=>{
+    const a=s.startedAt-t0, b=(s.endedAt||Date.now())-t0;
+    if(b<x0||a>x1) return '';
+    const xa=sx(Math.max(a,x0)), xb=sx(Math.min(b,x1));
+    if(xb-xa<1) return '';
+    const band=s.manual
+      ? `<rect x="${xa.toFixed(1)}" y="${p}" width="${(xb-xa).toFixed(1)}" height="${H-2*p}" fill="#7a8fa8" opacity=".10"/>`
+      : '';
+    const tick=`<line x1="${xa.toFixed(1)}" y1="${p}" x2="${xa.toFixed(1)}" y2="${H-p}" stroke="var(--muted)" stroke-width="1" opacity=".45" stroke-dasharray="2 3"/>`;
+    const lab=big&&(xb-xa)>44
+      ? `<text x="${(xa+4).toFixed(1)}" y="${p+11}" font-size="9" fill="${s.manual?'#7a8fa8':'var(--muted)'}" opacity=".9">${s.name}${s.manual?' ✎':''}</text>`
+      : '';
+    return band+tick+lab;
+  }).join('');
+}
 function drawChart(rows,boxId,W,H){
   boxId=boxId||'log-chart'; W=W||340; H=H||90;
   const box=document.getElementById(boxId);
@@ -1160,6 +1258,7 @@ function drawChart(rows,boxId,W,H){
   }
   box.innerHTML=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:${W>500?'100%':H+'px'};display:block" preserveAspectRatio="none">
     ${grid}
+    ${stageSvg(t0,x0,x1,sx,H,p,W)}
     ${goalSvg(marks,sy,W,p,Math.max(...raw))}
     ${seriesOn.rise?`<path d="${area}" fill="rgba(212,130,14,.12)"/>`:''}
     ${ghost}
@@ -2196,6 +2295,11 @@ async function makeReport(){
       const o={name:s.name, started:new Date(s.startedAt).toISOString(),
                duration_h:+((end-s.startedAt)/3600000).toFixed(2),
                still_running:!s.endedAt, readings:rows.length};
+      if(s.manual){
+        o.source='entered by the baker afterwards, not measured';
+        if(s.manualRise!=null) o.reported_rise_x=s.manualRise;
+        if(s.manualTemp!=null) o.reported_temperature_c=s.manualTemp;
+      }
       if(s.note) o.note=s.note;
       if(rows.length>3){
         o.rise_from_to=[+(+rows[0].rise||1).toFixed(2),+(+rows[rows.length-1].rise||1).toFixed(2)];
@@ -2222,6 +2326,7 @@ Write in ${LANG}. Precise and sober: this is a technical record, not marketing.
 
 Rules that matter:
 - Every number you state must come from the data given. Never invent a measurement.
+- A stage carrying "source: entered by the baker afterwards" was not measured. Use it, but say where it came from, and never present it as a sensor reading or average it together with measured values.
 - baker_target_x, when present, is the baker's own reading from a graduated jar. It is authoritative. Do not replace it with the sensor's ratio.
 - If the dough was stopped before reaching a phase, say plainly that it did not get there, and only then estimate what would have followed under the same conditions, labelled as an estimate.
 - The ratio comes from a distance sensor and is a height measurement, not a true volume. Mention that limit once if a conclusion depends on it, not more.
@@ -2431,12 +2536,16 @@ function renderSess(){
     const dur=(s.endedAt||Date.now())-s.startedAt;
     const t=new Date(s.startedAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
     const thumbs=(s.photos||[]).map(pid=>`<img src="" data-photo="${pid}" style="width:38px;height:38px;object-fit:cover;border-radius:5px;border:1px solid var(--border)">`).join('');
+    const hand=s.manual?`<span style="color:#7a8fa8;font-size:9px;border:1px solid #7a8fa8;border-radius:4px;padding:1px 4px;margin-left:6px">noted</span>`:'';
+    const handVals=s.manual&&(s.manualRise||s.manualTemp!=null)
+      ? `<div style="color:#7a8fa8;margin:4px 0 0 46px">${s.manualRise?s.manualRise+'× ':''}${s.manualTemp!=null?s.manualTemp+'°':''}</div>` : '';
     return `<div style="padding:8px 0;border-bottom:1px solid var(--border)">
       <div style="display:flex;align-items:center;gap:8px">
         <span style="color:var(--muted);min-width:38px">${t}</span>
-        <span style="flex:1">${s.name}${s.endedAt?'':' <span style="color:var(--green)">•</span>'}</span>
+        <span style="flex:1">${s.name}${hand}${s.endedAt?'':' <span style="color:var(--green)">•</span>'}</span>
         <span style="color:var(--muted)">${fmtElapsed(dur)}</span>
       </div>
+      ${handVals}
       ${s.note?`<div style="color:var(--muted);margin:4px 0 0 46px;font-style:italic">${s.note}</div>`:''}
       ${thumbs?`<div style="display:flex;gap:5px;margin:6px 0 0 46px">${thumbs}</div>`:''}
       <div style="display:flex;gap:5px;margin:6px 0 0 46px">
