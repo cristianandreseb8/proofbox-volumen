@@ -542,13 +542,13 @@ body.board .app{max-width:none;padding:16px 22px 80px}
 
   <div class="card">
     <div class="card-label">Claude API</div>
-    <div class="input-row">
-      <input class="num-input" type="password" id="api-key" placeholder="sk-ant-..." autocomplete="off" style="flex:1;font-size:12px">
-      <button class="mark-btn" onclick="saveApiKey()">Save</button>
+    <div id="api-state" style="font-size:11px;color:var(--muted)">—</div>
+    <div style="font-size:10px;color:var(--muted);margin-top:8px;line-height:1.5">
+      Reports are written through a function on the server, so the credential never reaches any browser and every device works without setting anything up.
+      <br><br>
+      One-time step, done once for all devices: in the Supabase dashboard open <b>Edge Functions → Secrets</b> and add <b>ANTHROPIC_API_KEY</b> with your key. Nothing to paste here.
     </div>
-    <div id="api-state" style="font-size:11px;color:var(--muted);margin-top:6px"></div>
-    <div style="font-size:10px;color:var(--muted);margin-top:8px;line-height:1.5">Used to write the fermentation reports. The key is kept in this browser only and goes straight to Anthropic — it never passes through GitHub Pages or any server of ours. Anyone with access to this phone can read it, so use a key you can revoke.</div>
-    <button class="reset-btn" onclick="clearApiKey()">↺ Forget the key</button>
+    <button class="mark-btn" onclick="testProxy()" style="width:100%;margin-top:10px">Check the server</button>
   </div>
 
   <div class="card">
@@ -2051,27 +2051,22 @@ function restoreSnap(t){
 }
 
 // ═══ INFORMES CON LA API DE CLAUDE ═══════════════════════════════════════
-// La credencial vive solo en este navegador y la petición va directa a
-// Anthropic. La página es estática (GitHub Pages): no hay servidor nuestro por
-// el que pase, ni se sube a ningún sitio.
-function apiKey(){ try{return localStorage.getItem('pb-apikey')||'';}catch(e){return '';} }
-function saveApiKey(){
-  const k=document.getElementById('api-key').value.trim();
-  if(!k){showToast('Paste it in the box first');return;}
-  try{localStorage.setItem('pb-apikey',k);}catch(e){}
-  document.getElementById('api-key').value='';
-  showApiState(); showToast('Saved on this device');
+// Ya no hay credencial en el navegador: la petición va al proxy y la clave vive
+// en el servidor. Ver la tarjeta Claude API en Ajustes.
+async function testProxy(){
+  const el=document.getElementById('api-state');
+  el.textContent='Checking…'; el.style.color='var(--muted)';
+  try{
+    const r=await fetch(`${SUPA_URL}/functions/v1/claude-proxy`,{
+      method:'POST',headers:{Authorization:'Bearer '+SUPA_JWT,'Content-Type':'application/json'},
+      body:JSON.stringify({max_tokens:16,messages:[{role:'user',content:'Reply with OK'}]})});
+    const d=await r.json();
+    if(d.error==='no_key'){ el.textContent='No credential on the server yet — add ANTHROPIC_API_KEY in Supabase'; el.style.color='var(--amber-l)'; }
+    else if(!r.ok){ el.textContent='Server said: '+((d.error&&(d.error.message||d.error))||r.status); el.style.color='var(--red)'; }
+    else { el.textContent='Working — reports will run on any device'; el.style.color='var(--green)'; }
+  }catch(e){ el.textContent='Could not reach the server'; el.style.color='var(--red)'; }
 }
-function clearApiKey(){
-  try{localStorage.removeItem('pb-apikey');}catch(e){}
-  showApiState(); showToast('Forgotten');
-}
-function showApiState(){
-  const el=document.getElementById('api-state'); if(!el)return;
-  const k=apiKey();
-  el.textContent = k ? 'Saved · ...'+k.slice(-6) : 'Nothing saved — reports are off';
-  el.style.color = k ? 'var(--green)' : 'var(--muted)';
-}
+function showApiState(){ testProxy(); }
 
 const REP_OPTS=[
   ['stages','Session stages'],['photos','Photos'],['temp','Temperature'],
@@ -2166,8 +2161,6 @@ const BOOK={
 };
 
 async function makeReport(){
-  const k=apiKey();
-  if(!k){showToast('Add your Claude API credential in Settings first',8000);return;}
   if(!history.length){showToast('No readings logged yet');return;}
   const btn=document.getElementById('btn-report'), st=document.getElementById('rep-state');
   btn.disabled=true; st.style.color='var(--muted)'; st.textContent='Reading the session...';
@@ -2242,7 +2235,7 @@ Return clean semantic HTML for the report body: h1, h2, p, ul, table. No CSS, no
     `Sections requested: ${REP_OPTS.filter(([x])=>repSel[x]).map(([,n])=>n).join(', ')}.`;
 
   try{
-    st.textContent=photos.length?'Preparing photos...':'Claude is writing it...';
+    st.textContent=photos.length?'Preparing photos…':'Claude is writing it…';
     // Las fotos van al modelo además de al PDF: es lo que convierte el informe
     // en algo que habla del producto y no solo de la curva.
     const content=[{type:'text',text}];
@@ -2252,20 +2245,20 @@ Return clean semantic HTML for the report body: h1, h2, p, ul, table. No CSS, no
         source:{type:'base64',media_type:'image/jpeg',data:d.split(',')[1]}});
     }
     st.textContent='Claude is writing it...';
-    const Anthropic=(await import('https://esm.sh/@anthropic-ai/sdk')).default;
-    const client=new Anthropic({apiKey:k,dangerouslyAllowBrowser:true});
-    // client.beta.messages: betas y fallbacks solo existen en ese espacio.
-    // El fallback del servidor reintenta en otro modelo si este declina la
-    // petición, en la misma llamada, en vez de dejarte sin informe.
-    const res=await client.beta.messages.create({
-      model:'claude-opus-5',
-      max_tokens:16000,
-      thinking:{type:'adaptive'},
-      betas:['server-side-fallback-2026-07-01'],
-      fallbacks:'default',
-      system:sys,
-      messages:[{role:'user',content}]
-    });
+    // Va por el proxy del servidor, no directo a Anthropic. La credencial vive
+    // en el entorno de la edge function, así que funciona desde cualquier
+    // dispositivo sin configurar nada y ningún navegador la ve.
+    const rr=await fetch(`${SUPA_URL}/functions/v1/claude-proxy`,{
+      method:'POST',
+      headers:{Authorization:'Bearer '+SUPA_JWT,'Content-Type':'application/json'},
+      body:JSON.stringify({model:'claude-opus-5',max_tokens:16000,
+                           thinking:{type:'adaptive'},system:sys,
+                           messages:[{role:'user',content}]})});
+    const res=await rr.json();
+    if(!rr.ok||res.error){
+      if(res.error==='no_key') throw new Error('no_key');
+      throw new Error((res.error&&(res.error.message||res.error))||('HTTP '+rr.status));
+    }
     if(res.stop_reason==='refusal') throw new Error('The model declined this request');
     const html=res.content.filter(b=>b.type==='text').map(b=>b.text).join('\n');
     if(!html.trim()) throw new Error('Empty response');
@@ -2273,7 +2266,8 @@ Return clean semantic HTML for the report body: h1, h2, p, ul, table. No CSS, no
     st.textContent='Done — opened in the report view.';
   }catch(e){
     const m=String(e&&e.message||e);
-    st.textContent = /401|authentication|invalid.*key/i.test(m) ? 'Rejected — check the credential in Settings.'
+    st.textContent = m==='no_key' ? 'The server has no Claude credential yet — see Settings for the one-time step.'
+                   : /401|authentication|invalid.*key/i.test(m) ? 'The server credential was rejected.'
                    : /429|rate.limit/i.test(m) ? 'Rate limited. Wait a moment and try again.'
                    : /credit|billing/i.test(m)  ? 'That account has no credit left.'
                    : 'Could not write it: '+m;
