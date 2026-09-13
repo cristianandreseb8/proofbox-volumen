@@ -1795,7 +1795,11 @@ setInterval(()=>{
   }
   renderTimer();
 },250);
-function showToast(msg,dur=6000){
+// 6 s por defecto era demasiado para una confirmación: el aviso seguía encima
+// del contenido mucho después de haber leído lo que decía. Los mensajes que
+// importan de verdad (subidas largas, errores, meta alcanzada) siguen pasando
+// su propia duración.
+function showToast(msg,dur=2200){
   const t=document.getElementById('toast');
   t.textContent=msg;t.classList.add('show');
   setTimeout(()=>t.classList.remove('show'),dur);
