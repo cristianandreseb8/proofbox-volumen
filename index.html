@@ -523,6 +523,14 @@ body.board .app{max-width:none;padding:16px 22px 80px}
   </div>
 
   <div class="card">
+    <div class="card-label">All reports</div>
+    <details>
+      <summary id="all-rep-sum" style="font-size:11px;color:var(--amber);cursor:pointer;padding:4px 0">Reports</summary>
+      <div id="all-rep-list" style="font-size:11px"></div>
+    </details>
+  </div>
+
+  <div class="card">
     <div class="card-label">Sync</div>
     <div id="sync-note" style="font-size:11px;color:var(--muted)">—</div>
     <div style="font-size:10px;color:var(--muted);margin-top:8px;line-height:1.5">Sessions, stages, goals, notes and written reports travel through Supabase, so the phone and the computer open the same bake. Readings were always there. Photos stay on the device that took them.</div>
@@ -612,8 +620,7 @@ let mqttClient=null, lastMeta=0;
 const STALE_MS=12000;
 let lastStatusMs=0, brokerUp=false, laserOk=true, condOk=false, tempOk=false;
 let lastStart={set:false};
-let metaFired=false;
-try{metaFired=localStorage.getItem('pb-metafired')==='1';}catch(e){}
+let metaFired=false;   // por hoja: vive en sess.metaFired
 
 // El progreso tiembla con el ruido del ToF. Disparar con el valor instantáneo
 // hacía sonar la alarma en un pico y otra vez al siguiente. Se exige que la
@@ -716,7 +723,7 @@ function zeroForNewSheet(){
   }).catch(()=>{});
   sessionStart=now; history=[];
   if(pctAlarm.pct){pctAlarm.fired=false; savePct();}
-  metaFired=false; mpBuf=[]; try{localStorage.setItem('pb-metafired','0');}catch(e){}
+  metaFired=false; mpBuf=[]; if(sess){sess.metaFired=false; saveSessions();}
   // Un punto de referencia en cuanto el ESP32 haya recalibrado.
   setTimeout(()=>{
     fetch(`${SUPA_URL}/functions/v1/proofbox-logger`,{method:'POST',headers:{Authorization:'Bearer '+SUPA_JWT}})
@@ -814,7 +821,7 @@ function chartT0(){
 // dos dispositivos es suficiente y es previsible; algo más elaborado exigiría
 // cuentas y fusión por campos, que aquí no se justifica.
 let syncTimer=null, lastPulled=0, syncing=false;
-function syncState(){ return {sessions, activeSess, reports, myRatio, v:1}; }
+function syncState(){ return {sessions, activeSess, reports, v:2}; }
 function setSyncNote(t,col){
   const el=document.getElementById('sync-note'); if(!el)return;
   el.textContent=t; el.style.color=col||'var(--muted)';
@@ -852,8 +859,9 @@ async function pullState(force){
     sessions=d.sessions||[];
     activeSess=d.activeSess||(sessions[0]&&sessions[0].id)||null;
     sess=sessions.find(s=>s.id===activeSess)||null;
+    bindSessionState();
     if(Array.isArray(d.reports)) reports=d.reports;
-    if(d.myRatio){ myRatio=d.myRatio; try{localStorage.setItem('pb-myratio',String(d.myRatio));}catch(e){} }
+    
     saveSessions();
     renderSessBar(); renderSess(); renderReports(); renderHistory();
     lastPulled=remote;
@@ -907,17 +915,17 @@ function doNextStage(){
   if(mark){
     // Sin preguntar: el diálogo YA es la confirmación. Preguntar otra vez a
     // mitad de camino es exactamente lo que confundía antes.
-    metaFired=false; mpBuf=[]; try{localStorage.setItem('pb-metafired','0');}catch(e){}
+    metaFired=false; mpBuf=[]; if(sess){sess.metaFired=false; saveSessions();}
     const g=parseFloat(document.getElementById('input-grams').value)||0;
     sendCmd({cmd:'metaSetStart',grams:g});
   }
   const applyTarget=()=>{
     if(nxMode==='cm'&&cm>0){
       sendCmd({cmd:'metaSetGoalCm',cm});
-      if(cmx>1){ myRatio=cmx; try{localStorage.setItem('pb-myratio',String(cmx));}catch(e){} }
+      if(cmx>1){ myRatio=cmx; if(sess)sess.myRatio=cmx; }
     }else if(nxMode==='x'&&rx>1){
       sendCmd({cmd:'metaSetGoalRatio',ratio:rx});
-      myRatio=rx; try{localStorage.setItem('pb-myratio',String(rx));}catch(e){}
+      myRatio=rx; if(sess)sess.myRatio=rx;
     }
   };
   // La meta va después del inicio: fijarla antes la calcularía contra el cero viejo.
@@ -1525,19 +1533,40 @@ function initSort(){
 // El countdown se guarda como INSTANTE DE FIN, no como segundos restantes. Así
 // sigue corriendo con la app cerrada o el móvil bloqueado: al volver se calcula
 // lo que queda mirando el reloj, no un contador que se paró.
-let timer={endAt:null,leftMs:0,totalMs:0,running:false,fired:false};
+// El timer, la alarma por porcentaje y el ratio del panadero son de la HOJA,
+// no del aparato. Eran globales y se veía el timer de un panettone dentro de
+// una hoja recién creada, que no tiene nada que ver con él.
+//
+// `timer` y `pctAlarm` apuntan al objeto de la sesión, así que mutarlos ya
+// guarda en la hoja; solo hace falta persistir la sesión.
+const EMPTY_TIMER={endAt:null,leftMs:0,totalMs:0,running:false,fired:false};
+let timer={...EMPTY_TIMER};
 let pctAlarm={pct:null,fired:false};
 let audioCtx=null;
 
-function saveTimer(){try{localStorage.setItem('pb-timer',JSON.stringify(timer));}catch(e){}}
-function savePct(){try{localStorage.setItem('pb-pctalarm',JSON.stringify(pctAlarm));}catch(e){}}
-function loadAlarms(){
-  try{const t=JSON.parse(localStorage.getItem('pb-timer')||'null'); if(t)timer=t;}catch(e){}
-  try{const a=JSON.parse(localStorage.getItem('pb-pctalarm')||'null'); if(a)pctAlarm=a;}catch(e){}
-  if(pctAlarm.pct)document.getElementById('input-pct-alarm').value=pctAlarm.pct;
-  if(myRatio)document.getElementById('input-myratio').value=myRatio;
+function bindSessionState(){
+  if(!sess){
+    timer={...EMPTY_TIMER}; pctAlarm={pct:null,fired:false}; myRatio=null; metaFired=false;
+  }else{
+    sess.timer    = sess.timer    || {...EMPTY_TIMER};
+    sess.pctAlarm = sess.pctAlarm || {pct:null,fired:false};
+    timer=sess.timer; pctAlarm=sess.pctAlarm;
+    myRatio=sess.myRatio||null;
+    metaFired=!!sess.metaFired;
+  }
+  const a=document.getElementById('input-pct-alarm'); if(a) a.value=pctAlarm.pct||'';
+  const m=document.getElementById('input-myratio');   if(m) m.value=myRatio||'';
+  mpBuf=[];
   renderTimer();
 }
+function saveTimer(){ saveSessions(); }
+// Reasignar `timer` o `pctAlarm` rompe el enlace con sess.*, y los cambios
+// dejan de guardarse en la hoja sin que nada falle a la vista. Todo reemplazo
+// pasa por aquí, que vuelve a atarlos.
+function setTimerState(o){ if(sess){sess.timer=o; timer=sess.timer;} else timer=o; }
+function setPctState(o){   if(sess){sess.pctAlarm=o; pctAlarm=sess.pctAlarm;} else pctAlarm=o; }
+function savePct(){ saveSessions(); }
+function loadAlarms(){ bindSessionState(); }
 function timerLeft(){
   if(timer.running&&timer.endAt)return Math.max(0,timer.endAt-Date.now());
   return timer.leftMs||0;
@@ -1585,13 +1614,13 @@ function timerToggle(){
   saveTimer(); renderTimer();
 }
 function timerReset(){
-  timer={endAt:null,leftMs:0,totalMs:0,running:false,fired:false};
+  setTimerState({endAt:null,leftMs:0,totalMs:0,running:false,fired:false});
   saveTimer(); renderTimer();
 }
 function setPctAlarm(){
   const v=parseFloat(document.getElementById('input-pct-alarm').value);
-  if(!v||v<=0){pctAlarm={pct:null,fired:false};showToast('Progress alarm off');}
-  else{pctAlarm={pct:v,fired:false};unlockAudio();showToast(`🎯 Alarm armed at ${v}%`);}
+  if(!v||v<=0){setPctState({pct:null,fired:false});showToast('Progress alarm off');}
+  else{setPctState({pct:v,fired:false});unlockAudio();showToast(`🎯 Alarm armed at ${v}%`);}
   savePct(); renderTimer();
 }
 // Los móviles solo dejan sonar después de un toque. Todos los botones que arman
@@ -1863,7 +1892,7 @@ function updateUI(d){
       fireAlarm(`🎯 The dough reached ${pctAlarm.pct}%`);
     }
     if(d.metaGoalSet&&!metaFired&&avg>=100){
-      metaFired=true; try{localStorage.setItem('pb-metafired','1');}catch(e){}
+      metaFired=true; if(sess){sess.metaFired=true; saveSessions();}
       fireAlarm('🎉 The dough hit the target! '+fmt(mrcS)+'×');
     }
   }
@@ -2013,7 +2042,7 @@ function restoreSnap(t){
   if(!confirm(`Go back to this point?\n\nStart ${e.start}mm${e.goal?` · target ${e.goal}×`:''}${e.grams?` · ${e.grams}g`:''}\n\nThe ProofBox will recalculate the progress from there.`))return;
   sendCmd({cmd:'metaSetStartAt',mm:e.start,grams:e.grams});
   if(e.goal) setTimeout(()=>sendCmd({cmd:'metaSetGoalRatio',ratio:e.goal}),400);
-  metaFired=false; mpBuf=[]; try{localStorage.setItem('pb-metafired','0');}catch(e2){}
+  metaFired=false; mpBuf=[]; if(sess){sess.metaFired=false; saveSessions();}
   showToast('↩ Restored — check the progress in a second');
 }
 
@@ -2268,6 +2297,15 @@ function loadSess(){
   try{activeSess=+localStorage.getItem('pb-active-sess')||null;}catch(e){}
   if(!sessions.find(s=>s.id===activeSess)) activeSess=sessions.length?sessions[0].id:null;
   sess=sessions.find(s=>s.id===activeSess)||null;
+  // Migración desde cuando todo esto era global: se adopta una sola vez en la
+  // hoja activa en vez de perderse.
+  if(sess&&!sess.timer){
+    try{const t=JSON.parse(localStorage.getItem('pb-timer')||'null'); if(t)sess.timer=t;}catch(e){}
+    try{const a=JSON.parse(localStorage.getItem('pb-pctalarm')||'null'); if(a)sess.pctAlarm=a;}catch(e){}
+    try{const r=parseFloat(localStorage.getItem('pb-myratio')); if(r>1)sess.myRatio=r;}catch(e){}
+    ['pb-timer','pb-pctalarm','pb-myratio','pb-metafired'].forEach(k=>{try{localStorage.removeItem(k);}catch(e){}});
+  }
+  bindSessionState();
   const pres=document.getElementById('stage-presets');
   if(pres) pres.innerHTML=STAGE_PRESETS.map(n=>
     `<button class="gtab" style="flex:none;padding:5px 8px;font-size:10px" onclick="addStage('${n.replace(/'/g,"\\'")}')">${n}</button>`).join('');
@@ -2293,6 +2331,7 @@ function pickSession(id){
   if(id===activeSess) return;
   activeSess=id; sess=sessions.find(s=>s.id===id)||null;
   stagePick='all';
+  bindSessionState();           // timer, ratio y alarma son de la hoja
   saveSessions(); renderSessBar(); renderSess();
   const rn=document.getElementById('rep-name');
   if(rn){ rn.value=''; rn.placeholder=sess?sess.name:'Panettone · primo impasto'; }
@@ -2304,6 +2343,7 @@ function newSession(){
   if(!n) return;
   const s={id:Date.now(),name:n,startedAt:Date.now(),stages:[],pauses:[]};
   sessions.push(s); activeSess=s.id; sess=s; stagePick='all';
+  bindSessionState();
   saveSessions(); renderSessBar(); renderSess(); renderReports(); fetchHistory();
   const rn=document.getElementById('rep-name'); if(rn){ rn.value=''; rn.placeholder=n; }
   showToast('▶ Session: '+n);
@@ -2313,7 +2353,7 @@ function closeSession(id){
   if(!confirm(`Close the sheet "${s.name}"?\n\nIts stages and photos go with it. Reports already written stay.`))return;
   sessions=sessions.filter(x=>x.id!==id);
   if(activeSess===id){ activeSess=sessions.length?sessions[0].id:null;
-                       sess=sessions.find(x=>x.id===activeSess)||null; stagePick='all'; }
+                       sess=sessions.find(x=>x.id===activeSess)||null; stagePick='all'; bindSessionState(); }
   saveSessions(); renderSessBar(); renderSess(); renderReports(); fetchHistory();
 }
 function renameSession(){
@@ -2477,10 +2517,12 @@ async function deleteReport(id){
   renderReports();
 }
 function renderReports(){
+  renderAllReports();
   const box=document.getElementById('rep-list'); if(!box)return;
-  // Solo los de esta hoja. Los de otras sesiones siguen guardados, pero
-  // mezclarlos aquí convertiría la lista en un cajón de sastre.
-  const mine=reports.filter(r=>!r.sess||r.sess===activeSess);
+  // Estrictamente los de esta hoja. Los anteriores a que los informes llevaran
+  // hoja no aparecen en ninguna: salían en todas, que es justo lo contrario de
+  // separar. Siguen accesibles en Ajustes, agrupados bajo "Closed sheet".
+  const mine=reports.filter(r=>r.sess===activeSess);
   if(!mine.length){ box.innerHTML=''; return; }
   box.innerHTML='<div style="font-size:10px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;margin:14px 0 4px">Saved</div>'+
     mine.slice().reverse().map(r=>`
@@ -2490,6 +2532,33 @@ function renderReports(){
         <button class="mark-btn" style="padding:5px 9px;font-size:10px" onclick="reopenReport(${r.id})">Open</button>
         <button class="mark-btn" style="padding:5px 8px;font-size:10px;color:var(--muted)" onclick="deleteReport(${r.id})">✕</button>
       </div>`).join('');
+}
+// En Ajustes se ven TODOS, agrupados por hoja. En la tarjeta de cada hoja solo
+// los suyos: mezclarlos allí convertiría la lista en un cajón de sastre.
+function renderAllReports(){
+  const box=document.getElementById('all-rep-list'); if(!box)return;
+  const byS=new Map();
+  for(const r of reports){
+    const k=r.sess||0;
+    if(!byS.has(k)) byS.set(k,[]);
+    byS.get(k).push(r);
+  }
+  const sum=document.getElementById('all-rep-sum');
+  if(sum) sum.textContent=`Reports · ${reports.length} across ${byS.size} sheet${byS.size===1?'':'s'}`;
+  if(!reports.length){ box.innerHTML='<div style="color:var(--muted);padding:8px 0">None written yet.</div>'; return; }
+  let out='';
+  for(const [k,list] of byS){
+    const name=(sessions.find(s=>s.id===k)||{}).name||'Closed sheet';
+    out+=`<div style="color:var(--amber-l);margin:10px 0 2px;font-size:10px;letter-spacing:.08em;text-transform:uppercase">${name}</div>`;
+    out+=list.slice().reverse().map(r=>
+      `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+         <span style="color:var(--muted);min-width:60px">${new Date(r.id).toLocaleDateString('en-GB',{day:'2-digit',month:'short'})}</span>
+         <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.title}</span>
+         <button class="mark-btn" style="padding:4px 8px;font-size:10px" onclick="reopenReport(${r.id})">Open</button>
+         <button class="mark-btn" style="padding:4px 7px;font-size:10px;color:var(--muted)" onclick="deleteReport(${r.id})">✕</button>
+       </div>`).join('');
+  }
+  box.innerHTML=out;
 }
 function reopenReport(id){
   const r=reports.find(x=>x.id===id); if(!r)return;
@@ -2551,7 +2620,7 @@ function markStart(){
   // Pisa el cero de la masa en curso, así que no puede dispararse por un roce.
   if(lastStart.set && !confirm('Mark the start again?\n\nThe dough already has a start marked and the current progress will be replaced. You can undo this afterwards.'))return;
   const g=parseFloat(document.getElementById('input-grams').value)||0;
-  metaFired=false; mpBuf=[]; try{localStorage.setItem('pb-metafired','0');}catch(e){}
+  metaFired=false; mpBuf=[]; if(sess){sess.metaFired=false; saveSessions();}
   sendCmd({cmd:'metaSetStart',grams:g});
   document.getElementById('start-status').textContent='⏳ Marking...';
 }
@@ -2563,18 +2632,13 @@ function setGoalRatio(){
 }
 // El usuario lee el ratio real en su bote graduado. Es un dato suyo, no una
 // medida del aparato: la app no puede saberlo y no debe discutirlo.
-let myRatio=null;
-try{myRatio=parseFloat(localStorage.getItem('pb-myratio'))||null;}catch(e){}
+let myRatio=null;      // por hoja: vive en sess.myRatio
 function setMyRatio(){
+  if(!sess){showToast('Open a session first');return;}
   const r=parseFloat(document.getElementById('input-myratio').value);
-  if(!r||r<=1){
-    myRatio=null; try{localStorage.removeItem('pb-myratio');}catch(e){}
-    showToast('Your ratio cleared');
-  }else{
-    myRatio=r; try{localStorage.setItem('pb-myratio',String(r));}catch(e){}
-    showToast(`Target set to ${r}× — yours`);
-  }
-  noteSession({dist:0,metaStartSet:lastStart.set});
+  if(!r||r<=1){ myRatio=null; sess.myRatio=null; showToast('Your ratio cleared'); }
+  else{ myRatio=r; sess.myRatio=r; showToast(`Target set to ${r}× — yours`); }
+  saveSessions(); renderGoals(); renderHistory();
 }
 function setGoalCm(){
   const cm=parseFloat(document.getElementById('input-cm').value);
@@ -2586,7 +2650,7 @@ function setGoalCm(){
 function undoLast(){ sendCmd({cmd:'undo'}); showToast('↶ Undone — press again to redo'); }
 function resetMeta(){
   if(!confirm('Reset start and target?'))return;
-  metaFired=false; mpBuf=[]; try{localStorage.setItem('pb-metafired','0');}catch(e){}
+  metaFired=false; mpBuf=[]; if(sess){sess.metaFired=false; saveSessions();}
   if(pctAlarm.pct){pctAlarm.fired=false; savePct();}
   sendCmd({cmd:'metaReset'});
 }
