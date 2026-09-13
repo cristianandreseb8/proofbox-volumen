@@ -147,6 +147,11 @@ body.board .app{max-width:none;padding:16px 22px 80px}
   .report-page h2{break-after:avoid}
   .report-chart,.report-page table{break-inside:avoid}
 }
+.modal{position:fixed;inset:0;z-index:1500;display:none;align-items:center;justify-content:center;
+  background:rgba(0,0,0,.72);padding:16px;overflow:auto}
+.modal.show{display:flex}
+.modal-box{background:var(--surface);border:1px solid var(--amber-d);border-radius:14px;padding:20px;
+  width:100%;max-width:400px;box-shadow:0 18px 50px rgba(0,0,0,.6)}
 .chart-full{position:fixed;top:var(--bars,80px);left:0;right:0;bottom:0;background:var(--bg);z-index:900;display:none;flex-direction:column;padding:10px 12px 14px}
 .chart-full.show{display:flex}
 .chart-full-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
@@ -182,6 +187,46 @@ body.board .app{max-width:none;padding:16px 22px 80px}
 </head>
 <body>
 <div class="toast" id="toast"></div>
+<div class="modal" id="next-modal">
+  <div class="modal-box">
+    <div class="card-label" style="margin-bottom:12px">Next stage</div>
+    <input class="num-input" type="text" id="nx-name" placeholder="Stage name" style="width:100%;font-size:13px;margin-bottom:8px">
+    <div id="nx-presets" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:14px"></div>
+
+    <label class="vis-row"><input type="checkbox" id="nx-mark" checked>Mark start here <span style="color:var(--muted)">· zero the growth</span></label>
+
+    <div class="goal-tabs" style="margin-top:12px">
+      <button class="gtab active" id="nxt-cm" onclick="nxTab('cm')">📐 cm</button>
+      <button class="gtab" id="nxt-x" onclick="nxTab('x')">✖️ ratio</button>
+      <button class="gtab" id="nxt-none" onclick="nxTab('none')">no target</button>
+    </div>
+    <div class="input-row" id="nx-cm-row">
+      <input class="num-input" type="number" id="nx-cm" placeholder="5" step="0.5" style="flex:1">
+      <span class="unit-lbl">cm</span>
+      <input class="num-input" type="number" id="nx-cmx" placeholder="2.7" step="0.1" style="width:66px;flex:none">
+      <span class="unit-lbl">×</span>
+    </div>
+    <div class="input-row" id="nx-x-row" style="display:none">
+      <input class="num-input" type="number" id="nx-x" placeholder="2.7" step="0.1" style="flex:1">
+      <span class="unit-lbl">×</span>
+    </div>
+
+    <div class="input-row" style="margin-top:4px">
+      <span style="font-size:11px;color:var(--muted);flex:1">Timer</span>
+      <input class="num-input" type="number" id="nx-h" placeholder="0" min="0" style="width:56px;flex:none">
+      <span class="unit-lbl">h</span>
+      <input class="num-input" type="number" id="nx-m" placeholder="30" min="0" style="width:56px;flex:none">
+      <span class="unit-lbl">min</span>
+    </div>
+
+    <div class="log-btns" style="margin-top:16px">
+      <button class="mark-btn" onclick="closeNext()" style="flex:1">Cancel</button>
+      <button class="cal-btn" onclick="doNextStage()" style="flex:2;margin:0">▶ Start stage</button>
+    </div>
+    <div style="font-size:10px;color:var(--muted);margin-top:10px;line-height:1.4">Closes the stage that is running, opens this one, and does the rest in one go. Anything left blank is skipped.</div>
+  </div>
+</div>
+
 <div class="report-view" id="report-view">
   <div class="report-bar">
     <button onclick="closeReport()">✕ Close</button>
@@ -378,6 +423,7 @@ body.board .app{max-width:none;padding:16px 22px 80px}
       <input class="num-input" type="text" id="sess-name" placeholder="Panettone" style="flex:1;font-size:12px">
       <button class="mark-btn" onclick="renameSession()">Rename</button>
     </div>
+    <button class="cal-btn" onclick="openNext()" style="margin:10px 0 4px">▶ Next stage</button>
     <div id="sess-stages" style="font-size:11px"></div>
     <div class="input-row" style="margin-top:10px">
       <input class="num-input" type="text" id="stage-name" placeholder="Stage name" style="flex:1;font-size:12px">
@@ -474,6 +520,16 @@ body.board .app{max-width:none;padding:16px 22px 80px}
       <button class="mark-btn" onclick="setOffset()">Apply</button>
     </div>
     <button class="reset-btn" onclick="if(confirm('Reset WiFi?'))sendCmd({cmd:'resetwifi'})">⚙ Change WiFi network</button>
+  </div>
+
+  <div class="card">
+    <div class="card-label">Sync</div>
+    <div id="sync-note" style="font-size:11px;color:var(--muted)">—</div>
+    <div style="font-size:10px;color:var(--muted);margin-top:8px;line-height:1.5">Sessions, stages, goals, notes and written reports travel through Supabase, so the phone and the computer open the same bake. Readings were always there. Photos stay on the device that took them.</div>
+    <div class="log-btns" style="margin-top:10px">
+      <button class="mark-btn" onclick="pushState()" style="flex:1">↑ Send now</button>
+      <button class="mark-btn" onclick="pullState(true)" style="flex:1">↓ Pull now</button>
+    </div>
   </div>
 
   <div class="card">
@@ -753,6 +809,138 @@ function chartT0(){
   if(sessionStart) return new Date(sessionStart).getTime();
   return history.length?new Date(history[0].logged_at).getTime():null;
 }
+// ═══ SINCRONIZACIÓN ENTRE DISPOSITIVOS ═══════════════════════════════════
+// Lo que hacías en el móvil vivía solo en el móvil. Ahora las sesiones, sus
+// etapas, metas, notas e informes viajan por Supabase, así que el portátil abre
+// la misma elaboración. Las lecturas ya estaban allí; esto es el resto.
+//
+// Resolución de conflictos: gana el último que escribe. Para una persona con
+// dos dispositivos es suficiente y es previsible; algo más elaborado exigiría
+// cuentas y fusión por campos, que aquí no se justifica.
+let syncTimer=null, lastPulled=0, syncing=false;
+function syncState(){ return {sessions, activeSess, reports, myRatio, v:1}; }
+function setSyncNote(t,col){
+  const el=document.getElementById('sync-note'); if(!el)return;
+  el.textContent=t; el.style.color=col||'var(--muted)';
+}
+async function pushState(){
+  if(syncing) return;
+  syncing=true;
+  try{
+    const r=await fetch(`${SUPA_URL}/rest/v1/proofbox_state?device_id=eq.${DEVICE_ID}`,{
+      method:'PATCH',
+      headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY,'Content-Type':'application/json',Prefer:'return=minimal'},
+      body:JSON.stringify({data:syncState(),updated_at:new Date().toISOString()})});
+    if(!r.ok) throw new Error(r.status);
+    lastPulled=Date.now();
+    setSyncNote('Synced · '+new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}),'var(--green)');
+  }catch(e){ setSyncNote('Not synced — will retry','var(--red)'); }
+  finally{ syncing=false; }
+}
+// Se agrupa: tocar cuatro campos seguidos no debe ser cuatro escrituras.
+function queueSync(){
+  if(syncTimer) clearTimeout(syncTimer);
+  setSyncNote('Saving…');
+  syncTimer=setTimeout(pushState,1500);
+}
+async function pullState(force){
+  try{
+    const r=await fetch(`${SUPA_URL}/rest/v1/proofbox_state?device_id=eq.${DEVICE_ID}&select=data,updated_at`,
+      {headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY}});
+    const rows=await r.json();
+    const d=rows&&rows[0]&&rows[0].data;
+    if(!d||!d.sessions) { setSyncNote('Nothing on the server yet'); return; }
+    const remote=new Date(rows[0].updated_at).getTime();
+    // Si hay cambios locales sin subir más nuevos que el servidor, no se pisan.
+    if(!force&&syncTimer){ setSyncNote('Local changes pending'); return; }
+    sessions=d.sessions||[];
+    activeSess=d.activeSess||(sessions[0]&&sessions[0].id)||null;
+    sess=sessions.find(s=>s.id===activeSess)||null;
+    if(Array.isArray(d.reports)) reports=d.reports;
+    if(d.myRatio){ myRatio=d.myRatio; try{localStorage.setItem('pb-myratio',String(d.myRatio));}catch(e){} }
+    saveSessions();
+    renderSessBar(); renderSess(); renderReports(); renderHistory();
+    lastPulled=remote;
+    setSyncNote('Synced · '+new Date(remote).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}),'var(--green)');
+  }catch(e){ setSyncNote('Could not reach the server','var(--red)'); }
+}
+// Al volver a la app se comprueba: es justo cuando el otro dispositivo ha
+// estado trabajando.
+addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') pullState(); });
+
+// ─── Pasar de etapa en un solo gesto ──────────────────────────────────────
+// Cerrar la etapa, abrir la siguiente, marcar el cero, poner la meta y arrancar
+// el timer eran seis acciones repartidas por tres tarjetas. En una elaboración
+// de tres días, olvidar una sola a las cuatro de la mañana arruina el informe
+// del final. Aquí se hacen todas juntas o no se hace ninguna.
+let nxMode='cm';
+function nxTab(m){
+  nxMode=m;
+  document.getElementById('nx-cm-row').style.display=m==='cm'?'flex':'none';
+  document.getElementById('nx-x-row').style.display =m==='x' ?'flex':'none';
+  ['cm','x','none'].forEach(k=>document.getElementById('nxt-'+k).className='gtab'+(k===m?' active':''));
+}
+function openNext(){
+  if(!sess){showToast('Open a session first');return;}
+  const p=document.getElementById('nx-presets');
+  const used=new Set(sess.stages.map(s=>s.name));
+  p.innerHTML=STAGE_PRESETS.map(n=>
+    `<button class="gtab" style="flex:none;padding:5px 8px;font-size:10px${used.has(n)?';opacity:.4':''}" `+
+    `onclick="document.getElementById('nx-name').value='${n.replace(/'/g,"\\'")}'">${n}</button>`).join('');
+  document.getElementById('nx-name').value='';
+  // Se reofrece lo último que usaste: en una masa se repiten los mismos valores.
+  if(myRatio) document.getElementById('nx-cmx').value=myRatio;
+  document.getElementById('next-modal').classList.add('show');
+  nxTab(nxMode);
+}
+function closeNext(){ document.getElementById('next-modal').classList.remove('show'); }
+function doNextStage(){
+  const name=(document.getElementById('nx-name').value||'').trim();
+  if(!name){showToast('Name the stage');return;}
+  const mark=document.getElementById('nx-mark').checked;
+  const cm=parseFloat(document.getElementById('nx-cm').value);
+  const cmx=parseFloat(document.getElementById('nx-cmx').value);
+  const rx=parseFloat(document.getElementById('nx-x').value);
+  const h=parseFloat(document.getElementById('nx-h').value)||0;
+  const m=parseFloat(document.getElementById('nx-m').value)||0;
+
+  addStage(name);                       // cierra la anterior y abre esta
+
+  if(mark){
+    // Sin preguntar: el diálogo YA es la confirmación. Preguntar otra vez a
+    // mitad de camino es exactamente lo que confundía antes.
+    metaFired=false; mpBuf=[]; try{localStorage.setItem('pb-metafired','0');}catch(e){}
+    const g=parseFloat(document.getElementById('input-grams').value)||0;
+    sendCmd({cmd:'metaSetStart',grams:g});
+  }
+  const applyTarget=()=>{
+    if(nxMode==='cm'&&cm>0){
+      sendCmd({cmd:'metaSetGoalCm',cm});
+      if(cmx>1){ myRatio=cmx; try{localStorage.setItem('pb-myratio',String(cmx));}catch(e){} }
+    }else if(nxMode==='x'&&rx>1){
+      sendCmd({cmd:'metaSetGoalRatio',ratio:rx});
+      myRatio=rx; try{localStorage.setItem('pb-myratio',String(rx));}catch(e){}
+    }
+  };
+  // La meta va después del inicio: fijarla antes la calcularía contra el cero viejo.
+  if(mark) setTimeout(applyTarget,500); else applyTarget();
+
+  if(h>0||m>0){
+    timerReset();                       // el timer anterior se tira solo
+    timer.totalMs=(h*3600+m*60)*1000;
+    timer.leftMs=timer.totalMs; timer.endAt=Date.now()+timer.totalMs;
+    timer.running=true; timer.fired=false;
+    saveTimer(); renderTimer();
+  }
+  if(pctAlarm.pct){ pctAlarm.fired=false; savePct(); }
+
+  closeNext();
+  document.getElementById('nx-cm').value=''; document.getElementById('nx-x').value='';
+  document.getElementById('nx-h').value='';  document.getElementById('nx-m').value='';
+  renderHistory();
+  showToast('▶ '+name+(mark?' · start marked':'')+((h||m)?` · timer ${h?h+'h':''}${m?m+'min':''}`:''));
+}
+
 function addSubGoal(){
   if(!sess){showToast('Open a session first — goals belong to it');return;}
   const v=parseFloat(document.getElementById('sub-x').value);
@@ -1069,7 +1257,7 @@ function closeChartFull(){ setDMode(currentMode); }
 // Girar el móvil a horizontal es la mejor manera de mirar una curva de tiempo,
 // así que hay que redibujar cuando cambia el tamaño.
 addEventListener('resize',()=>{ if(fullOpen()) drawChartFull(); });
-addEventListener('keydown',e=>{ if(e.key==='Escape'&&(fullOpen()||document.getElementById('report-view').classList.contains('show'))) setDMode(currentMode); });
+addEventListener('keydown',e=>{ if(e.key==='Escape'&&document.getElementById('next-modal').classList.contains('show')){closeNext();return;} if(e.key==='Escape'&&(fullOpen()||document.getElementById('report-view').classList.contains('show'))) setDMode(currentMode); });
 
 async function downloadCsv(){
   showToast('Preparing CSV...');
@@ -2089,6 +2277,7 @@ function loadSess(){
   renderSessBar(); renderSess();
 }
 function saveSessions(){
+  queueSync();
   try{
     localStorage.setItem('pb-sessions',JSON.stringify(sessions));
     if(activeSess) localStorage.setItem('pb-active-sess',String(activeSess));
@@ -2270,7 +2459,7 @@ async function saveReport(rec){
   reports.push(rec);
   reports=reports.slice(-40);
   try{ await idbDo('readwrite',st=>st.put(reports,'reports')); }catch(e){}
-  renderReports();
+  queueSync(); renderReports();
 }
 async function deleteReport(id){
   if(!confirm('Delete this report?'))return;
@@ -2448,6 +2637,7 @@ loadSeries();
 loadRep();
 loadSess();
 loadReports();
+setTimeout(()=>pullState(),1200);
 loadLog();
 initReadout();
 loadAlarms();
