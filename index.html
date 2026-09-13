@@ -1004,8 +1004,10 @@ Fill only what the text actually says. Everything not stated must be null — ne
     set('pa-h',d.hours); set('pa-m',d.minutes);
     set('pa-rise',d.rise);
     paTemps=Array.isArray(d.temps)?d.temps.filter(t=>isFinite(t.c)):[];
-    if(paTemps.length===1&&!paTemps[0].hours&&!paTemps[0].minutes) set('pa-temp',paTemps[0].c);
-    else if(d.temp!=null) set('pa-temp',d.temp);
+    const one=paTemps.length===1;
+    if(one) set('pa-temp',paTemps[0].c);
+    else if(!paTemps.length&&d.temp!=null) set('pa-temp',d.temp);
+    else document.getElementById('pa-temp').value='';   // con varios tramos, el número suelto sobra
     renderPaTemps();
     if(d.note){ const n=document.getElementById('pa-note');
                 n.value=n.value?n.value+' · '+d.note:d.note; }
@@ -2415,6 +2417,21 @@ function setRepLang(l,quiet){
 // Se resuelve en el navegador y se le entrega hecho al modelo. Pedirle que
 // deduzca fases de miles de puntos crudos es invitarle a inventar números;
 // esto son cuentas, y las cuentas las hace el código.
+// Un paso es su propio registro. El ToF puede estar encendido encima de la
+// mesa mientras hacés otra cosa, y esas lecturas no son de nadie: no describen
+// ninguna masa y no deben contarse ni informarse. Solo cuentan las que caen
+// dentro de un paso que de verdad usó el sensor.
+function measuredStages(){
+  return (sess?sess.stages:[]).filter(s=>!s.manual&&s.startedAt);
+}
+function sensorRows(){
+  const ms=measuredStages();
+  if(!ms.length) return [];
+  return history.filter(r=>{
+    const t=new Date(r.logged_at).getTime();
+    return ms.some(s=>t>=s.startedAt&&t<=(s.endedAt||Date.now()));
+  });
+}
 function analysePhases(rows,t0){
   const pts=rows.filter(r=>r.rise!=null).map(r=>({t:new Date(r.logged_at).getTime()-t0,v:+r.rise}));
   if(pts.length<8) return null;
@@ -2481,24 +2498,30 @@ async function makeReport(){
     dough:document.getElementById('rep-name').value.trim()||(sess&&sess.name)||'Unnamed dough',
     started:new Date(t0).toISOString(),
     elapsed_h:+(((last.logged_at?new Date(last.logged_at).getTime():Date.now())-t0)/3600000).toFixed(2),
-    final_rise_x:last.rise!=null?+(+last.rise).toFixed(2):null,
     grams:last.grams||null,
-    grown_cm:last.cm_grown!=null?+(+last.cm_grown).toFixed(1):null,
-    ...(history.length?{readings:history.length}:{}),
-    baker_target_x:myRatio||null,
-    target_reached:last.meta_progress!=null?(+last.meta_progress>=100):null
+    baker_target_x:myRatio||null
   };
   // Qué sensores estuvieron realmente presentes en esta hoja. Sin esto el
   // informe hablaba de 3300 lecturas en una sesión donde ningún paso se midió.
   // Vale igual para los que vengan: cámara, humedad, lo que sea.
-  const sensed = history.length>0;
-  data.sensors_used = sensed;
-  if(!sensed) data.recorded = 'entirely by hand — the device was not watching this bake';
+  const sRows = sensorRows();
+  const sensed = sRows.length>0;
+  // La última lectura suelta tampoco es de nadie si ningún paso se midió: el
+  // aparato pudo pasarse la tarde encendido sobre la mesa.
   if(sensed){
+    const lastM=sRows[sRows.length-1];
+    if(lastM.rise!=null)          data.final_rise_x=+(+lastM.rise).toFixed(2);
+    if(lastM.cm_grown!=null)      data.grown_cm=+(+lastM.cm_grown).toFixed(1);
+    if(lastM.meta_progress!=null) data.target_reached=+lastM.meta_progress>=100;
+  }
+  data.sensors_used = sensed;
+  if(!sensed) data.recorded = 'entirely by hand — no step was measured by the device';
+  if(sensed){
+    data.measured_readings = sRows.length;
     // null no se manda: un campo presente y vacío invita a comentar la ausencia.
-    if(repSel.phases){ const ph=analysePhases(history,t0); if(ph) data.phases=ph; }
-    if(repSel.temp){  const t=seriesStats(history,'temp_c');   if(t) data.temperature_c=t; }
-    if(repSel.cond){  const c=seriesStats(history,'cond_rel'); if(c) data.conductivity_pct=c; }
+    if(repSel.phases){ const ph=analysePhases(sRows,t0); if(ph) data.phases=ph; }
+    if(repSel.temp){  const t=seriesStats(sRows,'temp_c');   if(t) data.temperature_c=t; }
+    if(repSel.cond){  const c=seriesStats(sRows,'cond_rel'); if(c) data.conductivity_pct=c; }
   }
 
   // Etapas: cada una se analiza sobre SUS lecturas, acotadas por marca de
@@ -2510,7 +2533,9 @@ async function makeReport(){
                   paused_h:+(pausedMs()/3600000).toFixed(2)};
     data.stages=sess.stages.map(s=>{
       const end=s.endedAt||Date.now();
-      const rows=s.startedAt?history.filter(r=>{const t=new Date(r.logged_at).getTime();return t>=s.startedAt&&t<=end;}):[];
+      // Un paso manual no se queda con las lecturas que coincidan en hora: el
+      // aparato pudo estar en la mesa, y eso no es una medida de esta masa.
+      const rows=(s.manual||!s.startedAt)?[]:history.filter(r=>{const t=new Date(r.logged_at).getTime();return t>=s.startedAt&&t<=end;});
       const o={name:s.name, readings:rows.length};
       if(s.startedAt){
         o.started=new Date(s.startedAt).toISOString();
@@ -2786,8 +2811,14 @@ function renderSess(){
                                  : new Date(s.startedAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}));
     const thumbs=(s.photos||[]).map(pid=>`<img src="" data-photo="${pid}" style="width:38px;height:38px;object-fit:cover;border-radius:5px;border:1px solid var(--border)">`).join('');
     const hand=s.manual?`<span style="color:#7a8fa8;font-size:9px;border:1px solid #7a8fa8;border-radius:4px;padding:1px 4px;margin-left:6px">noted</span>`:'';
-    const handVals=s.manual&&(s.manualRise||s.manualTemp!=null)
-      ? `<div style="color:#7a8fa8;margin:4px 0 0 46px">${s.manualRise?s.manualRise+'× ':''}${s.manualTemp!=null?s.manualTemp+'°':''}</div>` : '';
+    // El perfil manda sobre el número suelto: si hubo 20° y luego 28°, enseñar
+    // solo "28°" borra la mitad de lo que contaste.
+    const tSeg=(s.manualTemps&&s.manualTemps.length)
+      ? s.manualTemps.map(t=>{const mm=(t.hours||0)*60+(t.minutes||0);
+          return t.c+'°'+(mm?' '+fmtElapsed(mm*60000):'');}).join(' → ')
+      : (s.manualTemp!=null?s.manualTemp+'°':'');
+    const handVals=s.manual&&(s.manualRise||tSeg)
+      ? `<div style="color:#7a8fa8;margin:4px 0 0 46px">${s.manualRise?s.manualRise+'× ':''}${tSeg}</div>` : '';
     return `<div style="padding:8px 0;border-bottom:1px solid var(--border)">
       <div style="display:flex;align-items:center;gap:8px">
         <span style="color:var(--muted);min-width:38px">${t}</span>
@@ -3003,7 +3034,7 @@ async function openReport(data,bodyHtml,photos){
   if(repSel.chart&&repSel.stages&&sess&&sess.stages.length){
     const holder=document.getElementById('report-chart');
     for(const s of sess.stages){
-      const rows=s.startedAt?rowsIn({from:s.startedAt,to:s.endedAt||Date.now()}):[];
+      const rows=(s.manual||!s.startedAt)?[]:rowsIn({from:s.startedAt,to:s.endedAt||Date.now()});
       if(rows.length>=4){
         drawChart(rows,'report-chart',900,260);
         const dur=fmtElapsed((s.endedAt||Date.now())-s.startedAt);
