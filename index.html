@@ -2141,10 +2141,6 @@ const MODE_ONLY={'panel-meta':'meta','panel-grams':'meta','panel-goal':'meta','p
 let currentMode='meta';
 // Pinta qué bloques se ven, sin tocar la pestaña activa. Separado de setDMode a
 // propósito: marcar una casilla en Ajustes no debe cambiarte de pantalla.
-// Tarjetas que solo tienen sentido midiendo. En un paso manual no son datos de
-// esta masa: son lo que el aparato tenga delante, y enseñarlas invita a leerlas
-// como si fueran del paso.
-const SENSOR_BLOCKS=['panel-meta','panel-temp','panel-cond','panel-ratio'];
 // Vaciar la tarjeta no puede esperar al siguiente status: si el aparato está
 // apagado no llega ninguno, y al abrir otra hoja se quedaban a la vista los
 // números de la masa anterior.
@@ -2161,20 +2157,22 @@ function blankMeta(){
   g('cm-grown').textContent='--cm';
   const ml=g('myratio-line'); if(ml) ml.textContent='';
 }
+// Las tarjetas no se esconden. Temperatura y conductividad son lo que marca el
+// instrumento —existen igual en un paso anotado a mano— y la de crecimiento es
+// donde se marca el inicio: quitarla deja a la hoja nueva sin el botón que
+// necesita. Lo que depende de la etapa es el registro, no la vista.
 function applyVisibility(){
-  const live=stageMeasures();
   for(const el of document.getElementById('stack').children){
     const only=MODE_ONLY[el.id];
-    const sensorOnly=SENSOR_BLOCKS.includes(el.id)&&!live;
-    el.style.display=((!only||only===currentMode)&&!hiddenBlocks[el.id]&&!sensorOnly)?'block':'none';
+    el.style.display=((!only||only===currentMode)&&!hiddenBlocks[el.id])?'block':'none';
   }
   const n=document.getElementById('sensor-note');
   if(n){
     const a=activeStage();
-    n.style.display=live?'none':'block';
-    n.textContent = !sess ? 'No session open.'
-      : !a ? 'No step running — start one to read the device.'
-      : `“${a.name}” is a step you are recording by hand, so the device's readings are not shown and nothing is being logged for it.`;
+    // El aviso ya no es por lo que se esconde, sino por lo que NO se guarda.
+    const hand=!!(sess&&a&&a.manual);
+    n.style.display=hand?'block':'none';
+    if(hand) n.textContent=`“${a.name}” is a step you are noting by hand. The readings below are what the device sees right now; nothing is being logged for this step.`;
   }
   // La hoja que no tiene el aparato conserva la tarjeta: los números van en
   // blanco y aparece el botón para traérselo aquí.
@@ -2182,7 +2180,7 @@ function applyVisibility(){
   // aquí mismo, porque es lo único que falta.
   const c=document.getElementById('claim-row');
   const hasBase=!!(sess&&sess.baseDist>0);
-  if(c) c.style.display=(live&&!hasBase)?'flex':'none';
+  if(c) c.style.display=(sess&&!hasBase)?'flex':'none';
   if(!hasBase) blankMeta();
 }
 // Hojas, como las de una hoja de cálculo. Cambiar de hoja no destruye nada:

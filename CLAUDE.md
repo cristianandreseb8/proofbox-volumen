@@ -102,6 +102,14 @@ leerlo como dato de esa etapa, y guardarlo ensucia el histórico de la hoja. En
 su sitio queda un aviso que dice por qué. El gráfico pequeño, en esa etapa,
 dibuja lo que contaste, no lo que se midió.
 
+**Las tarjetas no se esconden nunca.** Temperatura y conductividad son lo que
+marca el instrumento y existen igual en un paso anotado a mano; la de
+crecimiento es donde vive el botón de marcar inicio, así que ocultarla dejaba a
+una hoja recién creada sin manera de empezar. Lo que depende de la naturaleza de
+la etapa es el **registro**, no la vista: en un paso manual se ve lo que el
+aparato lee en ese momento y no se guarda ni una fila. Hubo una versión que las
+escondía y era desconcertante.
+
 **El estado sincronizado lleva texto; las fotos van aparte.** `proofbox_state`
 guarda las hojas enteras en una fila, y meter ahí una foto en base64 es escribir
 megas en cada pulsación. Los bytes viven en Storage bajo `<id>.jpg` y en la hoja
