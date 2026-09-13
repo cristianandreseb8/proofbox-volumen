@@ -391,8 +391,8 @@ body.board .app{max-width:none;padding:16px 22px 80px}
       <div class="track"><div class="fill" id="bar-meta" style="width:0%"></div></div>
       <div class="marks"><span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span></div>
       <div id="claim-row" style="display:none;align-items:center;gap:8px;margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
-        <span style="flex:1;font-size:11px;color:var(--muted);line-height:1.4">Another sheet is using the device, so this one shows no reading.</span>
-        <button class="mark-btn" style="flex:none;white-space:nowrap" onclick="claimDevice()">📏 Measure here</button>
+        <span style="flex:1;font-size:11px;color:var(--muted);line-height:1.4">This sheet has no start of its own yet. Marking one here does not touch the other sheets.</span>
+        <button class="mark-btn" style="flex:none;white-space:nowrap" onclick="markStart()">◎ Mark start</button>
       </div>
   </div>
   <div class="card sortable" id="panel-timer">
@@ -721,6 +721,7 @@ function mpAverage(v){
 // smoothed distance, so ratio, % and cm stay consistent with each other.
 const SMOOTH_MS=30000;   // averaging window for the rise
 let distBuf=[];          // {t, v} recent raw distances
+let lastSmoothDist=0;    // el último suavizado, para poder fijar un cero sin tocar el buffer
 function smoothDist(rawDist){
   const now=Date.now();
   distBuf.push({t:now,v:rawDist});
@@ -805,7 +806,7 @@ function zeroForNewSheet(){
   }).catch(()=>{});
   sessionStart=now; history=[];
   if(pctAlarm.pct){pctAlarm.fired=false; savePct();}
-  metaFired=false; mpBuf=[]; if(sess){sess.metaFired=false; saveSessions();}
+  metaFired=false; mpBuf=[]; if(sess){sess.metaFired=false; sess.baseDist=0; sess.baseAt=0; saveSessions();}
   // Un punto de referencia en cuanto el ESP32 haya recalibrado.
   setTimeout(()=>{
     fetch(`${SUPA_URL}/functions/v1/proofbox-logger`,{method:'POST',headers:{Authorization:'Bearer '+SUPA_JWT}})
@@ -1216,7 +1217,12 @@ function doNextStage(){
   if(mark){
     // Sin preguntar: el diálogo YA es la confirmación. Preguntar otra vez a
     // mitad de camino es exactamente lo que confundía antes.
-    metaFired=false; mpBuf=[]; if(sess){sess.metaFired=false; saveSessions();}
+    metaFired=false; mpBuf=[];
+    if(sess){
+      sess.metaFired=false;
+      if(lastSmoothDist){ sess.baseDist=lastSmoothDist; sess.baseAt=Date.now(); }
+      saveSessions();
+    }
     const g=parseFloat(document.getElementById('input-grams').value)||0;
     sendCmd({cmd:'metaSetStart',grams:g});
   }
@@ -1689,7 +1695,7 @@ function saveBoard(){ try{localStorage.setItem(BOARD_KEY,JSON.stringify(board));
 // la caja no se mueve: escribir en un campo o tocar una casilla no puede
 // arrastrar la tarjeta entera.
 function isInteractive(t){
-  return !!(t.closest&&t.closest('input,button,select,textarea,label,a,summary,option,svg,.gtab,.resize-grip,.track,.sheet'));
+  return !!(t.closest&&t.closest('input,button,select,textarea,label,a,summary,option,svg,.gtab,.resize-grip,.track,.sheet,img[data-photo]'));
 }
 // En escritorio se arrastra desde CUALQUIER hueco de la caja, no solo del asa.
 function makeDraggable(el,stack){
@@ -2171,10 +2177,12 @@ function applyVisibility(){
   }
   // La hoja que no tiene el aparato conserva la tarjeta: los números van en
   // blanco y aparece el botón para traérselo aquí.
+  // Sin cero propio no hay porcentaje que enseñar — y el botón para ponerlo va
+  // aquí mismo, porque es lo único que falta.
   const c=document.getElementById('claim-row');
-  const mine=!!(sess&&sess.owns);
-  if(c) c.style.display=(live&&!mine)?'flex':'none';
-  if(!mine) blankMeta();
+  const hasBase=!!(sess&&sess.baseDist>0);
+  if(c) c.style.display=(live&&!hasBase)?'flex':'none';
+  if(!hasBase) blankMeta();
 }
 // Hojas, como las de una hoja de cálculo. Cambiar de hoja no destruye nada:
 // el gráfico grande y el informe dejan de ser ventanas que hay que cerrar y
@@ -2215,48 +2223,38 @@ function updateUI(d){
 
   // Rise: re-derived from the smoothed distance. Since ratio ∝ 1/distance, it is
   // enough to scale the firmware's values by (raw/smoothed).
-  const ds=Math.max(1,smoothDist(raw));
+  const ds=Math.max(1,smoothDist(raw)); lastSmoothDist=ds;
   const scale=raw/ds;
   const riseS=d.rise*scale;
-  const mrcS=(d.metaRatioCurr||1)*scale;
-  const cmS=(d.cmGrown||0)+(raw-ds)/10;
-  let mp=0;
-  if(d.metaStartSet&&d.metaGoalSet){
-    const start=(d.metaRatioCurr||1)*raw;            // reconstructed: metaRatioCurr = start/raw
-    const goal=d.metaRatioGoal>0?start/d.metaRatioGoal:0;
-    if(start>goal) mp=Math.min(100,Math.max(0,(start-ds)/(start-goal)*100));
-  }
-
-  // El ESP32 sigue con la masa que esté midiendo, y eso no pertenece a una hoja
-  // que acabás de abrir. El progreso solo se pinta en la hoja que reclamó el
-  // aparato al darle a Start reading; en las demás va a cero, que es la verdad
-  // para ellas. Las lecturas físicas de abajo (temperatura, distancia) sí se
-  // muestran siempre: son del instrumento, no de ninguna masa.
-  const owns = !!(sess&&sess.owns);
-  if(owns){
+  // El cero es de la hoja, no del aparato. El ESP32 guarda uno solo, así que
+  // mientras dependiéramos de él marcar el inicio en una hoja borraba el de la
+  // otra. Cada hoja se queda su distancia de partida y calcula con ella, con la
+  // misma fórmula del firmware (ratio = d0/d), así que se pueden llevar varias
+  // lecturas a la vez del mismo bote desde ángulos distintos.
+  const base = (sess&&sess.baseDist>0)?sess.baseDist:0;
+  let mp=0, sheetRatio=1;
+  if(base){
+    const ratio=sheetRatio=Math.min(10,Math.max(1,base/ds));
+    const cm=(base-ds)/10;
+    // El objetivo que manda es el tuyo: el 2,7× que leés en el bote graduado
+    // gana al del sensor, que solo sabe de distancias.
+    const tgt=(myRatio>1)?myRatio:(d.metaGoalSet&&+d.metaRatioGoal>1?+d.metaRatioGoal:0);
+    mp=tgt>1?Math.min(100,Math.max(0,(ratio-1)/(tgt-1)*100)):0;
     document.getElementById('rise').textContent=fmt(riseS);
     document.getElementById('bar-ratio').style.width=Math.min(100,Math.max(0,((riseS-1)/2)*100))+'%';
-    document.getElementById('meta-pct').innerHTML=fmt(mp,0)+'<span>%</span>';
+    document.getElementById('meta-pct').innerHTML=(tgt>1?fmt(mp,0):'--')+'<span>%</span>';
     document.getElementById('bar-meta').style.width=mp+'%';
     document.getElementById('bar-meta').className='fill'+(mp>=100?' done':'');
-    document.getElementById('meta-ratio-now').textContent=d.metaStartSet?fmt(mrcS)+'×':'--×';
-    document.getElementById('meta-ratio-goal').textContent=d.metaGoalSet?fmt(d.metaRatioGoal)+'×':'--×';
-    document.getElementById('cm-grown').textContent=fmt(cmS)+'cm';
-  }else{ blankMeta(); mp=0; }
-  lastStart.set=owns&&d.metaStartSet===true;
-  lastGoalX=(owns&&d.metaGoalSet&&+d.metaRatioGoal>1)?+d.metaRatioGoal:0;
-  // Progreso contra TU ratio, si lo has puesto. Se calcula sobre el crecimiento
-  // en cm, que es exacto, no sobre el × del sensor.
-  const ml=document.getElementById('myratio-line');
-  if(ml){
-    if(myRatio&&d.metaStartSet){
-      const startH=+d.metaStart, grown=cmS*10;
-      const pctMine=startH>0?Math.min(999,((startH+grown)/startH-1)/(myRatio-1)*100):0;
-      ml.textContent=` · ${fmt(pctMine,0)}% of your ${myRatio}×`;
-    }else ml.textContent='';
-  }
+    document.getElementById('meta-ratio-now').textContent=fmt(ratio)+'×';
+    document.getElementById('meta-ratio-goal').textContent=tgt>1?fmt(tgt)+'×':'--×';
+    document.getElementById('cm-grown').textContent=fmt(cm)+'cm';
+    const ml=document.getElementById('myratio-line');
+    if(ml) ml.textContent=(myRatio>1)?' · your '+myRatio+'×':(tgt>1?' · sensor target':'');
+  }else{ blankMeta(); }
+  lastStart.set=!!base;
+  lastGoalX=(myRatio>1)?myRatio:((d.metaGoalSet&&+d.metaRatioGoal>1)?+d.metaRatioGoal:0);
   noteSession(d);
-  const avg=owns?mpAverage(mp):null;
+  const avg=base?mpAverage(mp):null;
   if(avg!=null){
     // Las dos alarmas suenan UNA vez. Solo se rearman al volver a armarlas, al
     // marcar un inicio nuevo, al resetear la meta o al empezar otra masa.
@@ -2266,7 +2264,7 @@ function updateUI(d){
     }
     if(d.metaGoalSet&&!metaFired&&avg>=100){
       metaFired=true; if(sess){sess.metaFired=true; saveSessions();}
-      fireAlarm('🎉 The dough hit the target! '+fmt(mrcS)+'×');
+      fireAlarm('🎉 The dough hit the target! '+fmt(sheetRatio)+'×');
     }
   }
   lastMeta=mp;
@@ -3192,25 +3190,21 @@ function showReportView(title,meta,bodyHtml,chart){
 }
 function closeReport(){ setDMode(currentMode); }
 
-// El aparato es uno solo y apunta a una masa, así que medir aquí es quitárselo
-// a la otra hoja — pero sin tocar lo que esa hoja ya registró.
-function claimDevice(){
-  if(!sess)return;
-  const otra=sessions.find(x=>x!==sess&&x.owns);
-  if(otra&&!confirm(`Measure this sheet with the device?\n\n“${otra.name}” stops reading. What it already recorded stays.`))return;
-  sessions.forEach(x=>{ if(x!==sess) x.owns=false; });
-  sess.owns=true; saveSessions();
-  renderSess(); renderHistory(); fetchHistory();
-  showToast('📏 Measuring “'+sess.name+'”');
-}
 function markStart(){
-  // Pisa el cero de la masa en curso, así que no puede dispararse por un roce.
-  if(lastStart.set && !confirm('Mark the start again?\n\nThe dough already has a start marked and the current progress will be replaced. You can undo this afterwards.'))return;
-  const g=parseFloat(document.getElementById('input-grams').value)||0;
-  metaFired=false; mpBuf=[]; if(sess){sess.metaFired=false;
-    sessions.forEach(x=>{ if(x!==sess) x.owns=false; }); sess.owns=true; saveSessions();}
-  sendCmd({cmd:'metaSetStart',grams:g});
-  document.getElementById('start-status').textContent='⏳ Marking...';
+  if(!sess){showToast('Open a sheet first');return;}
+  if(!lastSmoothDist){showToast('No reading from the device yet');return;}
+  // Pisa el cero de ESTA hoja, así que no puede dispararse por un roce.
+  if(sess.baseDist>0 && !confirm('Mark the start again?\n\nThis sheet already has one and its progress restarts from here. No other sheet is affected.'))return;
+  sess.baseDist=lastSmoothDist;
+  sess.baseAt=Date.now();
+  sess.baseGrams=parseFloat(document.getElementById('input-grams').value)||0;
+  metaFired=false; mpBuf=[]; sess.metaFired=false;
+  // El aparato guarda un cero solo: lo sigue la hoja que además registra, pero
+  // ya no es de donde salen los números, así que marcar aquí no borra nada allá.
+  sessions.forEach(x=>{ if(x!==sess) x.owns=false; }); sess.owns=true;
+  saveSessions(); applyVisibility();
+  sendCmd({cmd:'metaSetStart',grams:sess.baseGrams});
+  document.getElementById('start-status').textContent='◎ Start marked in “'+sess.name+'”';
 }
 function setGoalFinger(){sendCmd({cmd:'metaSetGoalFinger'});document.getElementById('goal-status').textContent='⏳ Reading...';}
 function setGoalRatio(){
