@@ -196,13 +196,19 @@ body.board .app{max-width:none;padding:16px 22px 80px}
     <div id="pa-presets" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:12px"></div>
 
     <div class="input-row">
+      <span style="font-size:11px;color:var(--muted);flex:1">Place it</span>
+      <select class="num-input" id="pa-where" style="flex:2;padding:8px 10px;font-size:11px"></select>
+    </div>
+    <div class="input-row">
       <span style="font-size:11px;color:var(--muted);min-width:38px">From</span>
       <input class="num-input" type="datetime-local" id="pa-from" style="flex:1;font-size:11px">
+      <button class="mark-btn" style="padding:6px 9px;font-size:10px" onclick="document.getElementById('pa-from').value='';document.getElementById('pa-to').value='';">clear</button>
     </div>
     <div class="input-row">
       <span style="font-size:11px;color:var(--muted);min-width:38px">To</span>
       <input class="num-input" type="datetime-local" id="pa-to" style="flex:1;font-size:11px">
     </div>
+    <div style="font-size:10px;color:var(--muted);margin:-4px 0 10px;line-height:1.4">Times are optional. Leave them empty and the stage still counts — the report will say it carries no time rather than guessing one.</div>
 
     <div class="input-row">
       <span style="font-size:11px;color:var(--muted);flex:1">It grew to</span>
@@ -924,30 +930,36 @@ function openPast(){
   const pad=n=>String(n).padStart(2,'0');
   const local=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
   // Por defecto, el hueco antes de lo que ya hay: es donde casi siempre encaja.
-  const first=sess.stages.length?Math.min(...sess.stages.map(s=>s.startedAt)):Date.now();
+  const dated=sess.stages.filter(s=>s.startedAt);
+  const first=dated.length?Math.min(...dated.map(s=>s.startedAt)):Date.now();
   document.getElementById('pa-to').value=local(new Date(first));
   document.getElementById('pa-from').value=local(new Date(first-3*3600000));
   document.getElementById('pa-name').value='';
+  const w=document.getElementById('pa-where');
+  w.innerHTML='<option value="0">at the start</option>'+
+    sess.stages.map((s,i)=>`<option value="${i+1}">after ${s.name}</option>`).join('');
+  w.value=String(sess.stages.length);   // por defecto al final
   document.getElementById('past-modal').classList.add('show');
 }
 function closePast(){ document.getElementById('past-modal').classList.remove('show'); }
 function addPastStage(){
   const name=(document.getElementById('pa-name').value||'').trim();
   if(!name){showToast('Name the stage');return;}
-  const from=Date.parse(document.getElementById('pa-from').value);
-  const to  =Date.parse(document.getElementById('pa-to').value);
-  if(!from||!to||to<=from){showToast('Check the two times');return;}
+  const from=Date.parse(document.getElementById('pa-from').value)||null;
+  const to  =Date.parse(document.getElementById('pa-to').value)||null;
+  if(from&&to&&to<=from){showToast('The end is before the start');return;}
   const rise=parseFloat(document.getElementById('pa-rise').value);
   const temp=parseFloat(document.getElementById('pa-temp').value);
-  sess.stages.push({id:Date.now(),name,startedAt:from,endedAt:to,
+  const at=Math.max(0,Math.min(sess.stages.length,parseInt(document.getElementById('pa-where').value)||0));
+  // Se inserta donde lo pediste. No se reordena por hora: una etapa sin fecha
+  // no tiene por dónde ordenarse, y reordenar las demás te movería de sitio
+  // algo que habías colocado a mano.
+  sess.stages.splice(at,0,{id:Date.now(),name,startedAt:from,endedAt:to,
     note:(document.getElementById('pa-note').value||'').trim(),photos:[],
     manual:true,
     manualRise:isFinite(rise)&&rise>0?+rise.toFixed(2):null,
     manualTemp:isFinite(temp)?+temp.toFixed(1):null});
-  // Ordenar por hora: una etapa del pasado va delante de las que ya estaban.
-  sess.stages.sort((a,b)=>a.startedAt-b.startedAt);
-  // La sesión empieza cuando empieza su primera etapa, aunque sea anterior.
-  sess.startedAt=Math.min(sess.startedAt,from);
+  if(from) sess.startedAt=Math.min(sess.startedAt,from);
   saveSessions(); renderSess(); renderHistory(); fetchHistory();
   ['pa-rise','pa-temp','pa-note'].forEach(k=>document.getElementById(k).value='');
   closePast();
@@ -1160,6 +1172,7 @@ function stageSvg(t0,x0,x1,sx,H,p,W){
   if(!sess||stagePick!=='all') return '';
   const big=W>500;
   return sess.stages.map(s=>{
+    if(!s.startedAt) return '';        // sin hora no hay dónde dibujarla
     const a=s.startedAt-t0, b=(s.endedAt||Date.now())-t0;
     if(b<x0||a>x1) return '';
     const xa=sx(Math.max(a,x0)), xb=sx(Math.min(b,x1));
@@ -2291,10 +2304,15 @@ async function makeReport(){
                   paused_h:+(pausedMs()/3600000).toFixed(2)};
     data.stages=sess.stages.map(s=>{
       const end=s.endedAt||Date.now();
-      const rows=history.filter(r=>{const t=new Date(r.logged_at).getTime();return t>=s.startedAt&&t<=end;});
-      const o={name:s.name, started:new Date(s.startedAt).toISOString(),
-               duration_h:+((end-s.startedAt)/3600000).toFixed(2),
-               still_running:!s.endedAt, readings:rows.length};
+      const rows=s.startedAt?history.filter(r=>{const t=new Date(r.logged_at).getTime();return t>=s.startedAt&&t<=end;}):[];
+      const o={name:s.name, readings:rows.length};
+      if(s.startedAt){
+        o.started=new Date(s.startedAt).toISOString();
+        o.duration_h=+((end-s.startedAt)/3600000).toFixed(2);
+        o.still_running=!s.endedAt;
+      }else{
+        o.time_known=false;   // se dice que no se sabe, no se rellena con nada
+      }
       if(s.manual){
         o.source='entered by the baker afterwards, not measured';
         if(s.manualRise!=null) o.reported_rise_x=s.manualRise;
@@ -2327,6 +2345,7 @@ Write in ${LANG}. Precise and sober: this is a technical record, not marketing.
 Rules that matter:
 - Every number you state must come from the data given. Never invent a measurement.
 - A stage carrying "source: entered by the baker afterwards" was not measured. Use it, but say where it came from, and never present it as a sensor reading or average it together with measured values.
+- A stage with "time_known: false" has no date or duration recorded. Say so plainly in one short clause and carry on with what it does have. Do not estimate a time for it, do not leave it out of the sequence, and do not treat the gap as a problem with the bake — it simply was not recorded. The same applies to any stage with no target or no temperature.
 - baker_target_x, when present, is the baker's own reading from a graduated jar. It is authoritative. Do not replace it with the sensor's ratio.
 - If the dough was stopped before reaching a phase, say plainly that it did not get there, and only then estimate what would have followed under the same conditions, labelled as an estimate.
 - The ratio comes from a distance sensor and is a height measurement, not a true volume. Mention that limit once if a conclusion depends on it, not more.
@@ -2481,6 +2500,13 @@ function addStage(preset){
   saveSess(); renderSess(); renderHistory();
   showToast('Stage: '+n);
 }
+function moveStage(id,dir){
+  const i=sess.stages.findIndex(x=>x.id===id), j=i+dir;
+  if(i<0||j<0||j>=sess.stages.length) return;
+  const [x]=sess.stages.splice(i,1);
+  sess.stages.splice(j,0,x);
+  saveSessions(); renderSess(); renderHistory();
+}
 function endStage(id){
   const s=sess&&sess.stages.find(x=>x.id===id); if(!s)return;
   s.endedAt=Date.now(); saveSess(); renderSess();
@@ -2533,8 +2559,10 @@ function renderSess(){
   btn.textContent=sessPaused()?'▶ Resume session':'⏸ Pause session';
   syncNextLabel(sess.stages.length>0);
   box.innerHTML=sess.stages.map(s=>{
-    const dur=(s.endedAt||Date.now())-s.startedAt;
-    const t=new Date(s.startedAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+    // Una etapa anotada puede no llevar hora: se dice, no se inventa.
+    const dated=!!s.startedAt;
+    const dur=dated?((s.endedAt||Date.now())-s.startedAt):null;
+    const t=dated?new Date(s.startedAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}):'—';
     const thumbs=(s.photos||[]).map(pid=>`<img src="" data-photo="${pid}" style="width:38px;height:38px;object-fit:cover;border-radius:5px;border:1px solid var(--border)">`).join('');
     const hand=s.manual?`<span style="color:#7a8fa8;font-size:9px;border:1px solid #7a8fa8;border-radius:4px;padding:1px 4px;margin-left:6px">noted</span>`:'';
     const handVals=s.manual&&(s.manualRise||s.manualTemp!=null)
@@ -2543,7 +2571,7 @@ function renderSess(){
       <div style="display:flex;align-items:center;gap:8px">
         <span style="color:var(--muted);min-width:38px">${t}</span>
         <span style="flex:1">${s.name}${hand}${s.endedAt?'':' <span style="color:var(--green)">•</span>'}</span>
-        <span style="color:var(--muted)">${fmtElapsed(dur)}</span>
+        <span style="color:var(--muted)">${dur!=null?fmtElapsed(dur):'no time'}</span>
       </div>
       ${handVals}
       ${s.note?`<div style="color:var(--muted);margin:4px 0 0 46px;font-style:italic">${s.note}</div>`:''}
@@ -2551,7 +2579,9 @@ function renderSess(){
       <div style="display:flex;gap:5px;margin:6px 0 0 46px">
         <button class="mark-btn" style="padding:4px 8px;font-size:10px" onclick="pickPhoto(${s.id})">📷</button>
         <button class="mark-btn" style="padding:4px 8px;font-size:10px" onclick="noteStage(${s.id})">✎ note</button>
-        ${s.endedAt?'':`<button class="mark-btn" style="padding:4px 8px;font-size:10px" onclick="endStage(${s.id})">■ end</button>`}
+        ${(s.endedAt||!dated)?'':`<button class="mark-btn" style="padding:4px 8px;font-size:10px" onclick="endStage(${s.id})">■ end</button>`}
+        <button class="mark-btn" style="padding:4px 7px;font-size:10px;color:var(--muted)" onclick="moveStage(${s.id},-1)">↑</button>
+        <button class="mark-btn" style="padding:4px 7px;font-size:10px;color:var(--muted)" onclick="moveStage(${s.id},1)">↓</button>
         <button class="mark-btn" style="padding:4px 8px;font-size:10px;color:var(--muted)" onclick="delStage(${s.id})">✕</button>
       </div>
     </div>`;
