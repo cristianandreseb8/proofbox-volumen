@@ -150,6 +150,11 @@ body.board .app{max-width:none;padding:16px 22px 80px}
 .modal{position:fixed;inset:0;z-index:1500;display:none;align-items:center;justify-content:center;
   background:rgba(0,0,0,.72);padding:16px;overflow:auto}
 .modal.show{display:flex}
+.pa-sep{font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);
+  border-top:1px solid var(--border);margin:16px 0 8px;padding-top:10px}
+/* El marcador de posición tenía casi el mismo tono que un valor escrito, y en
+   un formulario de campos opcionales eso hace creer que ya hay datos puestos. */
+.num-input::placeholder{color:var(--muted);opacity:.45}
 .modal-box{background:var(--surface);border:1px solid var(--amber-d);border-radius:14px;padding:20px;
   width:100%;max-width:400px;box-shadow:0 18px 50px rgba(0,0,0,.6)}
 .chart-full{position:fixed;top:var(--bars,80px);left:0;right:0;bottom:0;background:var(--bg);z-index:900;display:none;flex-direction:column;padding:10px 12px 14px}
@@ -189,39 +194,49 @@ body.board .app{max-width:none;padding:16px 22px 80px}
 <div class="toast" id="toast"></div>
 <div class="modal" id="past-modal">
   <div class="modal-box">
-    <div class="card-label" style="margin-bottom:4px" id="pa-title">Add a past stage</div>
-    <div style="font-size:10px;color:var(--muted);margin-bottom:12px;line-height:1.4" id="pa-sub">For what happened before the sensor was watching. Whatever you enter is marked as your own observation, never mixed in with measurements.</div>
+    <div class="card-label" style="margin-bottom:4px" id="pa-title">Manual step</div>
+    <div style="font-size:10px;color:var(--muted);margin-bottom:14px;line-height:1.45" id="pa-sub">A step you did without the app watching. <b>Only the name is required</b> — fill in whatever you know and leave the rest empty. The report will say what was not recorded instead of inventing it.</div>
 
-    <input class="num-input" type="text" id="pa-name" placeholder="Stage name" style="width:100%;font-size:13px;margin-bottom:8px">
-    <div id="pa-presets" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:12px"></div>
+    <input class="num-input" type="text" id="pa-name" placeholder="What was it?" style="width:100%;font-size:13px;margin-bottom:8px">
+    <div id="pa-presets" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:14px"></div>
 
     <div class="input-row">
       <span style="font-size:11px;color:var(--muted);flex:1">Place it</span>
       <select class="num-input" id="pa-where" style="flex:2;padding:8px 10px;font-size:11px"></select>
     </div>
-    <div class="input-row">
-      <span style="font-size:11px;color:var(--muted);min-width:38px">From</span>
-      <input class="num-input" type="datetime-local" id="pa-from" style="flex:1;font-size:11px">
-      <button class="mark-btn" style="padding:6px 9px;font-size:10px" onclick="document.getElementById('pa-from').value='';document.getElementById('pa-to').value='';">clear</button>
-    </div>
-    <div class="input-row">
-      <span style="font-size:11px;color:var(--muted);min-width:38px">To</span>
-      <input class="num-input" type="datetime-local" id="pa-to" style="flex:1;font-size:11px">
-    </div>
-    <div style="font-size:10px;color:var(--muted);margin:-4px 0 10px;line-height:1.4">Times are optional. Leave them empty and the stage still counts — the report will say it carries no time rather than guessing one.</div>
 
+    <div class="pa-sep">When · optional</div>
     <div class="input-row">
-      <span style="font-size:11px;color:var(--muted);flex:1">It grew to</span>
-      <input class="num-input" type="number" id="pa-rise" placeholder="2.7" step="0.1" style="width:66px;flex:none">
+      <span style="font-size:11px;color:var(--muted);min-width:44px">Day</span>
+      <input class="num-input" type="date" id="pa-date" style="flex:1;font-size:12px">
+      <button class="mark-btn" style="padding:6px 8px;font-size:10px" onclick="paToday()">today</button>
+    </div>
+    <div class="input-row">
+      <span style="font-size:11px;color:var(--muted);min-width:44px">Time</span>
+      <input class="num-input" type="time" id="pa-time" style="flex:1;font-size:12px">
+      <button class="mark-btn" style="padding:6px 8px;font-size:10px" onclick="paNow()">now</button>
+    </div>
+    <div class="input-row">
+      <span style="font-size:11px;color:var(--muted);min-width:44px">Lasted</span>
+      <input class="num-input" type="number" id="pa-h" placeholder="h" min="0" style="width:60px;flex:none">
+      <span class="unit-lbl">h</span>
+      <input class="num-input" type="number" id="pa-m" placeholder="min" min="0" style="width:64px;flex:none">
+      <span class="unit-lbl">min</span>
+    </div>
+
+    <div class="pa-sep">What happened · optional</div>
+    <div class="input-row">
+      <span style="font-size:11px;color:var(--muted);flex:1">Grew to</span>
+      <input class="num-input" type="number" id="pa-rise" placeholder="—" step="0.1" style="width:66px;flex:none">
       <span class="unit-lbl">×</span>
-      <input class="num-input" type="number" id="pa-temp" placeholder="28" step="0.5" style="width:60px;flex:none">
+      <input class="num-input" type="number" id="pa-temp" placeholder="—" step="0.5" style="width:64px;flex:none">
       <span class="unit-lbl">°C</span>
     </div>
-    <input class="num-input" type="text" id="pa-note" placeholder="Note (optional)" style="width:100%;font-size:12px;margin-bottom:4px">
+    <input class="num-input" type="text" id="pa-note" placeholder="Anything worth remembering" style="width:100%;font-size:12px">
 
     <div class="log-btns" style="margin-top:16px">
       <button class="mark-btn" onclick="closePast()" style="flex:1">Cancel</button>
-      <button class="cal-btn" onclick="addPastStage()" style="flex:2;margin:0" id="pa-ok">＋ Add it</button>
+      <button class="cal-btn" onclick="addPastStage()" style="flex:2;margin:0" id="pa-ok">＋ Add step</button>
     </div>
   </div>
 </div>
@@ -463,7 +478,7 @@ body.board .app{max-width:none;padding:16px 22px 80px}
       <button class="mark-btn" onclick="renameSession()">Rename</button>
     </div>
     <button class="cal-btn" id="btn-next" onclick="openNext()" style="margin:10px 0 4px">▶ Start reading</button>
-    <button class="mark-btn" onclick="openPast()" style="width:100%;margin-bottom:4px">✎ Add a past stage</button>
+    <button class="mark-btn" onclick="openPast()" style="width:100%;margin-bottom:4px">✎ Add a manual step</button>
     <div id="sess-stages" style="font-size:11px"></div>
     <div class="input-row" style="margin-top:10px">
       <input class="num-input" type="text" id="stage-name" placeholder="Stage name" style="flex:1;font-size:12px">
@@ -925,89 +940,98 @@ addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible
 // hora mal puesta no debería obligar a borrarla y rehacerla, que además perdería
 // sus fotos y su nota.
 let paEditId=null;
-function paLocal(ms){
-  if(!ms) return '';
-  const d=new Date(ms), pad=n=>String(n).padStart(2,'0');
-  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-function editStage(id){
-  const st=sess&&sess.stages.find(x=>x.id===id); if(!st)return;
-  openPast();
-  paEditId=id;
-  document.getElementById('pa-title').textContent='Edit stage';
-  document.getElementById('pa-sub').textContent='Change anything, including the times. Leave a time empty to record that it was not noted.';
-  document.getElementById('pa-ok').textContent='Save';
-  document.getElementById('pa-name').value=st.name||'';
-  document.getElementById('pa-from').value=paLocal(st.startedAt);
-  document.getElementById('pa-to').value=paLocal(st.endedAt);
-  document.getElementById('pa-rise').value=st.manualRise||'';
-  document.getElementById('pa-temp').value=st.manualTemp!=null?st.manualTemp:'';
-  document.getElementById('pa-note').value=st.note||'';
-  const w=document.getElementById('pa-where');
-  w.parentElement.style.display='none';     // editando no se mueve; para eso están ↑↓
+const pad2=n=>String(n).padStart(2,'0');
+function paToday(){ const d=new Date(); document.getElementById('pa-date').value=`${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`; }
+function paNow(){ const d=new Date(); document.getElementById('pa-time').value=`${pad2(d.getHours())}:${pad2(d.getMinutes())}`; }
+function paClear(){
+  ['pa-name','pa-date','pa-time','pa-h','pa-m','pa-rise','pa-temp','pa-note']
+    .forEach(k=>{const e=document.getElementById(k); if(e)e.value='';});
 }
 function openPast(){
-  paEditId=null;
-  document.getElementById('pa-title').textContent='Add a past stage';
-  document.getElementById('pa-sub').textContent='For what happened before the sensor was watching. Whatever you enter is marked as your own observation, never mixed in with measurements.';
-  document.getElementById('pa-ok').textContent='＋ Add it';
-  const w0=document.getElementById('pa-where'); if(w0) w0.parentElement.style.display='flex';
   if(!sess){showToast('Open a session first');return;}
+  paEditId=null; paClear();
+  document.getElementById('pa-title').textContent='Manual step';
+  document.getElementById('pa-sub').innerHTML='A step you did without the app watching. <b>Only the name is required</b> — fill in whatever you know and leave the rest empty. The report will say what was not recorded instead of inventing it.';
+  document.getElementById('pa-ok').textContent='＋ Add step';
   const p=document.getElementById('pa-presets');
   p.innerHTML=STAGE_PRESETS.map(n=>
     `<button class="gtab" style="flex:none;padding:5px 8px;font-size:10px" `+
     `onclick="document.getElementById('pa-name').value='${n.replace(/'/g,"\\'")}'">${n}</button>`).join('');
-  const pad=n=>String(n).padStart(2,'0');
-  const local=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  // Por defecto, el hueco antes de lo que ya hay: es donde casi siempre encaja.
-  const dated=sess.stages.filter(s=>s.startedAt);
-  const first=dated.length?Math.min(...dated.map(s=>s.startedAt)):Date.now();
-  document.getElementById('pa-to').value=local(new Date(first));
-  document.getElementById('pa-from').value=local(new Date(first-3*3600000));
-  document.getElementById('pa-name').value='';
   const w=document.getElementById('pa-where');
   w.innerHTML='<option value="0">at the start</option>'+
     sess.stages.map((s,i)=>`<option value="${i+1}">after ${s.name}</option>`).join('');
-  w.value=String(sess.stages.length);   // por defecto al final
+  w.value=String(sess.stages.length);
+  w.parentElement.style.display='flex';
   document.getElementById('past-modal').classList.add('show');
 }
+// Editar cualquier paso, lo anotaras vos o lo registrara el sensor.
+function editStage(id){
+  const st=sess&&sess.stages.find(x=>x.id===id); if(!st)return;
+  openPast();
+  paEditId=id;
+  document.getElementById('pa-title').textContent='Edit step';
+  document.getElementById('pa-sub').textContent='Change anything. Emptying a field records that it was not noted, rather than being refused.';
+  document.getElementById('pa-ok').textContent='Save';
+  document.getElementById('pa-name').value=st.name||'';
+  if(st.startedAt){
+    const d=new Date(st.startedAt);
+    document.getElementById('pa-date').value=`${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
+    if(st.timeKnown!==false) document.getElementById('pa-time').value=`${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+    if(st.endedAt){
+      const mins=Math.round((st.endedAt-st.startedAt)/60000);
+      document.getElementById('pa-h').value=Math.floor(mins/60)||'';
+      document.getElementById('pa-m').value=mins%60||'';
+    }
+  }
+  document.getElementById('pa-rise').value=st.manualRise||'';
+  document.getElementById('pa-temp').value=st.manualTemp!=null?st.manualTemp:'';
+  document.getElementById('pa-note').value=st.note||'';
+  document.getElementById('pa-where').parentElement.style.display='none';
+}
 function closePast(){ document.getElementById('past-modal').classList.remove('show'); }
+
+// Se guarda exactamente lo que sabés y se marca lo que no. Día sin hora es un
+// caso real — "fue el martes, no me acuerdo a qué hora" — y merece guardarse
+// como tal en vez de rellenarse con un cero que parece un dato.
 function addPastStage(){
+  if(!sess){showToast('Open a session first');return;}
   const name=(document.getElementById('pa-name').value||'').trim();
-  if(!name){showToast('Name the stage');return;}
-  const from=Date.parse(document.getElementById('pa-from').value)||null;
-  const to  =Date.parse(document.getElementById('pa-to').value)||null;
-  if(from&&to&&to<=from){showToast('The end is before the start');return;}
+  if(!name){showToast('Give the step a name');return;}
+  const day =document.getElementById('pa-date').value;
+  const time=document.getElementById('pa-time').value;
+  const h=parseFloat(document.getElementById('pa-h').value)||0;
+  const m=parseFloat(document.getElementById('pa-m').value)||0;
+  const durMs=(h*3600+m*60)*1000;
   const rise=parseFloat(document.getElementById('pa-rise').value);
   const temp=parseFloat(document.getElementById('pa-temp').value);
-  const rise2=isFinite(rise)&&rise>0?+rise.toFixed(2):null;
-  const temp2=isFinite(temp)?+temp.toFixed(1):null;
-  const note2=(document.getElementById('pa-note').value||'').trim();
+
+  let startedAt=null, timeKnown=null;
+  if(day){
+    startedAt=Date.parse(`${day}T${time||'00:00'}`)||null;
+    timeKnown=!!time;
+  }
+  const endedAt=(startedAt&&durMs)?startedAt+durMs:null;
+
+  const fields={name,startedAt,endedAt,timeKnown,durMin:durMs?Math.round(durMs/60000):null,
+    note:(document.getElementById('pa-note').value||'').trim(),
+    manual:true,
+    manualRise:isFinite(rise)&&rise>0?+rise.toFixed(2):null,
+    manualTemp:isFinite(temp)?+temp.toFixed(1):null};
+
   if(paEditId){
     const st=sess.stages.find(x=>x.id===paEditId);
     if(st){
-      Object.assign(st,{name,startedAt:from,endedAt:to,note:note2,
-                        manualRise:rise2,manualTemp:temp2});
-      // Si le das horas a una etapa que no las tenía, la sesión se estira para
-      // cubrirla igual que al crearla.
-      if(from) sess.startedAt=Math.min(sess.startedAt,from);
+      Object.assign(st,fields);
+      if(startedAt) sess.startedAt=Math.min(sess.startedAt,startedAt);
       saveSessions(); renderSess(); renderHistory(); fetchHistory();
       closePast(); showToast('✎ '+name+' updated');
     }
     return;
   }
   const at=Math.max(0,Math.min(sess.stages.length,parseInt(document.getElementById('pa-where').value)||0));
-  // Se inserta donde lo pediste. No se reordena por hora: una etapa sin fecha
-  // no tiene por dónde ordenarse, y reordenar las demás te movería de sitio
-  // algo que habías colocado a mano.
-  sess.stages.splice(at,0,{id:Date.now(),name,startedAt:from,endedAt:to,
-    note:(document.getElementById('pa-note').value||'').trim(),photos:[],
-    manual:true,
-    manualRise:isFinite(rise)&&rise>0?+rise.toFixed(2):null,
-    manualTemp:isFinite(temp)?+temp.toFixed(1):null});
-  if(from) sess.startedAt=Math.min(sess.startedAt,from);
+  sess.stages.splice(at,0,Object.assign({id:Date.now(),photos:[]},fields));
+  if(startedAt) sess.startedAt=Math.min(sess.startedAt,startedAt);
   saveSessions(); renderSess(); renderHistory(); fetchHistory();
-  ['pa-rise','pa-temp','pa-note'].forEach(k=>document.getElementById(k).value='');
   closePast();
   showToast('✎ '+name+' added');
 }
@@ -2357,8 +2381,11 @@ async function makeReport(){
         o.duration_h=+((end-s.startedAt)/3600000).toFixed(2);
         o.still_running=!s.endedAt;
       }else{
-        o.time_known=false;   // se dice que no se sabe, no se rellena con nada
+        o.date_known=false; o.time_known=false;
       }
+      if(s.timeKnown===false){ o.time_known=false; o.date_known=true; delete o.started;
+        o.day=new Date(s.startedAt).toISOString().slice(0,10); }
+      if(s.durMin&&!o.duration_h) o.duration_h=+(s.durMin/60).toFixed(2);
       if(s.manual){
         o.source='entered by the baker afterwards, not measured';
         if(s.manualRise!=null) o.reported_rise_x=s.manualRise;
@@ -2391,7 +2418,7 @@ Write in ${LANG}. Precise and sober: this is a technical record, not marketing.
 Rules that matter:
 - Every number you state must come from the data given. Never invent a measurement.
 - A stage carrying "source: entered by the baker afterwards" was not measured. Use it, but say where it came from, and never present it as a sensor reading or average it together with measured values.
-- A stage with "time_known: false" has no date or duration recorded. Say so plainly in one short clause and carry on with what it does have. Do not estimate a time for it, do not leave it out of the sequence, and do not treat the gap as a problem with the bake — it simply was not recorded. The same applies to any stage with no target or no temperature.
+- Fields are only present when they were recorded. "date_known: false" means not even the day is known; "time_known: false" with a "day" means the day is known but not the clock time; a stage may have a duration and no date at all. Say so plainly in one short clause and carry on with what it does have. Do not estimate a time for it, do not leave it out of the sequence, and do not treat the gap as a problem with the bake — it simply was not recorded. The same applies to any stage with no target or no temperature.
 - baker_target_x, when present, is the baker's own reading from a graduated jar. It is authoritative. Do not replace it with the sensor's ratio.
 - If the dough was stopped before reaching a phase, say plainly that it did not get there, and only then estimate what would have followed under the same conditions, labelled as an estimate.
 - The ratio comes from a distance sensor and is a height measurement, not a true volume. Mention that limit once if a conclusion depends on it, not more.
@@ -2607,8 +2634,11 @@ function renderSess(){
   box.innerHTML=sess.stages.map(s=>{
     // Una etapa anotada puede no llevar hora: se dice, no se inventa.
     const dated=!!s.startedAt;
-    const dur=dated?((s.endedAt||Date.now())-s.startedAt):null;
-    const t=dated?new Date(s.startedAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}):'—';
+    const dur=s.durMin?s.durMin*60000:(dated&&s.endedAt!==null?((s.endedAt||Date.now())-s.startedAt):null);
+    // "martes, hora desconocida" se enseña como tal, no como las 00:00.
+    const t=!dated ? '—'
+          : (s.timeKnown===false ? new Date(s.startedAt).toLocaleDateString('en-GB',{day:'2-digit',month:'short'})
+                                 : new Date(s.startedAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}));
     const thumbs=(s.photos||[]).map(pid=>`<img src="" data-photo="${pid}" style="width:38px;height:38px;object-fit:cover;border-radius:5px;border:1px solid var(--border)">`).join('');
     const hand=s.manual?`<span style="color:#7a8fa8;font-size:9px;border:1px solid #7a8fa8;border-radius:4px;padding:1px 4px;margin-left:6px">noted</span>`:'';
     const handVals=s.manual&&(s.manualRise||s.manualTemp!=null)
