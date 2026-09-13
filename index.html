@@ -1148,6 +1148,7 @@ function doNextStage(){
   const first=!sess.stages.length;
   addStage(name);                       // cierra la anterior y abre esta
   if(first&&mark) zeroForNewSheet();    // hoja nueva: aparato a cero y gráfico limpio
+  if(mark){ sessions.forEach(x=>{ if(x!==sess) x.owns=false; }); sess.owns=true; }
 
   if(mark){
     // Sin preguntar: el diálogo YA es la confirmación. Preguntar otra vez a
@@ -2126,16 +2127,34 @@ function updateUI(d){
     if(start>goal) mp=Math.min(100,Math.max(0,(start-ds)/(start-goal)*100));
   }
 
-  document.getElementById('rise').textContent=fmt(riseS);
-  document.getElementById('bar-ratio').style.width=Math.min(100,Math.max(0,((riseS-1)/2)*100))+'%';
-  document.getElementById('meta-pct').innerHTML=fmt(mp,0)+'<span>%</span>';
-  document.getElementById('bar-meta').style.width=mp+'%';
-  document.getElementById('bar-meta').className='fill'+(mp>=100?' done':'');
-  document.getElementById('meta-ratio-now').textContent=d.metaStartSet?fmt(mrcS)+'×':'--×';
-  document.getElementById('meta-ratio-goal').textContent=d.metaGoalSet?fmt(d.metaRatioGoal)+'×':'--×';
-  document.getElementById('cm-grown').textContent=fmt(cmS)+'cm';
-  lastStart.set=d.metaStartSet===true;
-  if(d.metaGoalSet&&+d.metaRatioGoal>1) lastGoalX=+d.metaRatioGoal;
+  // El ESP32 sigue con la masa que esté midiendo, y eso no pertenece a una hoja
+  // que acabás de abrir. El progreso solo se pinta en la hoja que reclamó el
+  // aparato al darle a Start reading; en las demás va a cero, que es la verdad
+  // para ellas. Las lecturas físicas de abajo (temperatura, distancia) sí se
+  // muestran siempre: son del instrumento, no de ninguna masa.
+  const owns = !!(sess&&sess.owns);
+  if(owns){
+    document.getElementById('rise').textContent=fmt(riseS);
+    document.getElementById('bar-ratio').style.width=Math.min(100,Math.max(0,((riseS-1)/2)*100))+'%';
+    document.getElementById('meta-pct').innerHTML=fmt(mp,0)+'<span>%</span>';
+    document.getElementById('bar-meta').style.width=mp+'%';
+    document.getElementById('bar-meta').className='fill'+(mp>=100?' done':'');
+    document.getElementById('meta-ratio-now').textContent=d.metaStartSet?fmt(mrcS)+'×':'--×';
+    document.getElementById('meta-ratio-goal').textContent=d.metaGoalSet?fmt(d.metaRatioGoal)+'×':'--×';
+    document.getElementById('cm-grown').textContent=fmt(cmS)+'cm';
+  }else{
+    document.getElementById('rise').textContent='--';
+    document.getElementById('bar-ratio').style.width='0%';
+    document.getElementById('meta-pct').innerHTML='--<span>%</span>';
+    document.getElementById('bar-meta').style.width='0%';
+    document.getElementById('bar-meta').className='fill';
+    document.getElementById('meta-ratio-now').textContent='--×';
+    document.getElementById('meta-ratio-goal').textContent='--×';
+    document.getElementById('cm-grown').textContent='--cm';
+    mp=0;
+  }
+  lastStart.set=owns&&d.metaStartSet===true;
+  lastGoalX=(owns&&d.metaGoalSet&&+d.metaRatioGoal>1)?+d.metaRatioGoal:0;
   // Progreso contra TU ratio, si lo has puesto. Se calcula sobre el crecimiento
   // en cm, que es exacto, no sobre el × del sensor.
   const ml=document.getElementById('myratio-line');
@@ -2147,7 +2166,7 @@ function updateUI(d){
     }else ml.textContent='';
   }
   noteSession(d);
-  const avg=mpAverage(mp);
+  const avg=owns?mpAverage(mp):null;
   if(avg!=null){
     // Las dos alarmas suenan UNA vez. Solo se rearman al volver a armarlas, al
     // marcar un inicio nuevo, al resetear la meta o al empezar otra masa.
@@ -2620,6 +2639,8 @@ function renderSessBar(){
 }
 function pickSession(id){
   if(id===activeSess) return;
+  // El aparato mide una masa a la vez. Si otra hoja lo reclama después, esta
+  // deja de mostrar su progreso — que es lo correcto, ya no es el suyo.
   activeSess=id; sess=sessions.find(s=>s.id===id)||null;
   stagePick='all';
   bindSessionState();           // timer, ratio y alarma son de la hoja
@@ -2960,7 +2981,8 @@ function markStart(){
   // Pisa el cero de la masa en curso, así que no puede dispararse por un roce.
   if(lastStart.set && !confirm('Mark the start again?\n\nThe dough already has a start marked and the current progress will be replaced. You can undo this afterwards.'))return;
   const g=parseFloat(document.getElementById('input-grams').value)||0;
-  metaFired=false; mpBuf=[]; if(sess){sess.metaFired=false; saveSessions();}
+  metaFired=false; mpBuf=[]; if(sess){sess.metaFired=false;
+    sessions.forEach(x=>{ if(x!==sess) x.owns=false; }); sess.owns=true; saveSessions();}
   sendCmd({cmd:'metaSetStart',grams:g});
   document.getElementById('start-status').textContent='⏳ Marking...';
 }
