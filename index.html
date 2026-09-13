@@ -966,6 +966,7 @@ async function pullState(force){
     saveSessions();
     renderSessBar(); renderSess(); renderReports(); renderHistory();
     lastPulled=remote;
+    backfillPhotos();
     setSyncNote('Synced · '+new Date(remote).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}),'var(--green)');
   }catch(e){ setSyncNote('Could not reach the server','var(--red)'); }
 }
@@ -2777,6 +2778,7 @@ function pickSession(id){
   activeSess=id; sess=sessions.find(s=>s.id===id)||null;
   stagePick='all';
   bindSessionState();           // timer, ratio y alarma son de la hoja
+  setTimeout(backfillPhotos,3000);   // sin prisa: primero que se vea la app
   setTimeout(applyVisibility,0);
   saveSessions(); renderSessBar(); renderSess();
   const rn=document.getElementById('rep-name');
@@ -2924,7 +2926,7 @@ function renderSess(){
     </div>`;
   }).join('');
   box.querySelectorAll('img[data-photo]').forEach(async img=>{
-    const b=await idbDo('readonly',st=>st.get('photo-'+img.dataset.photo));
+    const b=await photoBlob(+img.dataset.photo);
     if(b) img.src=URL.createObjectURL(b);
   });
 }
@@ -2971,7 +2973,37 @@ async function addPhoto(stageId,file){
     await idbDo('readwrite',st=>st.put(blob,'photo-'+id));
     s.photos=s.photos||[]; s.photos.push(id);
     saveSess(); renderSess(); showToast('📷 Photo added to '+s.name);
+    uploadPhoto(id,blob);
   }catch(e){ showToast('Could not save that photo'); }
+}
+// Lo que se sincroniza entre móvil y ordenador es el texto de las hojas, y una
+// foto ahí dentro son megas en cada guardado. Los bytes van aparte, a Storage,
+// y en la hoja solo viaja el id: el otro aparato lo resuelve a una URL.
+const PHOTO_URL=id=>`${SUPA_URL}/storage/v1/object/public/proofbox-photos/${id}.jpg`;
+async function uploadPhoto(id,blob){
+  try{
+    const r=await fetch(`${SUPA_URL}/storage/v1/object/proofbox-photos/${id}.jpg`,{
+      method:'POST',
+      headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY,'Content-Type':'image/jpeg','x-upsert':'true'},
+      body:blob});
+    if(r.ok) markUploaded(id);
+  }catch(e){}
+}
+// Qué fotos ya están arriba. Sin esto, cada arranque reintentaría todas.
+let photoUp=new Set();
+try{ photoUp=new Set(JSON.parse(localStorage.getItem('pb-photo-up')||'[]')); }catch(e){}
+function markUploaded(id){ photoUp.add(id); try{localStorage.setItem('pb-photo-up',JSON.stringify([...photoUp]));}catch(e){} }
+// Las fotos hechas antes de que esto existiera solo están en el aparato donde
+// se sacaron. Al abrir la app se suben las que tengamos aquí y falten allá.
+async function backfillPhotos(){
+  const ids=[];
+  for(const se of sessions) for(const st of (se.stages||[])) for(const pid of (st.photos||[])) ids.push(pid);
+  for(const id of ids){
+    if(photoUp.has(id)) continue;
+    const b=await idbDo('readonly',st=>st.get('photo-'+id));
+    if(!b) continue;                       // no es nuestra: la tiene el otro aparato
+    await uploadPhoto(id,b);
+  }
 }
 // Ver la foto grande y poder quitarla. Sin esto una foto equivocada se queda
 // para siempre, y además se cuela en el informe que se manda a la API.
@@ -2979,7 +3011,7 @@ let photoOpen=null;
 async function viewPhoto(stageId,pid){
   photoOpen={stageId,pid};
   const img=document.getElementById('pv-img');
-  const b=await idbDo('readonly',st=>st.get('photo-'+pid));
+  const b=await photoBlob(pid);
   if(img.src.startsWith('blob:')) URL.revokeObjectURL(img.src);
   img.src=b?URL.createObjectURL(b):'';
   const s=sess&&sess.stages.find(x=>x.id===stageId);
@@ -3002,12 +3034,30 @@ async function delPhoto(){
   if(!s){closePhoto();return;}
   if(!confirm('Remove this photo?\n\nIt goes from the step and from the reports written after this.'))return;
   s.photos=(s.photos||[]).filter(x=>x!==pid);
-  // El blob también, si no IndexedDB se llena de fotos que ya no ve nadie.
+  // El blob también, aquí y arriba: si solo se borrase aquí, el otro aparato
+  // la seguiría viendo y al sincronizar volvería.
   try{ await idbDo('readwrite',st=>st.delete('photo-'+pid)); }catch(e){}
+  photoUp.delete(pid); try{localStorage.setItem('pb-photo-up',JSON.stringify([...photoUp]));}catch(e){}
+  fetch(`${SUPA_URL}/storage/v1/object/proofbox-photos/${pid}.jpg`,
+    {method:'DELETE',headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY}}).catch(()=>{});
   saveSess(); renderSess(); closePhoto(); showToast('Photo removed');
 }
+// Primero aquí, que es instantáneo; si la sacó el otro aparato, de Storage, y
+// se queda guardada para no volver a pedirla.
+async function photoBlob(id){
+  const local=await idbDo('readonly',st=>st.get('photo-'+id));
+  if(local) return local;
+  try{
+    const r=await fetch(PHOTO_URL(id));
+    if(!r.ok) return null;
+    const b=await r.blob();
+    await idbDo('readwrite',st=>st.put(b,'photo-'+id));
+    markUploaded(id);
+    return b;
+  }catch(e){ return null; }
+}
 async function photoDataUrl(id){
-  const b=await idbDo('readonly',st=>st.get('photo-'+id)); if(!b)return null;
+  const b=await photoBlob(id); if(!b)return null;
   return await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.onerror=()=>r(null);fr.readAsDataURL(b);});
 }
 

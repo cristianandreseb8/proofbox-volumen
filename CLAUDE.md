@@ -102,6 +102,30 @@ leerlo como dato de esa etapa, y guardarlo ensucia el histórico de la hoja. En
 su sitio queda un aviso que dice por qué. El gráfico pequeño, en esa etapa,
 dibuja lo que contaste, no lo que se midió.
 
+**El estado sincronizado lleva texto; las fotos van aparte.** `proofbox_state`
+guarda las hojas enteras en una fila, y meter ahí una foto en base64 es escribir
+megas en cada pulsación. Los bytes viven en Storage bajo `<id>.jpg` y en la hoja
+solo viaja el id. Al pintar se mira primero IndexedDB —instantáneo— y si no está
+se baja y se cachea. Las fotos anteriores a esto solo existen en el aparato que
+las sacó: `backfillPhotos()` las sube la próxima vez que esa app se abre.
+
+**El cero de la masa es de la hoja, no del aparato.** El ESP32 guarda uno solo,
+así que mientras los números salieran de él marcar el inicio en una hoja borraba
+el de la otra. Cada hoja guarda su `baseDist` y calcula con la misma fórmula del
+firmware (`ratio = d0/d`). Así se pueden llevar varias lecturas del mismo bote a
+la vez desde ángulos distintos. Al aparato se le sigue mandando la orden, pero
+solo para sus propias alarmas.
+
+**El porcentaje grande es contra TU ratio.** El 2,7× leído en el bote graduado
+gana al objetivo del sensor, que solo sabe de distancias. El del sensor queda de
+reserva para cuando no hay uno tuyo.
+
+**El arrastre de las tarjetas cancela el `pointerdown`** de todo lo que no esté
+en `isInteractive()`. Una `<img>` no estaba, y por eso las miniaturas de fotos
+no se podían abrir en escritorio — en el móvil el arrastre ni empieza, así que
+el fallo parecía inexistente. Si algo nuevo dentro de una tarjeta no responde al
+clic, es esa lista.
+
 **La app suaviza solo al dibujar.** Lo que va a Supabase y al CSV es siempre el
 dato crudo, así que el suavizado es reversible y no se pierde nada.
 
@@ -122,8 +146,10 @@ firmware, para que exista aunque el aparato se reinicie o se reflashee.
 ## Infraestructura
 
 - **GitHub:** `cristianandreseb8/proofbox-volumen`, Pages desde `main`.
-- **Supabase:** proyecto `blqcppmjejtnvoqlhshp`. Tablas `proofbox_config` y
-  `proofbox_readings`, edge function `proofbox-logger`.
+- **Supabase:** proyecto `blqcppmjejtnvoqlhshp`. Tablas `proofbox_config`,
+  `proofbox_readings` y `proofbox_state`, edge functions `proofbox-logger` y
+  `claude-proxy`. Bucket público `proofbox-photos` (3 MB, solo jpeg/png/webp)
+  con políticas de lectura, escritura y borrado para `anon`.
 - **MQTT:** `broker.hivemq.com` público. Corta conexiones a su antojo; la app se
   repone sola. Si hace falta fiabilidad de verdad, toca broker propio.
 - **Registro:** intervalos ≥60 s los mueve la nube 24/7; <60 s solo mientras la
