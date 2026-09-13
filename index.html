@@ -281,7 +281,6 @@ body.board .app{max-width:none;padding:16px 22px 80px}
   <div class="header">
     <div class="logo">Proof<span>Box</span> Vol</div>
     <div style="display:flex;align-items:center;gap:10px">
-      <button class="new-dough" id="btn-new-dough" onclick="newDough()" title="Start a new dough">🆕 New dough</button>
       <div class="status-row" onclick="forceReconnect()" style="cursor:pointer" title="Tap to reconnect">
         <div class="dot" id="dot"></div>
         <span id="status-txt" style="color:var(--red)">Connecting...</span>
@@ -423,7 +422,7 @@ body.board .app{max-width:none;padding:16px 22px 80px}
       <input class="num-input" type="text" id="sess-name" placeholder="Panettone" style="flex:1;font-size:12px">
       <button class="mark-btn" onclick="renameSession()">Rename</button>
     </div>
-    <button class="cal-btn" onclick="openNext()" style="margin:10px 0 4px">▶ Next stage</button>
+    <button class="cal-btn" id="btn-next" onclick="openNext()" style="margin:10px 0 4px">▶ Start reading</button>
     <div id="sess-stages" style="font-size:11px"></div>
     <div class="input-row" style="margin-top:10px">
       <input class="num-input" type="text" id="stage-name" placeholder="Stage name" style="flex:1;font-size:12px">
@@ -702,26 +701,22 @@ function newChart(){
     },2000);
   }).catch(()=>showToast('Could not start the new chart'));
 }
-function newDough(){
-  if(!confirm('Start a new dough?\n\nThe rise goes back to 1×, the previous target is cleared and the chart starts from zero.'))return;
-  if(!(mqttClient&&mqttClient.connected)){
-    showToast('Connect the ProofBox before starting');
-    return;
-  }
+// Lo que antes hacía "New dough": poner el aparato a cero y abrir una ventana
+// de registro limpia. Ya no es un botón aparte — pasó a ser lo que ocurre al
+// arrancar la primera etapa de una hoja, que es cuando de verdad hace falta.
+function zeroForNewSheet(){
   sendCmd({cmd:'metaReset'});
   sendCmd({cmd:'calibrate'});
-  sendCmd({cmd:'condBase'});
   const now=new Date().toISOString();
   fetch(`${SUPA_URL}/rest/v1/proofbox_config?device_id=eq.${DEVICE_ID}`,{
     method:'PATCH',
     headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY,'Content-Type':'application/json',Prefer:'return=minimal'},
     body:JSON.stringify({session_start:now})
   }).catch(()=>{});
-  sessionStart=now; history=[]; renderHistory();
-  if(pctAlarm.pct){pctAlarm.fired=false; savePct();}   // que pueda volver a sonar
+  sessionStart=now; history=[];
+  if(pctAlarm.pct){pctAlarm.fired=false; savePct();}
   metaFired=false; mpBuf=[]; try{localStorage.setItem('pb-metafired','0');}catch(e){}
-  showToast('🆕 New dough — starting from zero');
-  // One baseline point once the ESP32 has recalibrated (~2s later).
+  // Un punto de referencia en cuanto el ESP32 haya recalibrado.
   setTimeout(()=>{
     fetch(`${SUPA_URL}/functions/v1/proofbox-logger`,{method:'POST',headers:{Authorization:'Bearer '+SUPA_JWT}})
       .then(()=>fetchHistory()).catch(()=>{});
@@ -904,7 +899,9 @@ function doNextStage(){
   const h=parseFloat(document.getElementById('nx-h').value)||0;
   const m=parseFloat(document.getElementById('nx-m').value)||0;
 
+  const first=!sess.stages.length;
   addStage(name);                       // cierra la anterior y abre esta
+  if(first&&mark) zeroForNewSheet();    // hoja nueva: aparato a cero y gráfico limpio
 
   if(mark){
     // Sin preguntar: el diálogo YA es la confirmación. Preguntar otra vez a
@@ -1794,7 +1791,6 @@ function setDMode(mode){
   if(isBoard) currentMode=mode;
   document.getElementById('stack').style.display          = isBoard?'block':'none';
   document.getElementById('panel-settings').style.display = mode==='settings'?'block':'none';
-  document.getElementById('btn-new-dough').style.display  = isBoard?'block':'none';
   document.getElementById('chart-full').classList.toggle('show',mode==='chart');
   document.getElementById('report-view').classList.toggle('show',mode==='report');
   if(isBoard){ applyVisibility(); applyBoard(); }
@@ -2374,12 +2370,17 @@ function renderSess(){
   const btn=document.getElementById('btn-pause');
   if(!sess){
     box.innerHTML='<div style="color:var(--muted);padding:8px 0">No session open. Use ＋ in the top bar.</div>';
-    clock.textContent='--'; btn.textContent='⏸ Pause session'; return;
+    clock.textContent='--'; btn.textContent='⏸ Pause session';
+    const nb0=document.getElementById('btn-next'); if(nb0) nb0.textContent='▶ Start reading';
+    return;
   }
   document.getElementById('sess-name').value=sess.name;
   const run=Date.now()-sess.startedAt-pausedMs();
   clock.textContent=`${sess.name} · ${fmtElapsed(run)}`+(sessPaused()?' · paused':'');
   btn.textContent=sessPaused()?'▶ Resume session':'⏸ Pause session';
+  // Primera etapa de la hoja: el botón invita a empezar. Después, a avanzar.
+  const nb=document.getElementById('btn-next');
+  if(nb) nb.textContent=sess.stages.length?'▶ Next step':'▶ Start reading';
   box.innerHTML=sess.stages.map(s=>{
     const dur=(s.endedAt||Date.now())-s.startedAt;
     const t=new Date(s.startedAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
