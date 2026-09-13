@@ -390,6 +390,10 @@ body.board .app{max-width:none;padding:16px 22px 80px}
       <div class="cm-grown">Grown: <b id="cm-grown">--cm</b><span id="myratio-line"></span></div>
       <div class="track"><div class="fill" id="bar-meta" style="width:0%"></div></div>
       <div class="marks"><span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span></div>
+      <div id="claim-row" style="display:none;align-items:center;gap:8px;margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
+        <span style="flex:1;font-size:11px;color:var(--muted);line-height:1.4">Another sheet is using the device, so this one shows no reading.</span>
+        <button class="mark-btn" style="flex:none;white-space:nowrap" onclick="claimDevice()">📏 Measure here</button>
+      </div>
   </div>
   <div class="card sortable" id="panel-timer">
     <div class="drag-handle" title="Drag to reorder">⠿</div>
@@ -2134,8 +2138,24 @@ let currentMode='meta';
 // esta masa: son lo que el aparato tenga delante, y enseñarlas invita a leerlas
 // como si fueran del paso.
 const SENSOR_BLOCKS=['panel-meta','panel-temp','panel-cond','panel-ratio'];
+// Vaciar la tarjeta no puede esperar al siguiente status: si el aparato está
+// apagado no llega ninguno, y al abrir otra hoja se quedaban a la vista los
+// números de la masa anterior.
+function blankMeta(){
+  const g=id=>document.getElementById(id);
+  if(!g('rise'))return;
+  g('rise').textContent='--';
+  g('bar-ratio').style.width='0%';
+  g('meta-pct').innerHTML='--<span>%</span>';
+  g('bar-meta').style.width='0%';
+  g('bar-meta').className='fill';
+  g('meta-ratio-now').textContent='--×';
+  g('meta-ratio-goal').textContent='--×';
+  g('cm-grown').textContent='--cm';
+  const ml=g('myratio-line'); if(ml) ml.textContent='';
+}
 function applyVisibility(){
-  const live=sensorMode();
+  const live=stageMeasures();
   for(const el of document.getElementById('stack').children){
     const only=MODE_ONLY[el.id];
     const sensorOnly=SENSOR_BLOCKS.includes(el.id)&&!live;
@@ -2147,9 +2167,14 @@ function applyVisibility(){
     n.style.display=live?'none':'block';
     n.textContent = !sess ? 'No session open.'
       : !a ? 'No step running — start one to read the device.'
-      : a.manual ? `“${a.name}” is a step you are recording by hand, so the device's readings are not shown and nothing is being logged for it.`
-      : 'This sheet is not the one measuring — press Start reading to claim the device.';
+      : `“${a.name}” is a step you are recording by hand, so the device's readings are not shown and nothing is being logged for it.`;
   }
+  // La hoja que no tiene el aparato conserva la tarjeta: los números van en
+  // blanco y aparece el botón para traérselo aquí.
+  const c=document.getElementById('claim-row');
+  const mine=!!(sess&&sess.owns);
+  if(c) c.style.display=(live&&!mine)?'flex':'none';
+  if(!mine) blankMeta();
 }
 // Hojas, como las de una hoja de cálculo. Cambiar de hoja no destruye nada:
 // el gráfico grande y el informe dejan de ser ventanas que hay que cerrar y
@@ -2217,17 +2242,7 @@ function updateUI(d){
     document.getElementById('meta-ratio-now').textContent=d.metaStartSet?fmt(mrcS)+'×':'--×';
     document.getElementById('meta-ratio-goal').textContent=d.metaGoalSet?fmt(d.metaRatioGoal)+'×':'--×';
     document.getElementById('cm-grown').textContent=fmt(cmS)+'cm';
-  }else{
-    document.getElementById('rise').textContent='--';
-    document.getElementById('bar-ratio').style.width='0%';
-    document.getElementById('meta-pct').innerHTML='--<span>%</span>';
-    document.getElementById('bar-meta').style.width='0%';
-    document.getElementById('bar-meta').className='fill';
-    document.getElementById('meta-ratio-now').textContent='--×';
-    document.getElementById('meta-ratio-goal').textContent='--×';
-    document.getElementById('cm-grown').textContent='--cm';
-    mp=0;
-  }
+  }else{ blankMeta(); mp=0; }
   lastStart.set=owns&&d.metaStartSet===true;
   lastGoalX=(owns&&d.metaGoalSet&&+d.metaRatioGoal>1)?+d.metaRatioGoal:0;
   // Progreso contra TU ratio, si lo has puesto. Se calcula sobre el crecimiento
@@ -2475,9 +2490,18 @@ function activeStage(){
   for(let i=st.length-1;i>=0;i--) if(!st[i].endedAt) return st[i];
   return null;
 }
-function sensorMode(){
+// Dos preguntas distintas que antes eran una sola, y confundirlas escondía la
+// caja entera a la hoja anterior en cuanto otra empezaba a medir.
+//  · ¿esta etapa se mide?  -> decide si la tarjeta se ve
+//  · ¿además tiene el aparato? -> decide si se registra y si hay números
+// Toda hoja puede medir con el ToF: la que no lo tiene enseña la tarjeta con
+// el botón para quedárselo, no un hueco.
+function stageMeasures(){
   const a=activeStage();
-  return !!(sess&&sess.owns&&a&&!a.manual);
+  return !!(sess&&a&&!a.manual);
+}
+function sensorMode(){
+  return stageMeasures()&&!!(sess&&sess.owns);
 }
 function measuredStages(){
   return (sess?sess.stages:[]).filter(s=>!s.manual&&s.startedAt);
@@ -3168,6 +3192,17 @@ function showReportView(title,meta,bodyHtml,chart){
 }
 function closeReport(){ setDMode(currentMode); }
 
+// El aparato es uno solo y apunta a una masa, así que medir aquí es quitárselo
+// a la otra hoja — pero sin tocar lo que esa hoja ya registró.
+function claimDevice(){
+  if(!sess)return;
+  const otra=sessions.find(x=>x!==sess&&x.owns);
+  if(otra&&!confirm(`Measure this sheet with the device?\n\n“${otra.name}” stops reading. What it already recorded stays.`))return;
+  sessions.forEach(x=>{ if(x!==sess) x.owns=false; });
+  sess.owns=true; saveSessions();
+  renderSess(); renderHistory(); fetchHistory();
+  showToast('📏 Measuring “'+sess.name+'”');
+}
 function markStart(){
   // Pisa el cero de la masa en curso, así que no puede dispararse por un roce.
   if(lastStart.set && !confirm('Mark the start again?\n\nThe dough already has a start marked and the current progress will be replaced. You can undo this afterwards.'))return;
