@@ -189,8 +189,8 @@ body.board .app{max-width:none;padding:16px 22px 80px}
 <div class="toast" id="toast"></div>
 <div class="modal" id="past-modal">
   <div class="modal-box">
-    <div class="card-label" style="margin-bottom:4px">Add a past stage</div>
-    <div style="font-size:10px;color:var(--muted);margin-bottom:12px;line-height:1.4">For what happened before the sensor was watching. Whatever you enter is marked as your own observation, never mixed in with measurements.</div>
+    <div class="card-label" style="margin-bottom:4px" id="pa-title">Add a past stage</div>
+    <div style="font-size:10px;color:var(--muted);margin-bottom:12px;line-height:1.4" id="pa-sub">For what happened before the sensor was watching. Whatever you enter is marked as your own observation, never mixed in with measurements.</div>
 
     <input class="num-input" type="text" id="pa-name" placeholder="Stage name" style="width:100%;font-size:13px;margin-bottom:8px">
     <div id="pa-presets" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:12px"></div>
@@ -221,7 +221,7 @@ body.board .app{max-width:none;padding:16px 22px 80px}
 
     <div class="log-btns" style="margin-top:16px">
       <button class="mark-btn" onclick="closePast()" style="flex:1">Cancel</button>
-      <button class="cal-btn" onclick="addPastStage()" style="flex:2;margin:0">＋ Add it</button>
+      <button class="cal-btn" onclick="addPastStage()" style="flex:2;margin:0" id="pa-ok">＋ Add it</button>
     </div>
   </div>
 </div>
@@ -921,7 +921,37 @@ addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible
 // Lo que pasó sin el sensor delante. Se guardan con manual:true y todo lo que
 // escribas viaja etiquetado como observación tuya: el informe tiene que poder
 // distinguir lo medido de lo recordado, o las conclusiones se contaminan.
+// Editar una etapa ya creada, la anotaste a mano o la registró el sensor. Una
+// hora mal puesta no debería obligar a borrarla y rehacerla, que además perdería
+// sus fotos y su nota.
+let paEditId=null;
+function paLocal(ms){
+  if(!ms) return '';
+  const d=new Date(ms), pad=n=>String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function editStage(id){
+  const st=sess&&sess.stages.find(x=>x.id===id); if(!st)return;
+  openPast();
+  paEditId=id;
+  document.getElementById('pa-title').textContent='Edit stage';
+  document.getElementById('pa-sub').textContent='Change anything, including the times. Leave a time empty to record that it was not noted.';
+  document.getElementById('pa-ok').textContent='Save';
+  document.getElementById('pa-name').value=st.name||'';
+  document.getElementById('pa-from').value=paLocal(st.startedAt);
+  document.getElementById('pa-to').value=paLocal(st.endedAt);
+  document.getElementById('pa-rise').value=st.manualRise||'';
+  document.getElementById('pa-temp').value=st.manualTemp!=null?st.manualTemp:'';
+  document.getElementById('pa-note').value=st.note||'';
+  const w=document.getElementById('pa-where');
+  w.parentElement.style.display='none';     // editando no se mueve; para eso están ↑↓
+}
 function openPast(){
+  paEditId=null;
+  document.getElementById('pa-title').textContent='Add a past stage';
+  document.getElementById('pa-sub').textContent='For what happened before the sensor was watching. Whatever you enter is marked as your own observation, never mixed in with measurements.';
+  document.getElementById('pa-ok').textContent='＋ Add it';
+  const w0=document.getElementById('pa-where'); if(w0) w0.parentElement.style.display='flex';
   if(!sess){showToast('Open a session first');return;}
   const p=document.getElementById('pa-presets');
   p.innerHTML=STAGE_PRESETS.map(n=>
@@ -950,6 +980,22 @@ function addPastStage(){
   if(from&&to&&to<=from){showToast('The end is before the start');return;}
   const rise=parseFloat(document.getElementById('pa-rise').value);
   const temp=parseFloat(document.getElementById('pa-temp').value);
+  const rise2=isFinite(rise)&&rise>0?+rise.toFixed(2):null;
+  const temp2=isFinite(temp)?+temp.toFixed(1):null;
+  const note2=(document.getElementById('pa-note').value||'').trim();
+  if(paEditId){
+    const st=sess.stages.find(x=>x.id===paEditId);
+    if(st){
+      Object.assign(st,{name,startedAt:from,endedAt:to,note:note2,
+                        manualRise:rise2,manualTemp:temp2});
+      // Si le das horas a una etapa que no las tenía, la sesión se estira para
+      // cubrirla igual que al crearla.
+      if(from) sess.startedAt=Math.min(sess.startedAt,from);
+      saveSessions(); renderSess(); renderHistory(); fetchHistory();
+      closePast(); showToast('✎ '+name+' updated');
+    }
+    return;
+  }
   const at=Math.max(0,Math.min(sess.stages.length,parseInt(document.getElementById('pa-where').value)||0));
   // Se inserta donde lo pediste. No se reordena por hora: una etapa sin fecha
   // no tiene por dónde ordenarse, y reordenar las demás te movería de sitio
@@ -2580,6 +2626,7 @@ function renderSess(){
         <button class="mark-btn" style="padding:4px 8px;font-size:10px" onclick="pickPhoto(${s.id})">📷</button>
         <button class="mark-btn" style="padding:4px 8px;font-size:10px" onclick="noteStage(${s.id})">✎ note</button>
         ${(s.endedAt||!dated)?'':`<button class="mark-btn" style="padding:4px 8px;font-size:10px" onclick="endStage(${s.id})">■ end</button>`}
+        <button class="mark-btn" style="padding:4px 8px;font-size:10px" onclick="editStage(${s.id})">✎ edit</button>
         <button class="mark-btn" style="padding:4px 7px;font-size:10px;color:var(--muted)" onclick="moveStage(${s.id},-1)">↑</button>
         <button class="mark-btn" style="padding:4px 7px;font-size:10px;color:var(--muted)" onclick="moveStage(${s.id},1)">↓</button>
         <button class="mark-btn" style="padding:4px 8px;font-size:10px;color:var(--muted)" onclick="delStage(${s.id})">✕</button>
