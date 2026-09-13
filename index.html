@@ -281,6 +281,7 @@ body.board .app{max-width:none;padding:16px 22px 80px}
   <div class="header">
     <div class="logo">Proof<span>Box</span> Vol</div>
     <div style="display:flex;align-items:center;gap:10px">
+      <button class="new-dough" id="btn-next-top" onclick="openNext()">▶ Start reading</button>
       <div class="status-row" onclick="forceReconnect()" style="cursor:pointer" title="Tap to reconnect">
         <div class="dot" id="dot"></div>
         <span id="status-txt" style="color:var(--red)">Connecting...</span>
@@ -2364,6 +2365,15 @@ function sessPaused(){ return !!(sess&&(sess.pauses||[]).some(p=>!p.to)); }
 function pausedMs(){
   return (sess&&sess.pauses||[]).reduce((a,p)=>a+((p.to||Date.now())-p.from),0);
 }
+// El botón vive en dos sitios: en la cabecera, siempre visible, y en la tarjeta
+// de sesión. Son el mismo botón, así que el texto lo decide una sola función y
+// no pueden acabar diciendo cosas distintas.
+function syncNextLabel(started){
+  const t=started?'▶ Next step':'▶ Start reading';
+  const a=document.getElementById('btn-next'), b=document.getElementById('btn-next-top');
+  if(a) a.textContent=t;
+  if(b){ b.textContent=t; b.style.display=sess?'block':'none'; }
+}
 function renderSess(){
   const box=document.getElementById('sess-stages'); if(!box)return;
   const clock=document.getElementById('sess-clock');
@@ -2371,16 +2381,14 @@ function renderSess(){
   if(!sess){
     box.innerHTML='<div style="color:var(--muted);padding:8px 0">No session open. Use ＋ in the top bar.</div>';
     clock.textContent='--'; btn.textContent='⏸ Pause session';
-    const nb0=document.getElementById('btn-next'); if(nb0) nb0.textContent='▶ Start reading';
+    syncNextLabel(false);
     return;
   }
   document.getElementById('sess-name').value=sess.name;
   const run=Date.now()-sess.startedAt-pausedMs();
   clock.textContent=`${sess.name} · ${fmtElapsed(run)}`+(sessPaused()?' · paused':'');
   btn.textContent=sessPaused()?'▶ Resume session':'⏸ Pause session';
-  // Primera etapa de la hoja: el botón invita a empezar. Después, a avanzar.
-  const nb=document.getElementById('btn-next');
-  if(nb) nb.textContent=sess.stages.length?'▶ Next step':'▶ Start reading';
+  syncNextLabel(sess.stages.length>0);
   box.innerHTML=sess.stages.map(s=>{
     const dur=(s.endedAt||Date.now())-s.startedAt;
     const t=new Date(s.startedAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
