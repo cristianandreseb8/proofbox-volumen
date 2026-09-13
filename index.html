@@ -197,6 +197,16 @@ body.board .app{max-width:none;padding:16px 22px 80px}
 </head>
 <body>
 <div class="toast" id="toast"></div>
+<div class="modal" id="photo-modal" onclick="if(event.target===this)closePhoto()">
+  <div class="modal-box" style="max-width:520px;text-align:center">
+    <img id="pv-img" src="" style="max-width:100%;max-height:62vh;border-radius:10px;border:1px solid var(--border)">
+    <div id="pv-cap" style="font-size:10px;color:var(--muted);margin:10px 0 12px"></div>
+    <div class="log-btns">
+      <button class="mark-btn" onclick="closePhoto()">Close</button>
+      <button class="mark-btn" style="color:var(--red);border-color:var(--red)" onclick="delPhoto()">✕ Remove photo</button>
+    </div>
+  </div>
+</div>
 <div class="modal" id="past-modal">
   <div class="modal-box">
     <div class="card-label" style="margin-bottom:4px" id="pa-title">Manual step</div>
@@ -2861,7 +2871,7 @@ function renderSess(){
     const t=!dated ? '—'
           : (s.timeKnown===false ? new Date(s.startedAt).toLocaleDateString('en-GB',{day:'2-digit',month:'short'})
                                  : new Date(s.startedAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}));
-    const thumbs=(s.photos||[]).map(pid=>`<img src="" data-photo="${pid}" style="width:38px;height:38px;object-fit:cover;border-radius:5px;border:1px solid var(--border)">`).join('');
+    const thumbs=(s.photos||[]).map(pid=>`<img src="" data-photo="${pid}" onclick="viewPhoto(${s.id},${pid})" title="Open" style="width:38px;height:38px;object-fit:cover;border-radius:5px;border:1px solid var(--border);cursor:pointer">`).join('');
     const hand=s.manual?`<span style="color:#7a8fa8;font-size:9px;border:1px solid #7a8fa8;border-radius:4px;padding:1px 4px;margin-left:6px">noted</span>`:'';
     // El perfil manda sobre el número suelto: si hubo 20° y luego 28°, enseñar
     // solo "28°" borra la mitad de lo que contaste.
@@ -2898,13 +2908,19 @@ function renderSess(){
 }
 setInterval(()=>{ if(sess&&document.getElementById('sess-clock')) renderSess(); },30000);
 
+let photoSeq=0;
 // ─── Fotos ────────────────────────────────────────────────────────────────
 // Se reescalan antes de guardar. Una foto de móvil son 4 MB y en un informe
 // caben diez: sin reescalar, el PDF y la petición a la API se vuelven absurdos.
+// `capture` no es una sugerencia: en el móvil abre la cámara y CIERRA la
+// puerta al carrete. Las fotos de una masa casi siempre se hicieron antes, así
+// que el sistema debe poder ofrecer las dos cosas — y eso es no poner capture.
 function pickPhoto(stageId){
   const inp=document.createElement('input');
-  inp.type='file'; inp.accept='image/*'; inp.capture='environment';
-  inp.onchange=()=>{ if(inp.files[0]) addPhoto(stageId,inp.files[0]); };
+  inp.type='file'; inp.accept='image/*'; inp.multiple=true;
+  inp.onchange=async()=>{
+    for(const f of Array.from(inp.files||[])) await addPhoto(stageId,f);
+  };
   inp.click();
 }
 function shrinkImage(file,max){
@@ -2927,11 +2943,46 @@ async function addPhoto(stageId,file){
   showToast('Saving photo...');
   try{
     const blob=await shrinkImage(file,1400);
-    const id=Date.now();
+    // Elegir varias a la vez cae en el mismo milisegundo y una foto borraba a
+    // la otra en IndexedDB.
+    const id=Date.now()*1000+(photoSeq++%1000);
     await idbDo('readwrite',st=>st.put(blob,'photo-'+id));
     s.photos=s.photos||[]; s.photos.push(id);
     saveSess(); renderSess(); showToast('📷 Photo added to '+s.name);
   }catch(e){ showToast('Could not save that photo'); }
+}
+// Ver la foto grande y poder quitarla. Sin esto una foto equivocada se queda
+// para siempre, y además se cuela en el informe que se manda a la API.
+let photoOpen=null;
+async function viewPhoto(stageId,pid){
+  photoOpen={stageId,pid};
+  const img=document.getElementById('pv-img');
+  const b=await idbDo('readonly',st=>st.get('photo-'+pid));
+  if(img.src.startsWith('blob:')) URL.revokeObjectURL(img.src);
+  img.src=b?URL.createObjectURL(b):'';
+  const s=sess&&sess.stages.find(x=>x.id===stageId);
+  // Las fotos viejas llevan el id en milisegundos; las nuevas, en micros.
+  const ms=pid>1e13?Math.floor(pid/1000):pid;
+  document.getElementById('pv-cap').textContent=
+    (s?s.name+' · ':'')+new Date(ms).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
+  document.getElementById('photo-modal').classList.add('show');
+}
+function closePhoto(){
+  const img=document.getElementById('pv-img');
+  if(img.src.startsWith('blob:')) URL.revokeObjectURL(img.src);
+  img.src=''; photoOpen=null;
+  document.getElementById('photo-modal').classList.remove('show');
+}
+async function delPhoto(){
+  if(!photoOpen)return;
+  const {stageId,pid}=photoOpen;
+  const s=sess&&sess.stages.find(x=>x.id===stageId);
+  if(!s){closePhoto();return;}
+  if(!confirm('Remove this photo?\n\nIt goes from the step and from the reports written after this.'))return;
+  s.photos=(s.photos||[]).filter(x=>x!==pid);
+  // El blob también, si no IndexedDB se llena de fotos que ya no ve nadie.
+  try{ await idbDo('readwrite',st=>st.delete('photo-'+pid)); }catch(e){}
+  saveSess(); renderSess(); closePhoto(); showToast('Photo removed');
 }
 async function photoDataUrl(id){
   const b=await idbDo('readonly',st=>st.get('photo-'+id)); if(!b)return null;
