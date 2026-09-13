@@ -902,14 +902,32 @@ function chartWindow(){
   if(sess) return {from:sess.startedAt, to:Date.now(), name:sess.name+' · whole session'};
   return null;
 }
+// El registro de la nube escribe cada minuto pase lo que pase, así que el
+// histórico del aparato existe siempre. Una fila es de ESTA hoja solo si es
+// posterior a su marca de inicio y no cae dentro de un paso anotado a mano.
+// Sin esto una hoja recién creada nacía con puntos que no eran de su masa.
+function sheetFrom(){ return (sess&&sess.baseAt)?sess.baseAt:null; }
+function handWindows(){
+  return (sess?sess.stages:[]).filter(x=>x.manual&&x.startedAt)
+    .map(x=>({from:x.startedAt,to:x.endedAt||Date.now()}));
+}
 function rowsIn(win){
-  if(!win) return history;
-  return history.filter(r=>{const t=new Date(r.logged_at).getTime();return t>=win.from&&t<=win.to;});
+  const from=sheetFrom();
+  if(from===null) return [];              // sin inicio marcado no hay nada que sea suyo
+  const hand=handWindows();
+  const lo=Math.max(from,win?win.from:from), hi=win?win.to:Infinity;
+  return history.filter(r=>{
+    const t=new Date(r.logged_at).getTime();
+    if(t<lo||t>hi) return false;
+    return !hand.some(h=>t>=h.from&&t<=h.to);
+  });
 }
 function chartRows(){ return rowsIn(chartWindow()); }
 function chartT0(){
+  const from=sheetFrom();
   const w=chartWindow();
-  if(w) return w.from;
+  if(w) return from!==null?Math.max(w.from,from):w.from;
+  if(from!==null) return from;
   if(sessionStart) return new Date(sessionStart).getTime();
   return history.length?new Date(history[0].logged_at).getTime():null;
 }
@@ -1411,7 +1429,13 @@ function drawChart(rows,boxId,W,H){
   boxId=boxId||'log-chart'; W=W||340; H=H||90;
   const box=document.getElementById(boxId);
   if(!box)return;
-  if(!rows.length){box.innerHTML='<div style="color:var(--muted);font-size:11px;text-align:center;padding:24px 0">No saved data yet.<br>The first point arrives in a few minutes.</div>';return;}
+  if(!rows.length){
+    // Distinguir "aún no ha llegado el primer punto" de "esta hoja no ha
+    // empezado a medir" — son dos situaciones y piden cosas distintas.
+    box.innerHTML=(sess&&!sess.baseAt)
+      ? '<div style="color:var(--muted);font-size:11px;text-align:center;padding:24px 0">This sheet is not recording yet.<br>Mark a start in the growth card to begin.</div>'
+      : '<div style="color:var(--muted);font-size:11px;text-align:center;padding:24px 0">No saved data yet.<br>The first point arrives in a few minutes.</div>';
+    return;}
   const p=W>500?34:6;   // en grande hace falta margen para las etiquetas
   // El eje X es TIEMPO TRANSCURRIDO desde que arrancó el gráfico, no hora del
   // reloj: así dos fermentaciones distintas se pueden comparar superpuestas.
@@ -2505,9 +2529,18 @@ function measuredStages(){
 }
 function sensorRows(){
   const ms=measuredStages();
-  if(!ms.length) return [];
+  // Mismo criterio que el gráfico: el informe no puede contar como medido lo
+  // que el registro de la nube escribió antes de que esta hoja empezara.
+  const from=(sess&&sess.baseAt)?sess.baseAt:null;
+  if(!ms.length||from===null) return [];
+  // Un paso a mano puede quedar dentro de uno medido que sigue abierto, así que
+  // no basta con mirar las etapas medidas: hay que descontarlo igual que hace
+  // el gráfico, o el informe cuenta como medido un rato que no lo fue.
+  const hand=handWindows();
   return history.filter(r=>{
     const t=new Date(r.logged_at).getTime();
+    if(t<from) return false;
+    if(hand.some(h=>t>=h.from&&t<=h.to)) return false;
     return ms.some(s=>t>=s.startedAt&&t<=(s.endedAt||Date.now()));
   });
 }

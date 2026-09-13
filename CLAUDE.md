@@ -102,6 +102,14 @@ leerlo como dato de esa etapa, y guardarlo ensucia el histórico de la hoja. En
 su sitio queda un aviso que dice por qué. El gráfico pequeño, en esa etapa,
 dibuja lo que contaste, no lo que se midió.
 
+**Una fila del histórico es de la hoja solo si es posterior a su marca de
+inicio.** El registro de la nube escribe cada minuto pase lo que pase, así que
+`proofbox_readings` tiene datos del aparato siempre. Sin filtrar por `baseAt`,
+una hoja recién creada nacía con puntos en el gráfico y en el informe que no
+eran de su masa. Los tramos de pasos anotados a mano se descuentan también, y
+`sensorRows()` usa exactamente el mismo criterio que el gráfico: si dan números
+distintos, es un fallo.
+
 **Las tarjetas no se esconden nunca.** Temperatura y conductividad son lo que
 marca el instrumento y existen igual en un paso anotado a mano; la de
 crecimiento es donde vive el botón de marcar inicio, así que ocultarla dejaba a
@@ -179,6 +187,15 @@ campos nuevos de sensores ya están ahí antes de existir como columnas.
   que costó encontrar; no los borres al refactorizar.
 
 ---
+
+## Cuidado al probar
+
+`proofbox_state` es **una sola fila compartida** (`device_id` fijo) y la preview
+local la lee y la escribe igual que el móvil. Guardar durante una prueba pisa
+las hojas reales: gana el último que escribe y no hay historial. Ya se perdió
+una hoja así. Si hay que probar con hojas de mentira, anular antes `pushState`,
+`pullState` y `fetchHistory`, y no llamar a `saveSessions()` hasta haberlas
+quitado.
 
 ## Pendiente
 
