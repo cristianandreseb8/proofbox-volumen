@@ -197,6 +197,12 @@ body.board .app{max-width:none;padding:16px 22px 80px}
     <div class="card-label" style="margin-bottom:4px" id="pa-title">Manual step</div>
     <div style="font-size:10px;color:var(--muted);margin-bottom:14px;line-height:1.45" id="pa-sub">A step you did without the app watching. <b>Only the name is required</b> — fill in whatever you know and leave the rest empty. The report will say what was not recorded instead of inventing it.</div>
 
+    <textarea class="num-input" id="pa-say" rows="3" placeholder="Or just describe it: “no sé la hora ni la fecha pero creció 3 horas a 30 grados”" style="width:100%;font-size:12px;line-height:1.45;resize:vertical"></textarea>
+    <div class="log-btns" style="margin:8px 0 6px">
+      <button class="mark-btn" onclick="parseSay()" id="pa-parse" style="flex:1">✨ Fill the fields from this</button>
+    </div>
+    <div id="pa-said" style="font-size:10px;color:var(--muted);margin-bottom:12px;min-height:12px;line-height:1.4"></div>
+
     <input class="num-input" type="text" id="pa-name" placeholder="What was it?" style="width:100%;font-size:13px;margin-bottom:8px">
     <div id="pa-presets" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:14px"></div>
 
@@ -939,12 +945,77 @@ addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible
 // Editar una etapa ya creada, la anotaste a mano o la registró el sensor. Una
 // hora mal puesta no debería obligar a borrarla y rehacerla, que además perdería
 // sus fotos y su nota.
+// ─── Describir el paso con palabras ───────────────────────────────────────
+// Escribes lo que pasó y se reparte por los campos. Rellena el formulario, NO
+// lo guarda: lo que sale de un modelo se revisa antes de quedar como dato, y
+// así podés corregir lo que haya entendido de más o de menos.
+async function parseSay(){
+  const txt=(document.getElementById('pa-say').value||'').trim();
+  if(!txt){showToast('Write what happened first');return;}
+  const btn=document.getElementById('pa-parse'), out=document.getElementById('pa-said');
+  btn.disabled=true; out.style.color='var(--muted)'; out.textContent='Reading it…';
+
+  const sys=`You turn a baker's description of one dough step into fields.
+
+Today is ${new Date().toISOString().slice(0,10)}.
+
+Fill only what the text actually says. Everything not stated must be null — never guess a date, a time, a duration or a temperature that was not given. "I don't know the time" means null, not midnight.
+
+- rise: the growth multiple, e.g. "subió a 2,7x" -> 2.7. A mark on a graduated jar counts ("llegó a la marca de 270ml" with 100g -> 2.7).
+- temp: a single representative temperature in Celsius. If the temperature changed during the step, leave temp null and describe the change in note — one number would misrepresent it.
+- hours/minutes: the total duration of the step.
+- note: anything the other fields cannot hold — approximations ("o muy cercano"), temperature changes, observations. Write it in the same language the baker used. Null if there is nothing left over.
+- name: only if the text names the step. Otherwise null.`;
+
+  try{
+    const r=await fetch(`${SUPA_URL}/functions/v1/claude-proxy`,{
+      method:'POST',headers:{Authorization:'Bearer '+SUPA_JWT,'Content-Type':'application/json'},
+      body:JSON.stringify({model:'claude-opus-5',max_tokens:2000,system:sys,
+        messages:[{role:'user',content:txt}],
+        output_config:{format:{type:'json_schema',schema:{
+          type:'object',additionalProperties:false,
+          required:['name','day','time','hours','minutes','rise','temp','note'],
+          properties:{
+            name:{type:['string','null']},
+            day:{type:['string','null'],description:'YYYY-MM-DD'},
+            time:{type:['string','null'],description:'HH:MM 24h'},
+            hours:{type:['number','null']},minutes:{type:['number','null']},
+            rise:{type:['number','null']},temp:{type:['number','null']},
+            note:{type:['string','null']}}}}}})});
+    const res=await r.json();
+    if(res.error==='no_key') throw new Error('The server has no Claude credential yet');
+    if(!r.ok||res.error) throw new Error((res.error&&(res.error.message||res.error))||('HTTP '+r.status));
+    const raw=res.content.filter(b=>b.type==='text').map(b=>b.text).join('');
+    const d=JSON.parse(raw);
+
+    const set=(id,v)=>{ if(v!==null&&v!==undefined&&v!=='') document.getElementById(id).value=v; };
+    set('pa-name',d.name); set('pa-date',d.day); set('pa-time',d.time);
+    set('pa-h',d.hours); set('pa-m',d.minutes);
+    set('pa-rise',d.rise); set('pa-temp',d.temp);
+    if(d.note){ const n=document.getElementById('pa-note');
+                n.value=n.value?n.value+' · '+d.note:d.note; }
+
+    const got=[d.name&&'name',d.day&&'day',d.time&&'time',
+               (d.hours||d.minutes)&&'duration',d.rise&&'growth',d.temp!=null&&'temperature',
+               d.note&&'note'].filter(Boolean);
+    const missing=['day','time','duration','growth','temperature'].filter(k=>!got.includes(k));
+    out.innerHTML=`Filled in: <b>${got.join(', ')||'nothing it could pin down'}</b>.`+
+      (missing.length?` Not stated, left empty: ${missing.join(', ')}.`:'')+
+      ` Check it before saving.`;
+    out.style.color='var(--green)';
+  }catch(e){
+    out.textContent='Could not read that: '+String(e.message||e);
+    out.style.color='var(--red)';
+  }finally{ btn.disabled=false; }
+}
+
 let paEditId=null;
 const pad2=n=>String(n).padStart(2,'0');
 function paToday(){ const d=new Date(); document.getElementById('pa-date').value=`${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`; }
 function paNow(){ const d=new Date(); document.getElementById('pa-time').value=`${pad2(d.getHours())}:${pad2(d.getMinutes())}`; }
 function paClear(){
-  ['pa-name','pa-date','pa-time','pa-h','pa-m','pa-rise','pa-temp','pa-note']
+  const said=document.getElementById('pa-said'); if(said)said.textContent='';
+  ['pa-say','pa-name','pa-date','pa-time','pa-h','pa-m','pa-rise','pa-temp','pa-note']
     .forEach(k=>{const e=document.getElementById(k); if(e)e.value='';});
 }
 function openPast(){
@@ -986,6 +1057,7 @@ function editStage(id){
   document.getElementById('pa-rise').value=st.manualRise||'';
   document.getElementById('pa-temp').value=st.manualTemp!=null?st.manualTemp:'';
   document.getElementById('pa-note').value=st.note||'';
+  document.getElementById('pa-say').value=st.said||'';
   document.getElementById('pa-where').parentElement.style.display='none';
 }
 function closePast(){ document.getElementById('past-modal').classList.remove('show'); }
@@ -1012,7 +1084,9 @@ function addPastStage(){
   }
   const endedAt=(startedAt&&durMs)?startedAt+durMs:null;
 
+  const said=(document.getElementById('pa-say').value||'').trim();
   const fields={name,startedAt,endedAt,timeKnown,durMin:durMs?Math.round(durMs/60000):null,
+    said:said||null,
     note:(document.getElementById('pa-note').value||'').trim(),
     manual:true,
     manualRise:isFinite(rise)&&rise>0?+rise.toFixed(2):null,
@@ -2388,6 +2462,7 @@ async function makeReport(){
       if(s.durMin&&!o.duration_h) o.duration_h=+(s.durMin/60).toFixed(2);
       if(s.manual){
         o.source='entered by the baker afterwards, not measured';
+        if(s.said) o.in_the_bakers_words=s.said;
         if(s.manualRise!=null) o.reported_rise_x=s.manualRise;
         if(s.manualTemp!=null) o.reported_temperature_c=s.manualTemp;
       }
