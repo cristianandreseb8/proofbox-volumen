@@ -169,6 +169,9 @@ body.board .app{max-width:none;padding:16px 22px 80px}
 .series-chip{display:flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:11px;cursor:pointer;user-select:none}
 .series-chip input{width:15px;height:15px;margin:0;flex:none}
 .series-dot{width:9px;height:9px;border-radius:50%;flex:none}
+.hand-fig{--rule:#3a352e;--soft:#7a7268;--accent:#d4820e}
+.hand-fig figcaption{font-size:10px;color:var(--muted);margin-bottom:6px}
+.hand-fig svg{width:100%}
 .chart-readout{display:flex;flex-wrap:wrap;gap:14px;align-items:baseline;font-size:12px;margin-top:8px;min-height:18px}
 .chart-readout b{font-size:14px}
 .chart-full-box{touch-action:none}
@@ -353,6 +356,7 @@ body.board .app{max-width:none;padding:16px 22px 80px}
   </div>
 
 
+  <div id="sensor-note" class="warn show" style="display:none;background:rgba(122,143,168,.10);border-color:#7a8fa8;color:#9db4c9"></div>
   <div id="stack">
 
   <div class="card sortable" id="panel-ratio" style="display:none">
@@ -798,9 +802,12 @@ function zeroForNewSheet(){
 // Fast mode (only with the app open): triggers the cloud logger every N seconds.
 function updateFastTimer(sec){
   if(fastTimer){clearInterval(fastTimer);fastTimer=null;}
+  // Sin paso medido no se registra: guardar la mesa durante un amasado no
+  // aporta nada y ensucia el histórico de la hoja.
+  if(!sensorMode()) return;
   if(sec<60){
     fastTimer=setInterval(()=>{
-      if(brokerUp) fetch(`${SUPA_URL}/functions/v1/proofbox-logger`,
+      if(brokerUp&&sensorMode()) fetch(`${SUPA_URL}/functions/v1/proofbox-logger`,
         {method:'POST',headers:{Authorization:'Bearer '+SUPA_JWT}})
         .then(()=>fetchHistory())   // refresh the chart as soon as the new point lands
         .catch(()=>{});
@@ -840,6 +847,19 @@ async function fetchHistory(){
 }
 function renderHistory(){
   renderStageChips(); renderGoals();
+  // Etapa manual seleccionada: no hay curva medida, pero sí lo que contaste.
+  const picked=(sess&&stagePick!=='all')?sess.stages.find(x=>String(x.id)===String(stagePick)):null;
+  if(picked&&picked.manual){
+    const lab=document.getElementById('hist-label');
+    if(lab) lab.textContent=picked.name+' · as you described it';
+    document.getElementById('log-count').textContent='—';
+    document.getElementById('log-elapsed').textContent=picked.durMin?fmtElapsed(picked.durMin*60000):'no time';
+    const fig=reportedFig(picked);
+    document.getElementById('log-chart').innerHTML=fig
+      ? `<div class="hand-fig">${fig.replace(/height:230px/,'height:150px')}</div>`
+      : '<div style="color:var(--muted);font-size:11px;text-align:center;padding:20px 0">Nothing recorded for this step yet.<br>Open it with ✎ edit to add what you remember.</div>';
+    return;
+  }
   const rows=chartRows(), w=chartWindow(), t0=chartT0();
   document.getElementById('log-count').textContent=rows.length;
   document.getElementById('log-elapsed').textContent=
@@ -1244,7 +1264,8 @@ function renderStageChips(){
   const box=document.getElementById('stage-chips'); if(!box)return;
   if(!sess||!sess.stages.length){ box.innerHTML=''; return; }
   const chip=(v,n)=>`<button class="gtab" style="flex:none;padding:5px 9px;font-size:10px${String(stagePick)===String(v)?';border-color:var(--amber);color:var(--amber-l)':''}" onclick="pickStage('${v}')">${n}</button>`;
-  box.innerHTML=chip('all','Whole session')+sess.stages.map(s=>chip(s.id,s.name)).join('');
+  box.innerHTML=chip('all','Whole session')+
+    sess.stages.map(s=>chip(s.id,(s.manual?'✎ ':'')+s.name)).join('');
 }
 function pickStage(v){
   stagePick=v;
@@ -2099,10 +2120,25 @@ const MODE_ONLY={'panel-meta':'meta','panel-grams':'meta','panel-goal':'meta','p
 let currentMode='meta';
 // Pinta qué bloques se ven, sin tocar la pestaña activa. Separado de setDMode a
 // propósito: marcar una casilla en Ajustes no debe cambiarte de pantalla.
+// Tarjetas que solo tienen sentido midiendo. En un paso manual no son datos de
+// esta masa: son lo que el aparato tenga delante, y enseñarlas invita a leerlas
+// como si fueran del paso.
+const SENSOR_BLOCKS=['panel-meta','panel-temp','panel-cond','panel-ratio'];
 function applyVisibility(){
+  const live=sensorMode();
   for(const el of document.getElementById('stack').children){
     const only=MODE_ONLY[el.id];
-    el.style.display=((!only||only===currentMode)&&!hiddenBlocks[el.id])?'block':'none';
+    const sensorOnly=SENSOR_BLOCKS.includes(el.id)&&!live;
+    el.style.display=((!only||only===currentMode)&&!hiddenBlocks[el.id]&&!sensorOnly)?'block':'none';
+  }
+  const n=document.getElementById('sensor-note');
+  if(n){
+    const a=activeStage();
+    n.style.display=live?'none':'block';
+    n.textContent = !sess ? 'No session open.'
+      : !a ? 'No step running — start one to read the device.'
+      : a.manual ? `“${a.name}” is a step you are recording by hand, so the device's readings are not shown and nothing is being logged for it.`
+      : 'This sheet is not the one measuring — press Start reading to claim the device.';
   }
 }
 // Hojas, como las de una hoja de cálculo. Cambiar de hoja no destruye nada:
@@ -2421,6 +2457,18 @@ function setRepLang(l,quiet){
 // mesa mientras hacés otra cosa, y esas lecturas no son de nadie: no describen
 // ninguna masa y no deben contarse ni informarse. Solo cuentan las que caen
 // dentro de un paso que de verdad usó el sensor.
+// El paso abierto: el último sin cerrar. De su naturaleza depende medio
+// interfaz — si no se está midiendo, los instrumentos del ESP32 no pintan nada
+// y el registro tampoco tiene sentido.
+function activeStage(){
+  const st=sess?sess.stages:[];
+  for(let i=st.length-1;i>=0;i--) if(!st[i].endedAt) return st[i];
+  return null;
+}
+function sensorMode(){
+  const a=activeStage();
+  return !!(sess&&sess.owns&&a&&!a.manual);
+}
 function measuredStages(){
   return (sess?sess.stages:[]).filter(s=>!s.manual&&s.startedAt);
 }
@@ -2697,6 +2745,7 @@ function pickSession(id){
   activeSess=id; sess=sessions.find(s=>s.id===id)||null;
   stagePick='all';
   bindSessionState();           // timer, ratio y alarma son de la hoja
+  setTimeout(applyVisibility,0);
   saveSessions(); renderSessBar(); renderSess();
   const rn=document.getElementById('rep-name');
   if(rn){ rn.value=''; rn.placeholder=sess?sess.name:'Panettone · primo impasto'; }
@@ -2785,6 +2834,9 @@ function syncNextLabel(started){
   const a=document.getElementById('btn-next'), b=document.getElementById('btn-next-top');
   if(a) a.textContent=t;
   if(b){ b.textContent=t; b.style.display=sess?'block':'none'; }
+  // Cualquier cambio de etapa pasa por aquí, así que es el sitio donde decidir
+  // si los instrumentos siguen teniendo algo que decir.
+  applyVisibility();
 }
 function renderSess(){
   const box=document.getElementById('sess-stages'); if(!box)return;

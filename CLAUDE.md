@@ -94,6 +94,14 @@ había sesión guardada — al revés perdía el avance en cada reinicio.
 **La reconexión MQTT no bloquea.** Era un `while` con `delay(5000)` que paraba
 el loop entero y producía "sin señal" con el aparato perfectamente vivo.
 
+**Los instrumentos y el registro siguen a la etapa abierta.** Si la etapa en
+curso es anotada a mano —o la hoja no es la que tiene el aparato—, las tarjetas
+de volumen, temperatura y conductividad se ocultan y no se guarda ni una fila.
+Lo que el ToF ve durante un amasado es la mesa, no la masa: enseñarlo invita a
+leerlo como dato de esa etapa, y guardarlo ensucia el histórico de la hoja. En
+su sitio queda un aviso que dice por qué. El gráfico pequeño, en esa etapa,
+dibuja lo que contaste, no lo que se midió.
+
 **La app suaviza solo al dibujar.** Lo que va a Supabase y al CSV es siempre el
 dato crudo, así que el suavizado es reversible y no se pierde nada.
 
