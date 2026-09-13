@@ -138,6 +138,8 @@ body.board .app{max-width:none;padding:16px 22px 80px}
 .stage-fig{margin:0 0 22px;break-inside:avoid}
 .stage-fig figcaption{font-size:11px;color:var(--accent);margin-bottom:4px;padding-bottom:3px;border-bottom:1px solid var(--rule)}
 .stage-fig svg{height:260px;width:100%}
+.stage-fig.reported figcaption{color:var(--soft);border-bottom-style:dashed}
+.stage-fig.reported svg{height:200px;background:repeating-linear-gradient(45deg,transparent,transparent 7px,rgba(0,0,0,.025) 7px,rgba(0,0,0,.025) 14px)}
 .report-foot{margin-top:34px;padding-top:12px;border-top:1px solid var(--rule);font-size:10px;color:var(--soft)}
 @media print{
   body>*:not(.report-view){display:none!important}
@@ -808,11 +810,13 @@ function updateFastTimer(sec){
 // elaboración de panettone dura días y las etapas viejas tienen que seguir
 // teniendo sus lecturas. Sin esto, el gráfico de "1er refresco" saldría vacío
 // al día siguiente.
+// Una hoja ve SUS lecturas y solo las suyas. Antes tomaba el mínimo entre el
+// arranque de la hoja y la ventana de registro de la nube, así que una hoja
+// creada hace seis minutos heredaba miles de lecturas de la masa anterior.
+// La ventana de la nube es de dónde graba el logger, no de qué abarca una hoja.
 function histFrom(){
-  const a=sess?sess.startedAt:null;
-  const b=sessionStart?new Date(sessionStart).getTime():null;
-  if(a&&b) return new Date(Math.min(a,b)).toISOString();
-  return a?new Date(a).toISOString():sessionStart;
+  if(sess) return new Date(sess.startedAt).toISOString();
+  return sessionStart;
 }
 async function fetchHistory(){
   const from=histFrom();
@@ -2417,27 +2421,39 @@ const BOOK={
 };
 
 async function makeReport(){
-  if(!history.length){showToast('No readings logged yet');return;}
+  // Una hoja íntegramente a mano es un caso legítimo — precisamente el que
+  // motivó todo esto — así que basta con tener algo que contar.
+  const anyStages=!!(sess&&sess.stages.length);
+  if(!history.length&&!anyStages){showToast('Nothing to report yet — add a step first');return;}
   const btn=document.getElementById('btn-report'), st=document.getElementById('rep-state');
   btn.disabled=true; st.style.color='var(--muted)'; st.textContent='Reading the session...';
 
-  const t0=chartT0()||new Date(history[0].logged_at).getTime();
-  const last=history[history.length-1];
+  const t0=chartT0()||(history.length?new Date(history[0].logged_at).getTime():(sess?sess.startedAt:Date.now()));
+  const last=history.length?history[history.length-1]:{};
   const data={
     // Por defecto toma el nombre de la sesión; escribir en el campo lo pisa.
     dough:document.getElementById('rep-name').value.trim()||(sess&&sess.name)||'Unnamed dough',
     started:new Date(t0).toISOString(),
-    elapsed_h:+((new Date(last.logged_at).getTime()-t0)/3600000).toFixed(2),
-    readings:history.length,
+    elapsed_h:+(((last.logged_at?new Date(last.logged_at).getTime():Date.now())-t0)/3600000).toFixed(2),
     final_rise_x:last.rise!=null?+(+last.rise).toFixed(2):null,
     grams:last.grams||null,
     grown_cm:last.cm_grown!=null?+(+last.cm_grown).toFixed(1):null,
+    ...(history.length?{readings:history.length}:{}),
     baker_target_x:myRatio||null,
     target_reached:last.meta_progress!=null?(+last.meta_progress>=100):null
   };
-  if(repSel.phases) data.phases=analysePhases(history,t0);
-  if(repSel.temp)   data.temperature_c=seriesStats(history,'temp_c');
-  if(repSel.cond)   data.conductivity_pct=seriesStats(history,'cond_rel');
+  // Qué sensores estuvieron realmente presentes en esta hoja. Sin esto el
+  // informe hablaba de 3300 lecturas en una sesión donde ningún paso se midió.
+  // Vale igual para los que vengan: cámara, humedad, lo que sea.
+  const sensed = history.length>0;
+  data.sensors_used = sensed;
+  if(!sensed) data.recorded = 'entirely by hand — the device was not watching this bake';
+  if(sensed){
+    // null no se manda: un campo presente y vacío invita a comentar la ausencia.
+    if(repSel.phases){ const ph=analysePhases(history,t0); if(ph) data.phases=ph; }
+    if(repSel.temp){  const t=seriesStats(history,'temp_c');   if(t) data.temperature_c=t; }
+    if(repSel.cond){  const c=seriesStats(history,'cond_rel'); if(c) data.conductivity_pct=c; }
+  }
 
   // Etapas: cada una se analiza sobre SUS lecturas, acotadas por marca de
   // tiempo. Por eso una etapa iniciada a posteriori sigue teniendo sus datos.
@@ -2467,9 +2483,12 @@ async function makeReport(){
         if(s.manualTemp!=null) o.reported_temperature_c=s.manualTemp;
       }
       if(s.note) o.note=s.note;
-      if(rows.length>3){
+      o.measured = rows.length>3;
+      if(o.measured){
         o.rise_from_to=[+(+rows[0].rise||1).toFixed(2),+(+rows[rows.length-1].rise||1).toFixed(2)];
         const tp=seriesStats(rows,'temp_c'); if(tp&&repSel.temp) o.temperature_c=tp;
+      }else{
+        delete o.readings;   // "0 lecturas" invita a comentarlo como un fallo
       }
       if((s.photos||[]).length) o.photos=s.photos.length;
       return o;
@@ -2493,6 +2512,8 @@ Write in ${LANG}. Precise and sober: this is a technical record, not marketing.
 Rules that matter:
 - Every number you state must come from the data given. Never invent a measurement.
 - A stage carrying "source: entered by the baker afterwards" was not measured. Use it, but say where it came from, and never present it as a sensor reading or average it together with measured values.
+- "measured: false" on a stage means no sensor was watching it. Do not report readings, curves, averages or phases for it — there are none. Work from what the baker wrote about it. Its absence of data is not a finding and must not be described as missing, failed or incomplete.
+- If "sensors_used" is false the whole bake was recorded by hand. Do not include sections about measurements, charts or sensor behaviour at all; write the report from the steps as described.
 - Fields are only present when they were recorded. "date_known: false" means not even the day is known; "time_known: false" with a "day" means the day is known but not the clock time; a stage may have a duration and no date at all. Say so plainly in one short clause and carry on with what it does have. Do not estimate a time for it, do not leave it out of the sequence, and do not treat the gap as a problem with the bake — it simply was not recorded. The same applies to any stage with no target or no temperature.
 - baker_target_x, when present, is the baker's own reading from a graduated jar. It is authoritative. Do not replace it with the sensor's ratio.
 - If the dough was stopped before reaching a phase, say plainly that it did not get there, and only then estimate what would have followed under the same conditions, labelled as an estimate.
@@ -2858,6 +2879,32 @@ function reopenReport(id){
 // Se imprime desde el navegador en vez de generar el PDF con una librería: el
 // texto sale vectorial y nítido, y "Guardar como PDF" existe igual en el móvil
 // y en el escritorio. html2pdf rasteriza y se ve peor.
+// Un paso contado a mano también merece su dibujo: con "creció a 2.7x en 5
+// horas" hay suficiente para trazar de dónde a dónde fue. Va rayado y dice
+// "reported" bien claro — es una reconstrucción de lo que contaste, no una
+// medida, y confundirlas sería justo lo que llevamos todo el rato evitando.
+function reportedFig(s){
+  const rise=s.manualRise;
+  const mins=s.durMin||((s.startedAt&&s.endedAt)?Math.round((s.endedAt-s.startedAt)/60000):null);
+  if(!rise&&!mins) return '';
+  const W=900,H=200,p=34;
+  const y=v=>H-p-((v-1)/((Math.max(rise||1.2,1.2))-1))*(H-2*p);
+  let svg=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:200px" preserveAspectRatio="none">`;
+  svg+=`<line x1="${p}" y1="${y(1)}" x2="${W-p}" y2="${y(1)}" stroke="var(--rule)"/>`;
+  svg+=`<text x="${p-6}" y="${y(1)+3}" text-anchor="end" font-size="10" fill="var(--soft)">1.00×</text>`;
+  if(rise){
+    svg+=`<line x1="${p}" y1="${y(rise)}" x2="${W-p}" y2="${y(rise)}" stroke="var(--rule)"/>`;
+    svg+=`<text x="${p-6}" y="${y(rise)+3}" text-anchor="end" font-size="10" fill="var(--soft)">${rise.toFixed(2)}×</text>`;
+    // Recta de un extremo al otro: es lo único que se sabe. Dibujar una curva
+    // con forma sería inventarse la parte interesante.
+    svg+=`<line x1="${p}" y1="${y(1)}" x2="${W-p}" y2="${y(rise)}" stroke="var(--accent)" stroke-width="2" stroke-dasharray="7 5"/>`;
+  }
+  svg+=`<text x="${W-p}" y="${H-p+16}" text-anchor="end" font-size="10" fill="var(--soft)">${mins?fmtElapsed(mins*60000):'duration not recorded'}</text>`;
+  svg+=`<text x="${p}" y="${H-p+16}" font-size="10" fill="var(--soft)">start</text></svg>`;
+  const bits=[mins?fmtElapsed(mins*60000):null, rise?rise.toFixed(2)+'×':null,
+              s.manualTemp!=null?s.manualTemp+'°':null].filter(Boolean).join(' · ');
+  return `<figure class="stage-fig reported"><figcaption>${s.name} · ${bits} · reported, not measured</figcaption>${svg}</figure>`;
+}
 async function openReport(data,bodyHtml,photos){
   const when=new Date(data.started).toLocaleString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
   const meta=`${data.dough} · ${when} · ${data.elapsed_h} h · ${data.readings} readings`;
@@ -2878,11 +2925,15 @@ async function openReport(data,bodyHtml,photos){
   if(repSel.chart&&repSel.stages&&sess&&sess.stages.length){
     const holder=document.getElementById('report-chart');
     for(const s of sess.stages){
-      const rows=rowsIn({from:s.startedAt,to:s.endedAt||Date.now()});
-      if(rows.length<4) continue;
-      drawChart(rows,'report-chart',900,260);
-      const dur=fmtElapsed((s.endedAt||Date.now())-s.startedAt);
-      perStage+=`<figure class="stage-fig"><figcaption>${s.name} · ${dur} · ${rows.length} readings</figcaption>${holder.innerHTML}</figure>`;
+      const rows=s.startedAt?rowsIn({from:s.startedAt,to:s.endedAt||Date.now()}):[];
+      if(rows.length>=4){
+        drawChart(rows,'report-chart',900,260);
+        const dur=fmtElapsed((s.endedAt||Date.now())-s.startedAt);
+        perStage+=`<figure class="stage-fig"><figcaption>${s.name} · ${dur} · ${rows.length} readings</figcaption>${holder.innerHTML}</figure>`;
+      }else{
+        const r=reportedFig(s);
+        if(r) perStage+=r;
+      }
     }
     holder.innerHTML='';
   }
