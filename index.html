@@ -205,6 +205,12 @@ body.board .app{max-width:none;padding:16px 22px 80px}
     <div class="card-label" style="margin-bottom:4px">Start &amp; target</div>
     <div style="font-size:10px;color:var(--muted);margin-bottom:14px;line-height:1.45">Correcting these while the dough is rising is fine — everything is derived from them, so the percentage, the chart and the report all follow the corrected figures, including the part already recorded.</div>
 
+    <textarea class="num-input" id="se-say" rows="2" placeholder="Or just say it: “me equivoqué, le dije 2,5cm pero era 2,1cm, corrige el target”" style="width:100%;font-size:12px;line-height:1.45;resize:vertical"></textarea>
+    <div class="log-btns" style="margin:8px 0 6px">
+      <button class="mark-btn" id="se-parse" onclick="parseStartSay()" style="flex:1">✨ Apply what I said</button>
+    </div>
+    <div id="se-said" style="font-size:10px;color:var(--muted);margin-bottom:4px;min-height:13px"></div>
+
     <div class="pa-sep">Start of the rise</div>
     <input class="num-input" type="datetime-local" id="se-when" oninput="seWhenNote()" style="width:100%;font-size:12px">
     <div style="font-size:10px;color:var(--muted);margin-top:6px;line-height:1.45" id="se-when-note"></div>
@@ -3410,12 +3416,78 @@ function localDT(ms){
   const d=new Date(ms-new Date().getTimezoneOffset()*60000);
   return d.toISOString().slice(0,16);
 }
+// Decirlo en una frase en vez de buscar el campo. Lo que devuelve el modelo se
+// vuelca en los campos del diálogo, no se guarda: así se ve lo que entendió
+// antes de que toque nada.
+async function parseStartSay(){
+  const txt=(document.getElementById('se-say').value||'').trim();
+  if(!txt){showToast('Write the correction first');return;}
+  const btn=document.getElementById('se-parse'), out=document.getElementById('se-said');
+  btn.disabled=true; out.style.color='var(--muted)'; out.textContent='Reading it…';
+  // Las horas van en la del panadero, no en UTC: el diálogo las enseña así y
+  // que la confirmación diga otra cosa parece que entendió mal.
+  const local=ms=>new Date(ms).toLocaleString('sv',{timeZone:tz}).slice(0,16);
+  const tz=Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const cur={
+    start_local:sess&&sess.baseAt?local(sess.baseAt):null,
+    target_cm:(sess&&sess.goalCm)||null,
+    target_x:(sess&&sess.myRatio)||null
+  };
+  const sys=`You correct the start and the target of a dough that is already rising.
+
+The baker's local time is ${local(Date.now())} (${tz}). The sheet currently has: ${JSON.stringify(cur)}. Every time in this conversation, in and out, is the baker's local time — never mention UTC and never convert.
+
+The baker is fixing a mistake, so only change what the text actually corrects. Everything they did not mention must be null, which means "leave it as it is" — never restate a current value and never invent one.
+
+- target_cm: the growth in centimetres they want, when they talk in cm.
+- target_x: the growth multiple, when they talk in x ("2,7x", "que triplique" -> 3).
+- Only one of the two can be set. The one they name wins; set the other to null.
+- start_local: a corrected start as "YYYY-MM-DDTHH:MM" in the baker's local time, only if they give a time or shift it ("empezó a las 8", "fue una hora antes" -> subtract an hour from the current start). Null otherwise.
+- clear_target: true only if they explicitly want no target at all.
+- understood: one short sentence, in the baker's own language, saying what you changed. This is shown to them, so name the new values.`;
+  try{
+    const r=await fetch(`${SUPA_URL}/functions/v1/claude-proxy`,{
+      method:'POST',headers:{Authorization:'Bearer '+SUPA_JWT,'Content-Type':'application/json'},
+      body:JSON.stringify({model:'claude-opus-5',max_tokens:1200,system:sys,
+        messages:[{role:'user',content:txt}],
+        output_config:{format:{type:'json_schema',schema:{
+          type:'object',additionalProperties:false,
+          required:['target_cm','target_x','start_local','clear_target','understood'],
+          properties:{
+            target_cm:{type:['number','null']},
+            target_x:{type:['number','null']},
+            start_local:{type:['string','null'],description:'YYYY-MM-DDTHH:MM, local time'},
+            clear_target:{type:'boolean'},
+            understood:{type:'string'}}}}}})});
+    const res=await r.json();
+    if(res.error==='no_key') throw new Error('The server has no Claude credential yet');
+    if(!r.ok||res.error) throw new Error((res.error&&(res.error.message||res.error))||('HTTP '+r.status));
+    const d=JSON.parse(res.content.filter(b=>b.type==='text').map(b=>b.text).join(''));
+    if(d.clear_target){
+      document.getElementById('se-cm').value=''; document.getElementById('se-x').value=''; seTab('cm');
+    }else if(d.target_cm>0){
+      document.getElementById('se-cm').value=d.target_cm; document.getElementById('se-x').value=''; seTab('cm');
+    }else if(d.target_x>1){
+      document.getElementById('se-x').value=d.target_x; document.getElementById('se-cm').value=''; seTab('x');
+    }
+    if(d.start_local&&/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(d.start_local)){
+      document.getElementById('se-when').value=d.start_local.slice(0,16);
+      seWhenNote();
+    }
+    const cambio=d.clear_target||d.target_cm>0||d.target_x>1||d.start_local;
+    out.style.color=cambio?'var(--green)':'var(--red)';
+    out.textContent=cambio?('✓ '+d.understood+' — check it and press Save'):'Nothing to change was understood. Say which target or start time you want.';
+  }catch(e){ out.style.color='var(--red)'; out.textContent='Could not read it: '+e.message; }
+  btn.disabled=false;
+}
 function openStartEdit(){
   if(!sess||!sess.baseAt){showToast('Mark a start first');return;}
   document.getElementById('se-when').value=localDT(sess.baseAt);
   document.getElementById('se-cm').value=sess.goalCm||'';
   document.getElementById('se-x').value=sess.myRatio||'';
   seTab(sess.goalCm?'cm':(sess.myRatio?'x':'cm'));
+  document.getElementById('se-say').value='';
+  document.getElementById('se-said').textContent='';
   seWhenNote();
   document.getElementById('start-modal').classList.add('show');
 }

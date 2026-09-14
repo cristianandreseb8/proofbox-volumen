@@ -112,6 +112,12 @@ porque el libro sitúa la logarítmica en 4-6 h tras la latencia. El prompt llev
 además la regla de que `log_end_h: null` no es un dato que falte, es la
 afirmación de que la fase no ha terminado.
 
+**Inicio y objetivo se corrigen diciéndolo.** El diálogo tiene campos, pero la
+vía normal es escribir la frase ("le dije 2,5cm pero era 2,1") y que el modelo
+rellene los campos: se ve lo que entendió antes de guardar, no se aplica solo.
+Las horas van siempre en la del panadero — se le pasa su zona y se le prohíbe
+UTC, porque una confirmación en UTC junto a un campo en local parece un error.
+
 **Inicio y objetivo se pueden corregir con la masa subiendo.** Todo lo que se
 enseña se deriva de `baseDist`, `baseAt` y el objetivo, así que cambiarlos
 reajusta también el tramo ya recorrido — que es justo lo que se pide cuando te
