@@ -102,6 +102,29 @@ leerlo como dato de esa etapa, y guardarlo ensucia el histórico de la hoja. En
 su sitio queda un aviso que dice por qué. El gráfico pequeño, en esa etapa,
 dibuja lo que contaste, no lo que se midió.
 
+**Una fase solo se da por cerrada si el aplanamiento se sostiene.** La versión
+anterior cerraba la logarítmica con UNA muestra por debajo del 20% del pico, y
+con el ruido del ToF eso pasa varias veces por hora: había informes que daban
+por estacionaria una masa que seguía subiendo. Ahora el pico se toma como
+percentil 90 (un salto del suavizado no fija la vara), la calma tiene que durar
+una hora con menos de un 3% de crecimiento, y no se afirma nada antes de 3 h
+porque el libro sitúa la logarítmica en 4-6 h tras la latencia. El prompt lleva
+además la regla de que `log_end_h: null` no es un dato que falte, es la
+afirmación de que la fase no ha terminado.
+
+**Inicio y objetivo se pueden corregir con la masa subiendo.** Todo lo que se
+enseña se deriva de `baseDist`, `baseAt` y el objetivo, así que cambiarlos
+reajusta también el tramo ya recorrido — que es justo lo que se pide cuando te
+das cuenta a mitad de que marcaste 2,5 cm en vez de 2. Mover la hora de inicio
+recoge la altura de partida del histórico en ese momento, no la de ahora.
+
+**El objetivo en cm se mide en cm.** No se traduce a ratio: es la marca que
+hiciste en el bote, y el porcentaje sale de `cm/goalCm`.
+
+**Las fotos del informe van donde el texto habla de ellas.** El modelo deja
+`<figure data-photo="N">` en su sitio y la app lo rellena; lo que no colocó se
+agrupa al final. Una foto a tres pantallas de su párrafo no ilustra nada.
+
 **Una fila del histórico es de la hoja solo si es posterior a su marca de
 inicio.** El registro de la nube escribe cada minuto pase lo que pase, así que
 `proofbox_readings` tiene datos del aparato siempre. Sin filtrar por `baseAt`,

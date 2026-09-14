@@ -131,6 +131,9 @@ body.board .app{max-width:none;padding:16px 22px 80px}
 /* Altura explícita: en grande el SVG se dibuja con height:100%, y sin una
    altura aquí eso resuelve a cero y el gráfico no se ve. */
 .report-chart{margin:18px 0 6px;height:300px}
+.report-shot{margin:14px 0;max-width:62%;break-inside:avoid}
+.report-shot img{width:100%;border:1px solid var(--rule);border-radius:3px;display:block}
+.report-shot figcaption{font-size:10px;color:var(--soft);margin-top:4px;font-style:italic}
 .report-gallery{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:12px 0}
 .report-gallery figure{margin:0}
 .report-gallery img{width:100%;border:1px solid var(--rule);border-radius:3px;display:block}
@@ -197,6 +200,35 @@ body.board .app{max-width:none;padding:16px 22px 80px}
 </head>
 <body>
 <div class="toast" id="toast"></div>
+<div class="modal" id="start-modal" onclick="if(event.target===this)closeStartEdit()">
+  <div class="modal-box">
+    <div class="card-label" style="margin-bottom:4px">Start &amp; target</div>
+    <div style="font-size:10px;color:var(--muted);margin-bottom:14px;line-height:1.45">Correcting these while the dough is rising is fine — everything is derived from them, so the percentage, the chart and the report all follow the corrected figures, including the part already recorded.</div>
+
+    <div class="pa-sep">Start of the rise</div>
+    <input class="num-input" type="datetime-local" id="se-when" oninput="seWhenNote()" style="width:100%;font-size:12px">
+    <div style="font-size:10px;color:var(--muted);margin-top:6px;line-height:1.45" id="se-when-note"></div>
+
+    <div class="pa-sep">Target growth</div>
+    <div class="log-btns" style="margin-bottom:8px">
+      <button class="gtab" id="se-tab-cm" onclick="seTab('cm')" style="flex:1">↕ cm</button>
+      <button class="gtab" id="se-tab-x" onclick="seTab('x')" style="flex:1">× Ratio</button>
+    </div>
+    <div class="input-row" id="se-cm-row">
+      <input class="num-input" type="number" step="0.1" min="0.1" id="se-cm" placeholder="2" style="flex:1">
+      <span class="unit-lbl">cm</span>
+    </div>
+    <div class="input-row" id="se-x-row" style="display:none">
+      <input class="num-input" type="number" step="0.05" min="1.05" id="se-x" placeholder="2.7" style="flex:1">
+      <span class="unit-lbl">×</span>
+    </div>
+
+    <div class="log-btns" style="margin-top:16px">
+      <button class="mark-btn" onclick="closeStartEdit()" style="flex:1">Cancel</button>
+      <button class="cal-btn" onclick="saveStartEdit()" style="flex:1">Save</button>
+    </div>
+  </div>
+</div>
 <div class="modal" id="photo-modal" onclick="if(event.target===this)closePhoto()">
   <div class="modal-box" style="max-width:520px;text-align:center">
     <img id="pv-img" src="" style="max-width:100%;max-height:62vh;border-radius:10px;border:1px solid var(--border)">
@@ -390,6 +422,10 @@ body.board .app{max-width:none;padding:16px 22px 80px}
       <div class="cm-grown">Grown: <b id="cm-grown">--cm</b><span id="myratio-line"></span></div>
       <div class="track"><div class="fill" id="bar-meta" style="width:0%"></div></div>
       <div class="marks"><span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span></div>
+      <div id="start-row" style="display:none;align-items:center;gap:8px;margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
+        <span style="flex:1;font-size:11px;color:var(--muted);line-height:1.4" id="start-row-txt"></span>
+        <button class="mark-btn" style="flex:none;white-space:nowrap" onclick="openStartEdit()">✎ Edit</button>
+      </div>
       <div id="claim-row" style="display:none;align-items:center;gap:8px;margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
         <span style="flex:1;font-size:11px;color:var(--muted);line-height:1.4">This sheet has no start of its own yet. Marking one here does not touch the other sheets.</span>
         <button class="mark-btn" style="flex:none;white-space:nowrap" onclick="markStart()">◎ Mark start</button>
@@ -2206,6 +2242,15 @@ function applyVisibility(){
   const hasBase=!!(sess&&sess.baseDist>0);
   if(c) c.style.display=(sess&&!hasBase)?'flex':'none';
   if(!hasBase) blankMeta();
+  const sr=document.getElementById('start-row');
+  if(sr){
+    sr.style.display=hasBase?'flex':'none';
+    if(hasBase){
+      const t=sess.baseAt?new Date(sess.baseAt).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}):'—';
+      const g=sess.goalCm?sess.goalCm+' cm':(sess.myRatio?sess.myRatio+'×':'no target');
+      document.getElementById('start-row-txt').textContent=`Started ${t} · target ${g}`;
+    }
+  }
 }
 // Hojas, como las de una hoja de cálculo. Cambiar de hoja no destruye nada:
 // el gráfico grande y el informe dejan de ser ventanas que hay que cerrar y
@@ -2260,19 +2305,22 @@ function updateUI(d){
     const ratio=sheetRatio=Math.min(10,Math.max(1,base/ds));
     const cm=(base-ds)/10;
     // El objetivo que manda es el tuyo: el 2,7× que leés en el bote graduado
-    // gana al del sensor, que solo sabe de distancias.
+    // gana al del sensor, que solo sabe de distancias. Si lo pusiste en cm, se
+    // mide en cm — es lo que marcaste en el bote, no hace falta traducirlo.
+    const goalCm=(sess&&sess.goalCm>0)?sess.goalCm:0;
     const tgt=(myRatio>1)?myRatio:(d.metaGoalSet&&+d.metaRatioGoal>1?+d.metaRatioGoal:0);
-    mp=tgt>1?Math.min(100,Math.max(0,(ratio-1)/(tgt-1)*100)):0;
+    if(goalCm) mp=Math.min(100,Math.max(0,cm/goalCm*100));
+    else mp=tgt>1?Math.min(100,Math.max(0,(ratio-1)/(tgt-1)*100)):0;
     document.getElementById('rise').textContent=fmt(riseS);
     document.getElementById('bar-ratio').style.width=Math.min(100,Math.max(0,((riseS-1)/2)*100))+'%';
-    document.getElementById('meta-pct').innerHTML=(tgt>1?fmt(mp,0):'--')+'<span>%</span>';
+    document.getElementById('meta-pct').innerHTML=((goalCm||tgt>1)?fmt(mp,0):'--')+'<span>%</span>';
     document.getElementById('bar-meta').style.width=mp+'%';
     document.getElementById('bar-meta').className='fill'+(mp>=100?' done':'');
     document.getElementById('meta-ratio-now').textContent=fmt(ratio)+'×';
-    document.getElementById('meta-ratio-goal').textContent=tgt>1?fmt(tgt)+'×':'--×';
+    document.getElementById('meta-ratio-goal').textContent=goalCm?fmt(goalCm)+'cm':(tgt>1?fmt(tgt)+'×':'--×');
     document.getElementById('cm-grown').textContent=fmt(cm)+'cm';
     const ml=document.getElementById('myratio-line');
-    if(ml) ml.textContent=(myRatio>1)?' · your '+myRatio+'×':(tgt>1?' · sensor target':'');
+    if(ml) ml.textContent=goalCm?' · your '+goalCm+'cm':((myRatio>1)?' · your '+myRatio+'×':(tgt>1?' · sensor target':''));
   }else{ blankMeta(); }
   lastStart.set=!!base;
   lastGoalX=(myRatio>1)?myRatio:((d.metaGoalSet&&+d.metaRatioGoal>1)?+d.metaRatioGoal:0);
@@ -2544,6 +2592,21 @@ function sensorRows(){
     return ms.some(s=>t>=s.startedAt&&t<=(s.endedAt||Date.now()));
   });
 }
+// Detectar el paso a estacionaria era demasiado fácil: bastaba UNA muestra con
+// la velocidad por debajo del 20% del pico para dar la logarítmica por cerrada.
+// Con el ruido del ToF eso ocurre varias veces por hora, así que informes de
+// masas que seguían subiendo decían que ya se habían parado. Ahora hace falta
+// que la curva se aplane DE VERDAD y que además dé tiempo a que pase:
+//   · el pico de velocidad se toma robusto (percentil 90), no el máximo, que
+//     suele ser un salto del suavizado en los primeros minutos;
+//   · el aplanamiento tiene que sostenerse una hora seguida;
+//   · en esa hora la masa no puede haber crecido más de un 3%;
+//   · y nada de esto se afirma antes de 3 h, porque el libro sitúa la
+//     logarítmica en 4-6 h tras la latencia: declararla cerrada a los 90 min es
+//     casi siempre ruido, no biología.
+const PH_SUSTAIN_MS = 60*60*1000;   // cuánto tiene que durar la calma
+const PH_FLAT_FRAC  = 0.03;         // crecimiento máximo en ese rato
+const PH_MIN_RUN_H  = 3;            // antes de esto no se afirma ninguna fase cerrada
 function analysePhases(rows,t0){
   const pts=rows.filter(r=>r.rise!=null).map(r=>({t:new Date(r.logged_at).getTime()-t0,v:+r.rise}));
   if(pts.length<8) return null;
@@ -2555,24 +2618,58 @@ function analysePhases(rows,t0){
     const dt=(xs[i]-xs[i-1])/3600000;
     rate.push(dt>0?(ys[i]-ys[i-1])/dt:0);
   }
-  const peak=Math.max(...rate), peakI=rate.indexOf(peak), thr=peak*0.2;
-  let lagEnd=0;     while(lagEnd<rate.length&&rate[lagEnd]<thr) lagEnd++;
-  let logEnd=peakI; while(logEnd<rate.length&&rate[logEnd]>=thr) logEnd++;
+  // Pico robusto: un solo salto no puede fijar la vara con la que se mide todo.
+  const sorted=[...rate].filter(isFinite).sort((a,b)=>a-b);
+  const peak=sorted.length?sorted[Math.floor(sorted.length*0.9)]:0;
+  const peakI=rate.indexOf(Math.max(...rate));
+  const thr=peak*0.25;
+  const totalH=h(xs.length-1);
+
+  let lagEnd=0; while(lagEnd<rate.length&&rate[lagEnd]<thr) lagEnd++;
+
+  // El final de la logarítmica: la primera vez, pasado el pico, que la masa se
+  // queda una hora entera creciendo menos de un 3%.
+  let logEnd=null;
+  if(totalH>=PH_MIN_RUN_H){
+    for(let i=Math.max(peakI,lagEnd);i<xs.length;i++){
+      let j=i; while(j<xs.length-1&&xs[j]-xs[i]<PH_SUSTAIN_MS) j++;
+      if(xs[j]-xs[i]<PH_SUSTAIN_MS) break;          // no queda una hora por mirar
+      const grew=(ys[j]-ys[i])/Math.max(ys[i],0.01);
+      let calma=true;
+      for(let k=i;k<=j;k++) if(rate[k]>=thr){calma=false;break;}
+      if(calma&&grew<PH_FLAT_FRAC){ logEnd=i; break; }
+    }
+  }
   const maxV=Math.max(...ys), maxI=ys.indexOf(maxV);
+  // Caída: un 2% es ruido del sensor. Se pide un 5% y sostenido.
   let decayI=null;
-  for(let i=maxI;i<ys.length;i++) if(ys[i]<maxV*0.98){decayI=i;break;}
-  const endedInLog=logEnd>=rate.length-1;
+  for(let i=maxI;i<ys.length;i++){
+    if(ys[i]<maxV*0.95){
+      let j=i; while(j<ys.length-1&&xs[j]-xs[i]<PH_SUSTAIN_MS/2) j++;
+      if(ys[j]<maxV*0.95){ decayI=i; break; }
+    }
+  }
+  // Lo último que hace la masa ahora mismo, que es lo que se le pregunta al
+  // informe: ¿sigue subiendo?
+  let last=0, n=0;
+  for(let i=xs.length-1;i>=0&&xs[xs.length-1]-xs[i]<PH_SUSTAIN_MS;i--){ last+=rate[i]; n++; }
+  const rateNow=n?last/n:0;
+  const stationary=logEnd!=null;
   return {
     latency_h:+h(Math.min(lagEnd,xs.length-1)).toFixed(2),
     log_peak_h:+h(peakI).toFixed(2),
-    log_peak_rate_x_per_h:+peak.toFixed(3),
-    log_end_h:endedInLog?null:+h(logEnd).toFixed(2),
+    log_peak_rate_x_per_h:+Math.max(...rate).toFixed(3),
+    log_end_h:logEnd!=null?+h(logEnd).toFixed(2):null,
     max_rise_x:+maxV.toFixed(2),
     max_rise_at_h:+h(maxI).toFixed(2),
     decay_started_h:decayI!=null?+h(decayI).toFixed(2):null,
-    total_h:+h(xs.length-1).toFixed(2),
-    reached_stationary:!endedInLog,
-    reached_decay:decayI!=null
+    total_h:+totalH.toFixed(2),
+    current_rate_x_per_h:+rateNow.toFixed(3),
+    still_rising:!stationary,
+    reached_stationary:stationary,
+    reached_decay:decayI!=null,
+    too_early_to_tell: totalH<PH_MIN_RUN_H,
+    criteria:`stationary = one hour with the rate under 25% of the p90 peak and under ${PH_FLAT_FRAC*100}% growth, and only after ${PH_MIN_RUN_H}h`
   };
 }
 function seriesStats(rows,key){
@@ -2611,7 +2708,8 @@ async function makeReport(){
     started:new Date(t0).toISOString(),
     elapsed_h:+(((last.logged_at?new Date(last.logged_at).getTime():Date.now())-t0)/3600000).toFixed(2),
     grams:last.grams||null,
-    baker_target_x:myRatio||null
+    baker_target_x:myRatio||null,
+    baker_target_cm:(sess&&sess.goalCm>0)?sess.goalCm:null
   };
   // Qué sensores estuvieron realmente presentes en esta hoja. Sin esto el
   // informe hablaba de 3300 lecturas en una sesión donde ningún paso se midió.
@@ -2700,7 +2798,10 @@ Rules that matter:
 - If "sensors_used" is false the whole bake was recorded by hand. Do not include sections about measurements, charts or sensor behaviour at all; write the report from the steps as described.
 - Fields are only present when they were recorded. "date_known: false" means not even the day is known; "time_known: false" with a "day" means the day is known but not the clock time; a stage may have a duration and no date at all. Say so plainly in one short clause and carry on with what it does have. Do not estimate a time for it, do not leave it out of the sequence, and do not treat the gap as a problem with the bake — it simply was not recorded. The same applies to any stage with no target or no temperature.
 - baker_target_x, when present, is the baker's own reading from a graduated jar. It is authoritative. Do not replace it with the sensor's ratio.
+- baker_target_cm, when present, is a growth in centimetres the baker marked on the jar, and it is the target the percentages are measured against. It is authoritative in the same way.
+- A start time or target may have been corrected after the fact. The figures given are the corrected ones and apply to the whole rise, including the part recorded before the correction. Report them as the targets; do not mention an earlier value you were not given.
 - If the dough was stopped before reaching a phase, say plainly that it did not get there, and only then estimate what would have followed under the same conditions, labelled as an estimate.
+- The phase block reports what the curve shows, and a phase is only closed when the field says so. "still_rising: true" or "reached_stationary: false" means the dough is IN the logarithmic phase right now: do not write that it left it, peaked, slowed down or reached a plateau. "log_end_h: null" is not a missing value, it is the statement that the phase has not ended. "too_early_to_tell: true" means the run is too short to name any phase transition at all — describe the growth and say it is early, nothing more. Declaring a phase the dough has not reached changes what the baker does next, so err on the side of the earlier phase.
 - The ratio comes from a distance sensor and is a height measurement, not a true volume. Mention that limit once if a conclusion depends on it, not more.
 - Where book references are supplied, compare against them and say whether this ferment ran fast, slow or on time, with the numbers.
 
@@ -2708,7 +2809,7 @@ Return clean semantic HTML for the report body: h1, h2, p, ul, table. No CSS, no
 
   const text=`Session data:\n${JSON.stringify(data,null,1)}\n\n`+
     (repSel.book?`Book reference values:\n${JSON.stringify(BOOK,null,1)}\n\n`:'')+
-    (photos.length?`${photos.length} photos follow, in stage order: ${photos.map(p=>p.stage).join(', ')}. Describe what they show where it informs the report — crumb, dome, colour, alveolation — and say nothing about what you cannot see.\n\n`:'')+
+    (photos.length?`${photos.length} photos follow, numbered 1-${photos.length} in stage order: ${photos.map((p,i)=>(i+1)+'=' +p.stage).join(', ')}. Describe what they show where it informs the report — crumb, dome, colour, alveolation — and say nothing about what you cannot see. Place each photo in the flow of your text, right where you discuss it, by emitting <figure data-photo="N"></figure> as its own element on the line after that paragraph. Use each number once. A photo you do not discuss still gets placed in the section it belongs to. Do not write a photo gallery section of your own and do not put them all at the end — a photo three screens away from the sentence about it illustrates nothing.\n\n`:'')+
     `Sections requested: ${REP_OPTS.filter(([x])=>repSel[x]).map(([,n])=>n).join(', ')}.`;
 
   try{
@@ -3225,13 +3326,36 @@ async function openReport(data,bodyHtml,photos){
   const meta=`${data.dough} · ${when} · ${data.elapsed_h} h · ${data.readings} readings`;
   // Las fotos se incrustan como data URL: así el informe guardado es
   // autocontenido y sigue completo aunque después borres una etapa.
-  let gallery='';
+  // Las fotos se incrustan donde el texto habla de ellas, no en un cajón al
+  // final: una foto a tres pantallas del párrafo que la comenta no ilustra
+  // nada. El modelo deja un hueco marcado y aquí se rellena; lo que no colocó
+  // se agrupa al final para no perderlo.
+  const shots=[];
   for(const p of (photos||[])){
     const d=await photoDataUrl(p.id);
-    if(d) gallery+=`<figure><img src="${d}"><figcaption>${p.stage}</figcaption></figure>`;
+    if(d) shots.push({stage:p.stage,src:d});
   }
-  if(gallery) gallery=`<h2>Photos</h2><div class="report-gallery">${gallery}</div>`;
-  bodyHtml+=gallery;
+  const doc=new DOMParser().parseFromString('<div id="b">'+bodyHtml+'</div>','text/html');
+  const root=doc.getElementById('b');
+  const puestas=new Set();
+  root.querySelectorAll('[data-photo]').forEach(el=>{
+    const n=parseInt(el.getAttribute('data-photo'),10);
+    const ph=shots[n-1];
+    if(!ph||puestas.has(n)){ el.remove(); return; }
+    puestas.add(n);
+    const fig=doc.createElement('figure');
+    fig.className='report-shot';
+    fig.innerHTML=`<img src="${ph.src}"><figcaption>${ph.stage}</figcaption>`;
+    el.replaceWith(fig);
+  });
+  const sueltas=shots.map((ph,i)=>({ph,n:i+1})).filter(x=>!puestas.has(x.n));
+  if(sueltas.length){
+    const h=doc.createElement('h2'); h.textContent='Photos';
+    const g=doc.createElement('div'); g.className='report-gallery';
+    g.innerHTML=sueltas.map(x=>`<figure><img src="${x.ph.src}"><figcaption>${x.ph.stage}</figcaption></figure>`).join('');
+    root.appendChild(h); root.appendChild(g);
+  }
+  bodyHtml=root.innerHTML;
 
   // Un gráfico por etapa, cada uno con su propio cero. Un panettone son días
   // con huecos largos entre etapas: una sola curva continua sería casi toda
@@ -3271,6 +3395,80 @@ function showReportView(title,meta,bodyHtml,chart){
 }
 function closeReport(){ setDMode(currentMode); }
 
+// Corregir con la masa ya subiendo. Todo lo que se enseña —el porcentaje, el
+// gráfico, el informe— se deriva de estos dos datos, así que cambiarlos ajusta
+// también el tramo ya recorrido: no hay nada que rehacer a mano.
+let seMode='cm';
+function seTab(m){
+  seMode=m;
+  document.getElementById('se-cm-row').style.display=m==='cm'?'flex':'none';
+  document.getElementById('se-x-row').style.display =m==='x' ?'flex':'none';
+  document.getElementById('se-tab-cm').className='gtab'+(m==='cm'?' active':'');
+  document.getElementById('se-tab-x').className ='gtab'+(m==='x' ?' active':'');
+}
+function localDT(ms){
+  const d=new Date(ms-new Date().getTimezoneOffset()*60000);
+  return d.toISOString().slice(0,16);
+}
+function openStartEdit(){
+  if(!sess||!sess.baseAt){showToast('Mark a start first');return;}
+  document.getElementById('se-when').value=localDT(sess.baseAt);
+  document.getElementById('se-cm').value=sess.goalCm||'';
+  document.getElementById('se-x').value=sess.myRatio||'';
+  seTab(sess.goalCm?'cm':(sess.myRatio?'x':'cm'));
+  seWhenNote();
+  document.getElementById('start-modal').classList.add('show');
+}
+function closeStartEdit(){ document.getElementById('start-modal').classList.remove('show'); }
+// Mover el inicio no es solo cambiar una hora: la altura de partida es la que
+// el sensor leía en ESE momento, y esa está en el histórico.
+function distAt(ms){
+  let best=null,bd=Infinity;
+  for(const r of history){
+    if(r.dist==null) continue;
+    const d=Math.abs(new Date(r.logged_at).getTime()-ms);
+    if(d<bd){bd=d;best=+r.dist;}
+  }
+  return (bd<=20*60000)?best:null;     // más de 20 min de distancia no es "ese momento"
+}
+function seWhenNote(){
+  const v=document.getElementById('se-when').value;
+  const el=document.getElementById('se-when-note');
+  if(!v){el.textContent='';return;}
+  const ms=new Date(v).getTime();
+  const d=distAt(ms);
+  el.textContent=d!=null
+    ? `The starting height will be taken from the reading at that moment (${Math.round(d)} mm), not from today's.`
+    : 'No reading was saved near that moment, so the current starting height is kept.';
+}
+function saveStartEdit(){
+  if(!sess)return;
+  const v=document.getElementById('se-when').value;
+  if(v){
+    const ms=new Date(v).getTime();
+    if(isFinite(ms)){
+      sess.baseAt=ms;
+      const d=distAt(ms);
+      if(d!=null) sess.baseDist=d;
+    }
+  }
+  if(seMode==='cm'){
+    const cm=parseFloat(document.getElementById('se-cm').value);
+    sess.goalCm=cm>0?cm:0;
+    if(sess.goalCm) sendCmd({cmd:'metaSetGoalCm',cm:sess.goalCm});
+  }else{
+    const r=parseFloat(document.getElementById('se-x').value);
+    sess.goalCm=0;
+    sess.myRatio=r>1?r:null; myRatio=sess.myRatio;
+    if(sess.myRatio) sendCmd({cmd:'metaSetGoalRatio',ratio:sess.myRatio});
+  }
+  // La meta cambió: la alarma vuelve a estar por sonar.
+  metaFired=false; sess.metaFired=false; mpBuf=[];
+  if(pctAlarm.pct){pctAlarm.fired=false; savePct();}
+  saveSessions(); applyVisibility(); renderSess(); renderHistory();
+  closeStartEdit();
+  showToast('✎ Start and target updated');
+}
 function markStart(){
   if(!sess){showToast('Open a sheet first');return;}
   if(!lastSmoothDist){showToast('No reading from the device yet');return;}
@@ -3306,7 +3504,10 @@ function setMyRatio(){
 function setGoalCm(){
   const cm=parseFloat(document.getElementById('input-cm').value);
   if(!cm||cm<=0){document.getElementById('goal-status').textContent='⚠️ Enter the cm';return;}
+  // También en la hoja: el aparato guarda uno solo y el porcentaje sale de aquí.
+  if(sess){ sess.goalCm=cm; saveSessions(); }
   sendCmd({cmd:'metaSetGoalCm',cm});document.getElementById('goal-status').textContent='⏳ Applying...';
+  applyVisibility();
 }
 // Un paso atrás, reversible: el firmware intercambia el estado actual con la
 // foto anterior, así que volver a pulsarlo rehace.
