@@ -112,9 +112,20 @@ porque el libro sitúa la logarítmica en 4-6 h tras la latencia. El prompt llev
 además la regla de que `log_end_h: null` no es un dato que falte, es la
 afirmación de que la fase no ha terminado.
 
+**Un objetivo en cm y uno en × no pueden convivir.** Son dos maneras de decir lo
+mismo y tener los dos puestos hacía que corregir los centímetros no moviera el
+porcentaje: `goalCm` ganaba en el pintado pero el Save miraba la pestaña activa
+y reescribía el ×. Poner uno borra el otro, y quién manda lo decide el campo que
+se tocó, no la pestaña que estuviera abierta.
+
+**Cambiar el objetivo repinta en el acto.** El porcentaje se recalculaba en el
+siguiente status del ESP32; con el aparato apagado no llega ninguno y parecía
+que el botón no había hecho nada. `repaint()` reusa el último status guardado.
+
 **Inicio y objetivo se corrigen diciéndolo.** El diálogo tiene campos, pero la
-vía normal es escribir la frase ("le dije 2,5cm pero era 2,1") y que el modelo
-rellene los campos: se ve lo que entendió antes de guardar, no se aplica solo.
+vía normal es escribir la frase ("le dije 2,5cm pero era 2,1") y que se aplique
+sola, diciendo qué entendió. Hubo una versión que solo rellenaba los campos y
+esperaba un Save: parecía que el botón no hacía nada.
 Las horas van siempre en la del panadero — se le pasa su zona y se le prohíbe
 UTC, porque una confirmación en UTC junto a un campo en local parece un error.
 

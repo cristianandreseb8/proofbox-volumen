@@ -743,6 +743,7 @@ let mqttClient=null, lastMeta=0;
 // a device that was perfectly fine. 12 missed publishes in a row is a real outage.
 const STALE_MS=12000;
 let lastStatusMs=0, brokerUp=false, laserOk=true, condOk=false, tempOk=false;
+let lastStatus=null;   // el último status entero, para poder repintar sin esperar al siguiente
 let lastStart={set:false};
 let metaFired=false;   // por hoja: vive en sess.metaFired
 
@@ -2375,7 +2376,7 @@ function updateUI(d){
   const ub=document.getElementById('btn-undo');
   if(ub){ ub.disabled=d.canUndo!==true; ub.style.opacity=d.canUndo===true?'1':'.4'; }
 
-  lastStatusMs=Date.now();
+  lastStatusMs=Date.now(); lastStatus=d;
   laserOk=d.laserOk!==false;
   refreshHealth();
 }
@@ -3405,6 +3406,7 @@ function closeReport(){ setDMode(currentMode); }
 // gráfico, el informe— se deriva de estos dos datos, así que cambiarlos ajusta
 // también el tramo ya recorrido: no hay nada que rehacer a mano.
 let seMode='cm';
+let seOpen={cm:'',x:''};   // con qué valores se abrió, para saber cuál cambió
 function seTab(m){
   seMode=m;
   document.getElementById('se-cm-row').style.display=m==='cm'?'flex':'none';
@@ -3474,9 +3476,18 @@ The baker is fixing a mistake, so only change what the text actually corrects. E
       document.getElementById('se-when').value=d.start_local.slice(0,16);
       seWhenNote();
     }
-    const cambio=d.clear_target||d.target_cm>0||d.target_x>1||d.start_local;
+    // Se aplica ya. Rellenar los campos y esperar un Save era un paso de más
+    // que parecía que el botón no había hecho nada.
+    if(d.clear_target){ sess.goalCm=0; sess.myRatio=null; myRatio=null; saveSessions(); }
+    const v=document.getElementById('se-when').value;
+    const hecho=applyStartTarget({
+      whenMs:v?new Date(v).getTime():null,
+      cm:d.target_cm>0?d.target_cm:0,
+      x:d.target_x>1?d.target_x:0});
+    const cambio=!!hecho||d.clear_target;
     out.style.color=cambio?'var(--green)':'var(--red)';
-    out.textContent=cambio?('✓ '+d.understood+' — check it and press Save'):'Nothing to change was understood. Say which target or start time you want.';
+    out.textContent=cambio?('✓ '+d.understood):'Nothing to change was understood. Say which target or start time you want.';
+    if(cambio) showToast('✎ '+(hecho||'target cleared'));
   }catch(e){ out.style.color='var(--red)'; out.textContent='Could not read it: '+e.message; }
   btn.disabled=false;
 }
@@ -3485,6 +3496,7 @@ function openStartEdit(){
   document.getElementById('se-when').value=localDT(sess.baseAt);
   document.getElementById('se-cm').value=sess.goalCm||'';
   document.getElementById('se-x').value=sess.myRatio||'';
+  seOpen={cm:sess.goalCm||'',x:sess.myRatio||''};
   seTab(sess.goalCm?'cm':(sess.myRatio?'x':'cm'));
   document.getElementById('se-say').value='';
   document.getElementById('se-said').textContent='';
@@ -3513,33 +3525,59 @@ function seWhenNote(){
     ? `The starting height will be taken from the reading at that moment (${Math.round(d)} mm), not from today's.`
     : 'No reading was saved near that moment, so the current starting height is kept.';
 }
-function saveStartEdit(){
-  if(!sess)return;
-  const v=document.getElementById('se-when').value;
-  if(v){
-    const ms=new Date(v).getTime();
-    if(isFinite(ms)){
-      sess.baseAt=ms;
-      const d=distAt(ms);
-      if(d!=null) sess.baseDist=d;
-    }
+// Aplicar de verdad: un objetivo nuevo tiene que mover el porcentaje en el acto,
+// no en el siguiente mensaje del aparato. Si está apagado no llega ninguno.
+function applyStartTarget({whenMs,cm,x}){
+  if(!sess)return'';
+  const dicho=[];
+  if(whenMs!=null&&isFinite(whenMs)){
+    sess.baseAt=whenMs;
+    const d=distAt(whenMs);
+    if(d!=null) sess.baseDist=d;
+    dicho.push('start '+new Date(whenMs).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}));
   }
-  if(seMode==='cm'){
-    const cm=parseFloat(document.getElementById('se-cm').value);
-    sess.goalCm=cm>0?cm:0;
-    if(sess.goalCm) sendCmd({cmd:'metaSetGoalCm',cm:sess.goalCm});
-  }else{
-    const r=parseFloat(document.getElementById('se-x').value);
-    sess.goalCm=0;
-    sess.myRatio=r>1?r:null; myRatio=sess.myRatio;
-    if(sess.myRatio) sendCmd({cmd:'metaSetGoalRatio',ratio:sess.myRatio});
+  if(cm>0){
+    // El objetivo en cm manda sobre el ×: son dos maneras de decir lo mismo y
+    // dejar los dos puestos es lo que hacía que corregir los cm no cambiara nada.
+    sess.goalCm=cm; sess.myRatio=null; myRatio=null;
+    sendCmd({cmd:'metaSetGoalCm',cm});
+    dicho.push('target '+cm+' cm');
+  }else if(x>1){
+    sess.goalCm=0; sess.myRatio=x; myRatio=x;
+    sendCmd({cmd:'metaSetGoalRatio',ratio:x});
+    dicho.push('target '+x+'×');
   }
+  if(!dicho.length) return '';
   // La meta cambió: la alarma vuelve a estar por sonar.
   metaFired=false; sess.metaFired=false; mpBuf=[];
   if(pctAlarm.pct){pctAlarm.fired=false; savePct();}
   saveSessions(); applyVisibility(); renderSess(); renderHistory();
+  repaint();
+  return dicho.join(' · ');
+}
+// Con el aparato apagado no llega ningún status, así que el porcentaje se
+// recalcula aquí mismo con la última distancia conocida.
+function repaint(){ if(lastStatus) updateUI(lastStatus); }
+function saveStartEdit(){
+  if(!sess)return;
+  const v=document.getElementById('se-when').value;
+  const cmV=parseFloat(document.getElementById('se-cm').value);
+  const xV=parseFloat(document.getElementById('se-x').value);
+  // Se mira el campo, no la pestaña. Decidir por la pestaña descartaba en
+  // silencio los centímetros escritos mientras seguía activa la de ratio.
+  // Manda el campo que el usuario tocó, no la pestaña que estuviera activa:
+  // decidir por la pestaña descartaba en silencio un objetivo recién escrito.
+  const cmTocado = String(cmV||'')!==String(seOpen.cm||'');
+  const xTocado  = String(xV||'') !==String(seOpen.x||'');
+  const usaCm = cmTocado&&cmV>0 ? true
+              : xTocado&&xV>1   ? false
+              : seMode==='cm';
+  const txt=applyStartTarget({
+    whenMs:v?new Date(v).getTime():null,
+    cm:usaCm?cmV:0,
+    x:usaCm?0:xV});
   closeStartEdit();
-  showToast('✎ Start and target updated');
+  showToast(txt?('✎ '+txt):'Nothing changed');
 }
 function markStart(){
   if(!sess){showToast('Open a sheet first');return;}
