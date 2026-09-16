@@ -112,11 +112,19 @@ porque el libro sitúa la logarítmica en 4-6 h tras la latencia. El prompt llev
 además la regla de que `log_end_h: null` no es un dato que falte, es la
 afirmación de que la fase no ha terminado.
 
-**Un objetivo en cm y uno en × no pueden convivir.** Son dos maneras de decir lo
-mismo y tener los dos puestos hacía que corregir los centímetros no moviera el
-porcentaje: `goalCm` ganaba en el pintado pero el Save miraba la pestaña activa
-y reescribía el ×. Poner uno borra el otro, y quién manda lo decide el campo que
-se tocó, no la pestaña que estuviera abierta.
+**Tres gestos empiezan una hoja: Start reading, Mark start o el temporizador.**
+Cualquiera de ellos abre el primer paso ("Step 1"), reclama el aparato y pone en
+marcha el registro — sin objetivo, que es una decisión aparte. A partir de ahí
+todo lo que viene son Next steps. Exigir una etapa abierta *y* propiedad del
+aparato dejaba sin registrar una masa que ya estaba subiendo.
+
+**cm y × son el mismo objetivo dicho de dos maneras.** El sensor mide
+centímetros; el panadero lee el múltiplo en el bote graduado. Puestos los dos
+forman una equivalencia —"2,5 cm en este bote son 2,7×"— y con ella se interpola
+el × mientras sube: 0 cm es 1×, el objetivo en cm es tu ×. Es tu bote el que
+manda, no la razón de distancias del sensor, que no sabe cómo de ancho es. La
+barra enseña `2.5cm = 2.7×` y debajo lo crecido en las dos unidades. Hubo una
+versión que los hacía excluyentes; era peor.
 
 **Cambiar el objetivo repinta en el acto.** El porcentaje se recalculaba en el
 siguiente status del ESP32; con el aparato apagado no llega ninguno y parecía

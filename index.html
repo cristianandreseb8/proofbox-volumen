@@ -216,18 +216,14 @@ body.board .app{max-width:none;padding:16px 22px 80px}
     <div style="font-size:10px;color:var(--muted);margin-top:6px;line-height:1.45" id="se-when-note"></div>
 
     <div class="pa-sep">Target growth</div>
-    <div class="log-btns" style="margin-bottom:8px">
-      <button class="gtab" id="se-tab-cm" onclick="seTab('cm')" style="flex:1">↕ cm</button>
-      <button class="gtab" id="se-tab-x" onclick="seTab('x')" style="flex:1">× Ratio</button>
-    </div>
-    <div class="input-row" id="se-cm-row">
-      <input class="num-input" type="number" step="0.1" min="0.1" id="se-cm" placeholder="2" style="flex:1">
+    <div class="input-row">
+      <input class="num-input" type="number" step="0.1" min="0.1" id="se-cm" placeholder="2.5" style="flex:1">
       <span class="unit-lbl">cm</span>
-    </div>
-    <div class="input-row" id="se-x-row" style="display:none">
+      <span class="unit-lbl" style="opacity:.6">=</span>
       <input class="num-input" type="number" step="0.05" min="1.05" id="se-x" placeholder="2.7" style="flex:1">
       <span class="unit-lbl">×</span>
     </div>
+    <div style="font-size:10px;color:var(--muted);margin-top:6px;line-height:1.45">Two ways of saying one thing: the sensor measures centimetres, you read the multiple off the jar. Fill both and the app knows that this much rise is that multiple, and can tell you the × while it climbs. Either one alone works too.</div>
 
     <div class="log-btns" style="margin-top:16px">
       <button class="mark-btn" onclick="closeStartEdit()" style="flex:1">Cancel</button>
@@ -949,7 +945,15 @@ function chartWindow(){
 // histórico del aparato existe siempre. Una fila es de ESTA hoja solo si es
 // posterior a su marca de inicio y no cae dentro de un paso anotado a mano.
 // Sin esto una hoja recién creada nacía con puntos que no eran de su masa.
-function sheetFrom(){ return (sess&&sess.baseAt)?sess.baseAt:null; }
+// Desde cuándo cuenta esta hoja. El cero de la masa si lo hay, y si no el
+// primer paso medido: empezar con el reloj o con Start reading también empieza,
+// y su gráfico tiene que arrancar ahí y no en el histórico del aparato.
+function sheetFrom(){
+  if(!sess) return null;
+  if(sess.baseAt) return sess.baseAt;
+  const st=(sess.stages||[]).filter(x=>!x.manual&&x.startedAt).map(x=>x.startedAt);
+  return st.length?Math.min(...st):null;
+}
 function handWindows(){
   return (sess?sess.stages:[]).filter(x=>x.manual&&x.startedAt)
     .map(x=>({from:x.startedAt,to:x.endedAt||Date.now()}));
@@ -2009,6 +2013,13 @@ function timerToggle(){
       timer.totalMs=left;
     }
     timer.leftMs=left; timer.endAt=Date.now()+left; timer.running=true; timer.fired=false;
+    // Poner el reloj en marcha es empezar. Si la hoja no tiene nada abierto,
+    // esto es lo que la arranca y le da el aparato.
+    if(sess&&!sess.stages.length){
+      ensureFirstStage();
+      sessions.forEach(x=>{ if(x!==sess) x.owns=false; }); sess.owns=true;
+      saveSessions(); applyVisibility(); renderSess(); renderHistory();
+    }
   }
   saveTimer(); renderTimer();
 }
@@ -2318,16 +2329,27 @@ function updateUI(d){
     const tgt=(myRatio>1)?myRatio:(d.metaGoalSet&&+d.metaRatioGoal>1?+d.metaRatioGoal:0);
     if(goalCm) mp=Math.min(100,Math.max(0,cm/goalCm*100));
     else mp=tgt>1?Math.min(100,Math.max(0,(ratio-1)/(tgt-1)*100)):0;
+    // Con los dos puestos, el × se lee de la equivalencia: 0 cm es 1×, el
+    // objetivo en cm es tu ×, y en medio se interpola. Es tu bote el que manda,
+    // no la razón de distancias del sensor — que no sabe cómo de ancho es.
+    if(goalCm&&tgt>1) sheetRatio=1+(cm/goalCm)*(tgt-1);
     document.getElementById('rise').textContent=fmt(riseS);
     document.getElementById('bar-ratio').style.width=Math.min(100,Math.max(0,((riseS-1)/2)*100))+'%';
     document.getElementById('meta-pct').innerHTML=((goalCm||tgt>1)?fmt(mp,0):'--')+'<span>%</span>';
     document.getElementById('bar-meta').style.width=mp+'%';
     document.getElementById('bar-meta').className='fill'+(mp>=100?' done':'');
-    document.getElementById('meta-ratio-now').textContent=fmt(ratio)+'×';
-    document.getElementById('meta-ratio-goal').textContent=goalCm?fmt(goalCm)+'cm':(tgt>1?fmt(tgt)+'×':'--×');
+    document.getElementById('meta-ratio-now').textContent=fmt(sheetRatio)+'×';
+    document.getElementById('meta-ratio-goal').textContent=
+      (goalCm&&tgt>1)?`${fmt(goalCm)}cm = ${fmt(tgt)}×`
+      :goalCm?fmt(goalCm)+'cm'
+      :tgt>1?fmt(tgt)+'×':'--×';
     document.getElementById('cm-grown').textContent=fmt(cm)+'cm';
+    // Debajo, lo crecido en las dos unidades: los cm que mide el aparato y el
+    // × en el que lo piensa el panadero.
     const ml=document.getElementById('myratio-line');
-    if(ml) ml.textContent=goalCm?' · your '+goalCm+'cm':((myRatio>1)?' · your '+myRatio+'×':(tgt>1?' · sensor target':''));
+    if(ml) ml.textContent=(goalCm&&tgt>1)?` · ${fmt(sheetRatio)}× of your ${tgt}×`
+                         :goalCm?' · of your '+goalCm+'cm'
+                         :(tgt>1?' · '+fmt(ratio)+'× of your '+tgt+'×':'');
   }else{ blankMeta(); }
   lastStart.set=!!base;
   lastGoalX=(myRatio>1)?myRatio:((d.metaGoalSet&&+d.metaRatioGoal>1)?+d.metaRatioGoal:0);
@@ -2574,10 +2596,25 @@ function activeStage(){
 // el botón para quedárselo, no un hueco.
 function stageMeasures(){
   const a=activeStage();
-  return !!(sess&&a&&!a.manual);
+  return !!sess&&!(a&&a.manual);     // sin etapa abierta no hay nada manual en curso
+}
+// Una hoja está en marcha en cuanto hace CUALQUIERA de las tres cosas con las
+// que se empieza de verdad: reclamar el aparato, marcar el cero o poner el
+// reloj. Exigir además un objetivo o una etapa dejaba registrando a nadie una
+// masa que ya estaba subiendo.
+function sessionRunning(){
+  return !!(sess&&(sess.baseDist>0||sess.stages.length||(timer&&timer.running)));
 }
 function sensorMode(){
-  return stageMeasures()&&!!(sess&&sess.owns);
+  return stageMeasures()&&sessionRunning()&&!!(sess&&sess.owns);
+}
+// El primer paso se abre solo con el primer gesto: a partir de ahí todo lo que
+// venga es Next step, que es como se piensa la secuencia.
+function ensureFirstStage(){
+  if(!sess||sess.stages.length) return;
+  const now=Date.now();
+  sess.stages.push({id:now,name:'Step 1',startedAt:now,endedAt:null,note:'',photos:[]});
+  stagePick=String(now);
 }
 function measuredStages(){
   return (sess?sess.stages:[]).filter(s=>!s.manual&&s.startedAt);
@@ -2586,7 +2623,7 @@ function sensorRows(){
   const ms=measuredStages();
   // Mismo criterio que el gráfico: el informe no puede contar como medido lo
   // que el registro de la nube escribió antes de que esta hoja empezara.
-  const from=(sess&&sess.baseAt)?sess.baseAt:null;
+  const from=sheetFrom();
   if(!ms.length||from===null) return [];
   // Un paso a mano puede quedar dentro de uno medido que sigue abierto, así que
   // no basta con mirar las etapas medidas: hay que descontarlo igual que hace
@@ -3405,15 +3442,6 @@ function closeReport(){ setDMode(currentMode); }
 // Corregir con la masa ya subiendo. Todo lo que se enseña —el porcentaje, el
 // gráfico, el informe— se deriva de estos dos datos, así que cambiarlos ajusta
 // también el tramo ya recorrido: no hay nada que rehacer a mano.
-let seMode='cm';
-let seOpen={cm:'',x:''};   // con qué valores se abrió, para saber cuál cambió
-function seTab(m){
-  seMode=m;
-  document.getElementById('se-cm-row').style.display=m==='cm'?'flex':'none';
-  document.getElementById('se-x-row').style.display =m==='x' ?'flex':'none';
-  document.getElementById('se-tab-cm').className='gtab'+(m==='cm'?' active':'');
-  document.getElementById('se-tab-x').className ='gtab'+(m==='x' ?' active':'');
-}
 function localDT(ms){
   const d=new Date(ms-new Date().getTimezoneOffset()*60000);
   return d.toISOString().slice(0,16);
@@ -3443,7 +3471,7 @@ The baker is fixing a mistake, so only change what the text actually corrects. E
 
 - target_cm: the growth in centimetres they want, when they talk in cm.
 - target_x: the growth multiple, when they talk in x ("2,7x", "que triplique" -> 3).
-- Only one of the two can be set. The one they name wins; set the other to null.
+- The two are not alternatives: they describe the same target, one as the sensor measures it and one as the baker reads it off the jar ("2,5cm son 2,7x"). Set both when the text gives both. Set only the one they name otherwise, leaving the other null so it stays as it is.
 - start_local: a corrected start as "YYYY-MM-DDTHH:MM" in the baker's local time, only if they give a time or shift it ("empezó a las 8", "fue una hora antes" -> subtract an hour from the current start). Null otherwise.
 - clear_target: true only if they explicitly want no target at all.
 - understood: one short sentence, in the baker's own language, saying what you changed. This is shown to them, so name the new values.`;
@@ -3466,11 +3494,13 @@ The baker is fixing a mistake, so only change what the text actually corrects. E
     if(!r.ok||res.error) throw new Error((res.error&&(res.error.message||res.error))||('HTTP '+r.status));
     const d=JSON.parse(res.content.filter(b=>b.type==='text').map(b=>b.text).join(''));
     if(d.clear_target){
-      document.getElementById('se-cm').value=''; document.getElementById('se-x').value=''; seTab('cm');
-    }else if(d.target_cm>0){
-      document.getElementById('se-cm').value=d.target_cm; document.getElementById('se-x').value=''; seTab('cm');
-    }else if(d.target_x>1){
-      document.getElementById('se-x').value=d.target_x; document.getElementById('se-cm').value=''; seTab('x');
+      document.getElementById('se-cm').value=''; document.getElementById('se-x').value='';
+    }
+    if(d.target_cm>0){
+      document.getElementById('se-cm').value=d.target_cm;
+    }
+    if(d.target_x>1){
+      document.getElementById('se-x').value=d.target_x;
     }
     if(d.start_local&&/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(d.start_local)){
       document.getElementById('se-when').value=d.start_local.slice(0,16);
@@ -3496,8 +3526,6 @@ function openStartEdit(){
   document.getElementById('se-when').value=localDT(sess.baseAt);
   document.getElementById('se-cm').value=sess.goalCm||'';
   document.getElementById('se-x').value=sess.myRatio||'';
-  seOpen={cm:sess.goalCm||'',x:sess.myRatio||''};
-  seTab(sess.goalCm?'cm':(sess.myRatio?'x':'cm'));
   document.getElementById('se-say').value='';
   document.getElementById('se-said').textContent='';
   seWhenNote();
@@ -3536,17 +3564,14 @@ function applyStartTarget({whenMs,cm,x}){
     if(d!=null) sess.baseDist=d;
     dicho.push('start '+new Date(whenMs).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}));
   }
-  if(cm>0){
-    // El objetivo en cm manda sobre el ×: son dos maneras de decir lo mismo y
-    // dejar los dos puestos es lo que hacía que corregir los cm no cambiara nada.
-    sess.goalCm=cm; sess.myRatio=null; myRatio=null;
-    sendCmd({cmd:'metaSetGoalCm',cm});
-    dicho.push('target '+cm+' cm');
-  }else if(x>1){
-    sess.goalCm=0; sess.myRatio=x; myRatio=x;
-    sendCmd({cmd:'metaSetGoalRatio',ratio:x});
-    dicho.push('target '+x+'×');
-  }
+  // Los dos conviven porque son el mismo objetivo dicho de dos maneras: el
+  // sensor mide centímetros, el panadero lee el múltiplo en el bote. Juntos son
+  // una equivalencia —"subir 2,5 cm en este bote es 2,7×"— y con ella se puede
+  // dar el × mientras sube, que es el número que un panadero reconoce.
+  if(cm>0){ sess.goalCm=cm; sendCmd({cmd:'metaSetGoalCm',cm}); }
+  if(x>1){ sess.myRatio=x; myRatio=x; sendCmd({cmd:'metaSetGoalRatio',ratio:x}); }
+  const g=sess.goalCm, r=sess.myRatio;
+  if(g||r) dicho.push('target '+(g&&r?`${g} cm = ${r}×`:(g?g+' cm':r+'×')));
   if(!dicho.length) return '';
   // La meta cambió: la alarma vuelve a estar por sonar.
   metaFired=false; sess.metaFired=false; mpBuf=[];
@@ -3563,19 +3588,12 @@ function saveStartEdit(){
   const v=document.getElementById('se-when').value;
   const cmV=parseFloat(document.getElementById('se-cm').value);
   const xV=parseFloat(document.getElementById('se-x').value);
-  // Se mira el campo, no la pestaña. Decidir por la pestaña descartaba en
-  // silencio los centímetros escritos mientras seguía activa la de ratio.
-  // Manda el campo que el usuario tocó, no la pestaña que estuviera activa:
-  // decidir por la pestaña descartaba en silencio un objetivo recién escrito.
-  const cmTocado = String(cmV||'')!==String(seOpen.cm||'');
-  const xTocado  = String(xV||'') !==String(seOpen.x||'');
-  const usaCm = cmTocado&&cmV>0 ? true
-              : xTocado&&xV>1   ? false
-              : seMode==='cm';
+  // Los dos campos se guardan juntos: son el mismo objetivo. Vaciar uno es
+  // quitarlo, que antes no había manera de hacerlo.
+  if(!(cmV>0)) sess.goalCm=0;
+  if(!(xV>1)){ sess.myRatio=null; myRatio=null; }
   const txt=applyStartTarget({
-    whenMs:v?new Date(v).getTime():null,
-    cm:usaCm?cmV:0,
-    x:usaCm?0:xV});
+    whenMs:v?new Date(v).getTime():null, cm:cmV, x:xV});
   closeStartEdit();
   showToast(txt?('✎ '+txt):'Nothing changed');
 }
@@ -3584,6 +3602,7 @@ function markStart(){
   if(!lastSmoothDist){showToast('No reading from the device yet');return;}
   // Pisa el cero de ESTA hoja, así que no puede dispararse por un roce.
   if(sess.baseDist>0 && !confirm('Mark the start again?\n\nThis sheet already has one and its progress restarts from here. No other sheet is affected.'))return;
+  ensureFirstStage();
   sess.baseDist=lastSmoothDist;
   sess.baseAt=Date.now();
   sess.baseGrams=parseFloat(document.getElementById('input-grams').value)||0;
