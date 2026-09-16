@@ -113,7 +113,7 @@ además la regla de que `log_end_h: null` no es un dato que falte, es la
 afirmación de que la fase no ha terminado.
 
 **Tres gestos empiezan una hoja: Start reading, Mark start o el temporizador.**
-Cualquiera de ellos abre el primer paso ("Step 1"), reclama el aparato y pone en
+Cualquiera de ellos abre el primer paso ("1st reading"), reclama el aparato y pone en
 marcha el registro — sin objetivo, que es una decisión aparte. A partir de ahí
 todo lo que viene son Next steps. Exigir una etapa abierta *y* propiedad del
 aparato dejaba sin registrar una masa que ya estaba subiendo.

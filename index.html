@@ -2613,7 +2613,7 @@ function sensorMode(){
 function ensureFirstStage(){
   if(!sess||sess.stages.length) return;
   const now=Date.now();
-  sess.stages.push({id:now,name:'Step 1',startedAt:now,endedAt:null,note:'',photos:[]});
+  sess.stages.push({id:now,name:'1st reading',startedAt:now,endedAt:null,note:'',photos:[]});
   stagePick=String(now);
 }
 function measuredStages(){
@@ -3610,7 +3610,9 @@ function markStart(){
   // El aparato guarda un cero solo: lo sigue la hoja que además registra, pero
   // ya no es de donde salen los números, así que marcar aquí no borra nada allá.
   sessions.forEach(x=>{ if(x!==sess) x.owns=false; }); sess.owns=true;
-  saveSessions(); applyVisibility();
+  // renderSess también rehace el botón de arriba: sin esto seguía diciendo
+  // Start reading con la lectura ya empezada.
+  saveSessions(); renderSess(); renderHistory();
   sendCmd({cmd:'metaSetStart',grams:sess.baseGrams});
   document.getElementById('start-status').textContent='◎ Start marked in “'+sess.name+'”';
 }
