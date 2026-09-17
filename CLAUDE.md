@@ -64,6 +64,13 @@ La cámara se inicia al tamaño MAYOR (XGA) y baja a 480×320 para el vivo:
 agrandar en caliente corta las fotos. No hay servidor web en la placa: la app va
 por https y el navegador bloquearía un `http://` de la red local.
 
+**Girar la imagen se hace en el SENSOR** (`set_vflip` / `set_hmirror`), no con
+CSS: así sale derecha también en las fotos que se guardan, no solo en el vivo.
+Se pide con `cmd` `flip` / `mirror` (o `flip:0|1`), se guarda en NVS —una cámara
+colgada boca abajo lo sigue estando tras un corte de luz— y la placa contesta
+con el estado retenido en `.../flip` como `v,h`, que es lo que enciende los
+botones de la app.
+
 **Pantalla completa** con capa propia (`.cam-full`) además del Fullscreen API:
 en iPhone ese API solo existe para vídeo. Mientras está abierta, los fotogramas
 del vivo se pintan también ahí — es la misma suscripción, no una segunda. Sirve

@@ -21,6 +21,7 @@
 #include <HTTPClient.h>
 #include <PubSubClient.h>
 #include <time.h>
+#include <Preferences.h>
 #include "esp_camera.h"
 
 // ── Destino ──────────────────────────────────────────────────────────────────
@@ -36,6 +37,7 @@ const char* TOPIC_LIVE   = "proofboxcam/proofbox-cam01/live";
 const char* TOPIC_VIEWER = "proofboxcam/proofbox-cam01/viewer";
 const char* TOPIC_STATE  = "proofboxcam/proofbox-cam01/state";
 const char* TOPIC_CMD    = "proofboxcam/proofbox-cam01/cmd";
+const char* TOPIC_FLIP   = "proofboxcam/proofbox-cam01/flip";
 
 const unsigned long SHOT_EVERY_MS  = 10UL * 60UL * 1000UL;  // archivo: cada 10 min
 const unsigned long VIEWER_TTL_MS  = 15000;                 // sin latido en 15 s, se corta el vivo
@@ -69,6 +71,12 @@ const int         QUAL_LIVE = 20;
 
 WiFiClient   mqttNet;
 PubSubClient mqtt(mqttNet);
+
+// Dar la vuelta a la imagen se hace en el SENSOR, no en la pantalla: así sale
+// derecha también en las fotos que se guardan, no solo en el vivo. Y se recuerda
+// en NVS, que es lo que hace falta si la cámara se queda colgada boca abajo.
+Preferences prefs;
+bool vflip = false, hmirror = false;
 
 bool camOn = false;
 unsigned long lastViewerMs = 0;
@@ -110,9 +118,23 @@ bool camStart() {
     return false;
   }
   camOn = true;
+  applyFlip();
   // Las primeras capturas salen verdosas mientras ajusta la exposición.
   for (int i = 0; i < 3; i++) { camera_fb_t* fb = esp_camera_fb_get(); if (fb) esp_camera_fb_return(fb); delay(150); }
   return true;
+}
+
+void applyFlip() {
+  sensor_t* s = esp_camera_sensor_get();
+  if (!s) return;
+  s->set_vflip(s, vflip ? 1 : 0);
+  s->set_hmirror(s, hmirror ? 1 : 0);
+}
+
+void publishFlip() {
+  char buf[8];
+  snprintf(buf, sizeof(buf), "%d,%d", vflip ? 1 : 0, hmirror ? 1 : 0);
+  mqtt.publish(TOPIC_FLIP, buf, true);
 }
 
 void camStop() {
@@ -200,7 +222,20 @@ void onMqtt(char* topic, byte* payload, unsigned int len) {
   // y subirla aquí dentro bloquearía el cliente MQTT varios segundos.
   if (strcmp(topic, TOPIC_CMD) == 0) {
     String c; for (unsigned int i = 0; i < len; i++) c += (char)payload[i];
-    if (c == "shot") { shotAsked = true; Serial.println("📸 foto pedida desde la app"); }
+    if (c == "shot") { shotAsked = true; Serial.println("📸 foto pedida desde la app"); return; }
+    // "flip" / "mirror" alternan; "flip:1" / "mirror:0" fijan.
+    bool changed = false;
+    if (c == "flip")        { vflip = !vflip; changed = true; }
+    else if (c == "mirror") { hmirror = !hmirror; changed = true; }
+    else if (c.startsWith("flip:"))   { vflip = c.endsWith("1"); changed = true; }
+    else if (c.startsWith("mirror:")) { hmirror = c.endsWith("1"); changed = true; }
+    if (changed) {
+      prefs.putBool("vflip", vflip);
+      prefs.putBool("hmirror", hmirror);
+      if (camOn) applyFlip();
+      publishFlip();
+      Serial.printf("🔄 vflip=%d hmirror=%d\n", vflip, hmirror);
+    }
     return;
   }
   if (strcmp(topic, TOPIC_VIEWER) == 0) {
@@ -220,6 +255,7 @@ void mqttEnsure() {
     mqtt.subscribe(TOPIC_VIEWER);
     mqtt.subscribe(TOPIC_CMD);
     publishState("idle");
+    publishFlip();
     Serial.println("MQTT ✅");
   } else {
     Serial.printf("MQTT ❌ rc=%d\n", mqtt.state());
@@ -232,6 +268,11 @@ void setup() {
   Serial.println("\n=== ProofBox Cam (vivo + archivo) ===");
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, HIGH);
+
+  prefs.begin("pbcam", false);
+  vflip   = prefs.getBool("vflip", false);
+  hmirror = prefs.getBool("hmirror", false);
+  Serial.printf("🔄 vflip=%d hmirror=%d\n", vflip, hmirror);
 
   if (camStart()) {
     sensor_t* s = esp_camera_sensor_get();
