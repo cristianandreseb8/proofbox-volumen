@@ -1446,7 +1446,8 @@ function addSubGoal(){
 function delSubGoal(i){ sess.goals.splice(i,1); saveSessions(); renderGoals(); renderHistory(); }
 function renderGoals(){
   const box=document.getElementById('goals-list'); if(!box)return;
-  const main=myRatio||lastGoalX||0;
+  const picked=(sess&&stagePick!=='all')?sess.stages.find(x=>String(x.id)===String(stagePick)):null;
+  const main=(picked&&stageGoal(picked).x)||myRatio||lastGoalX||0;
   const head=main>1
     ? `<div style="padding:6px 0;border-bottom:1px solid var(--border);color:#e8867a">Target ${(+main).toFixed(2)}× <span style="color:var(--muted)">${myRatio?'· yours':'· from the device'}</span></div>`
     : '<div style="padding:6px 0;color:var(--muted)">No target set yet</div>';
@@ -1552,16 +1553,40 @@ function goalMarks(){
   for(const g of subGoals()) if(+g.v>1) out.push({v:+g.v,label:g.label||'',main:false});
   return out.sort((a,b)=>a.v-b.v);
 }
-function goalSvg(marks,sy,W,p,reachedMax){
-  return marks.map(g=>{
-    const y=sy(g.v);
-    if(!isFinite(y)||y<p-2||y>1e5) return '';
-    const hit=reachedMax>=g.v;
+// Una línea por paso, no una que cruce todo el gráfico: cada paso tiene su
+// propio cero y su propio objetivo, y una recta continua daba a entender que
+// el segundo refresco perseguía la meta del primero. El hueco entre pasos
+// queda vacío, igual que la curva.
+function goalSvg(marks,sy,W,p,reachedMax,geo){
+  const one=(g,v,xa,xb,hit,label)=>{
+    const y=sy(v);
+    if(!isFinite(y)||y<p-2||y>1e5||xb-xa<2) return '';
     const col=g.main?'#e8867a':'#7a8fa8';
-    const txt=(g.label?g.label+' · ':'')+g.v.toFixed(2)+'×';
-    return `<line x1="${p}" y1="${y.toFixed(1)}" x2="${W-p}" y2="${y.toFixed(1)}" stroke="${col}" stroke-width="1" `+
+    const txt=(g.label?g.label+' · ':'')+v.toFixed(2)+'×';
+    return `<line x1="${xa.toFixed(1)}" y1="${y.toFixed(1)}" x2="${xb.toFixed(1)}" y2="${y.toFixed(1)}" stroke="${col}" stroke-width="1" `+
            `stroke-dasharray="${hit?'':'5 4'}" opacity="${hit?.85:.55}"/>`+
-           `<text x="${W-p-3}" y="${(y-4).toFixed(1)}" text-anchor="end" font-size="9" fill="${col}" opacity=".9">${hit?'✓ ':''}${txt}</text>`;
+           (label&&xb-xa>70?`<text x="${(xb-3).toFixed(1)}" y="${(y-4).toFixed(1)}" text-anchor="end" font-size="9" fill="${col}" opacity=".9">${hit?'✓ ':''}${txt}</text>`:'');
+  };
+  const steps=(geo&&sess&&stagePick==='all')
+    ? sess.stages.filter(x=>!x.manual&&x.startedAt).map(st=>{
+        const a=Math.max(geo.x0,st.startedAt-geo.t0), b=Math.min(geo.x1,(st.endedAt||Date.now())-geo.t0);
+        if(b<=a) return null;
+        // Si se llegó se decide con el percentil 95, no con el máximo: un solo
+        // pico del ToF marcaba ✓ en un paso que iba por el 88%.
+        const v=[]; geo.xs.forEach((x,i)=>{ if(x>=a&&x<=b) v.push(geo.raw[i]); });
+        v.sort((m,n)=>m-n);
+        const mx=v.length?v[Math.floor(v.length*0.95)]:-Infinity;
+        return {st,xa:geo.sx(a),xb:geo.sx(b),max:mx};
+      }).filter(Boolean)
+    : [];
+  return marks.map(g=>{
+    if(!steps.length) return one(g,g.v,p,W-p,reachedMax>=g.v,true);
+    return steps.map((k,i)=>{
+      // La meta principal de cada paso es la suya; las intermedias son de la hoja.
+      const v=g.main?(stageGoal(k.st).x||g.v):g.v;
+      if(!(v>1)) return '';
+      return one(g,v,k.xa,k.xb,k.max>=v,true);
+    }).join('');
   }).join('');
 }
 // Las etapas, dibujadas sobre el eje de tiempos. Las anotadas a mano se rayan
@@ -1699,7 +1724,7 @@ function drawChart(rows,boxId,W,H){
     ${grid}
     ${stageSvg(t0,x0,x1,sx,H,p,W)}
     ${(W>500&&eraser)?erasedSvg(t0,x0,x1,sx,H,p):''}
-    ${goalSvg(marks,sy,W,p,Math.max(...raw))}
+    ${goalSvg(marks,sy,W,p,Math.max(...raw),{t0,x0,x1,sx,xs,raw})}
     <defs><mask id="erase-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="${W}" height="${H}">
       <rect x="0" y="0" width="${W}" height="${H}" fill="white"/>
       <rect id="erase-hole" x="0" y="0" width="0" height="${H}" fill="black"/>
@@ -3926,7 +3951,10 @@ function connect(){
   mqttClient.on('message',(t,msg)=>{
     if(t===TOPIC_NOTIFY){
       try{const n=JSON.parse(msg.toString());
-        if(n.event==='meta_reached')showToast('🎉 Target reached! '+fmt(n.ratio)+'×',10000);
+        // El aviso del aparato se ignora: cuenta desde SU cero único y con su ×
+        // de distancias, así que decía "objetivo alcanzado 1,9×" con la hoja al
+        // 88% de un 2,7×. Quien decide si se llegó es la hoja (fireAlarm).
+        if(n.event==='meta_reached') console.info('[device] meta_reached',n);
       }catch(e){}
     }else{
       try{updateUI(JSON.parse(msg.toString()));}catch(e){}

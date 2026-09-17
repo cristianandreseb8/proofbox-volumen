@@ -171,6 +171,15 @@ Sin equivalencia, inicio÷ahora con el cero del paso. El crudo queda en
 usan la mediana de sus diez primeros minutos. La columna es `dist_mm` — con
 `dist` `distAt()` nunca encontró nada.
 
+**La línea del objetivo es por paso.** Un tramo a la altura del objetivo de cada
+paso, con hueco entre pasos igual que la curva; una recta de lado a lado hacía
+creer que el 2º refresco perseguía la meta del 1º. El ✓ de cada tramo sale del
+percentil 95 del paso, no del máximo: un pico del ToF lo marcaba antes de tiempo.
+
+**El aviso `meta_reached` del aparato se ignora.** Cuenta desde su cero único y
+con su × de distancias; decía "objetivo alcanzado 1,9×" con la hoja al 88%. La
+alarma la decide la hoja.
+
 **La goma se ve como una goma.** Cursor propio mientras está activa, la línea
 desaparece bajo el arrastre (una máscara SVG sobre las capas de datos, la
 rejilla queda), y al confirmar la curva queda CORTADA, no unida con una recta
