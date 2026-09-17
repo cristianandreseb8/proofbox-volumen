@@ -35,6 +35,7 @@ const char* CAM_ID    = "proofbox-cam01";
 const char* TOPIC_LIVE   = "proofboxcam/proofbox-cam01/live";
 const char* TOPIC_VIEWER = "proofboxcam/proofbox-cam01/viewer";
 const char* TOPIC_STATE  = "proofboxcam/proofbox-cam01/state";
+const char* TOPIC_CMD    = "proofboxcam/proofbox-cam01/cmd";
 
 const unsigned long SHOT_EVERY_MS  = 10UL * 60UL * 1000UL;  // archivo: cada 10 min
 const unsigned long VIEWER_TTL_MS  = 15000;                 // sin latido en 15 s, se corta el vivo
@@ -192,7 +193,16 @@ void publishState(const char* s) {
   mqtt.publish(TOPIC_STATE, s, true);
 }
 
+volatile bool shotAsked = false;
+
 void onMqtt(char* topic, byte* payload, unsigned int len) {
+  // Disparo a mano desde la app. Se apunta y se hace en el loop: sacar la foto
+  // y subirla aquí dentro bloquearía el cliente MQTT varios segundos.
+  if (strcmp(topic, TOPIC_CMD) == 0) {
+    String c; for (unsigned int i = 0; i < len; i++) c += (char)payload[i];
+    if (c == "shot") { shotAsked = true; Serial.println("📸 foto pedida desde la app"); }
+    return;
+  }
   if (strcmp(topic, TOPIC_VIEWER) == 0) {
     if (!ALWAYS_LIVE && !viewerPresent()) Serial.println("👀 alguien mira: vivo encendido");
     lastViewerMs = millis();
@@ -208,6 +218,7 @@ void mqttEnsure() {
   // Última voluntad: si la placa se cae, la app ve "offline" en vez de esperar.
   if (mqtt.connect(cid.c_str(), nullptr, nullptr, TOPIC_STATE, 0, true, "offline")) {
     mqtt.subscribe(TOPIC_VIEWER);
+    mqtt.subscribe(TOPIC_CMD);
     publishState("idle");
     Serial.println("MQTT ✅");
   } else {
@@ -266,6 +277,13 @@ void loop() {
   }
   mqttEnsure();
   mqtt.loop();
+
+  // Foto a mano: manda la orden por delante del reloj de los 10 min.
+  if (shotAsked) {
+    shotAsked = false;
+    archiveShot();
+    mqtt.publish(TOPIC_STATE, camOn ? "live" : "idle", true);
+  }
 
   // Archivo: la primera en cuanto hay hora (o a los 30 s si NTP no responde),
   // luego cada 10 min.

@@ -52,6 +52,10 @@ Sensor OV3660. Dos trabajos:
   Los fotogramas se publican con `beginPublish`, sin búfer grande.
 - **Abrir el puerto serie reinicia la placa** (USB nativo del S3): la app verá
   "offline" unos segundos.
+- **Disparo a mano** desde la app: `proofboxcam/proofbox-cam01/cmd` con `shot`.
+  Se apunta en una bandera y se hace en el `loop`; capturar y subir dentro del
+  callback de MQTT bloquearía el cliente varios segundos. La foto entra como una
+  de archivo, con su hora.
 - **Archivo cada 10 min** a Storage: `cam/proofbox-cam01/shots/<epoch>.jpg`
   (XGA, calidad 10) y la misma como `latest.jpg`. Sin hora NTP no se archiva.
   ~30 KB por foto hoy; a 144 al día el plan gratis aguanta meses.
@@ -59,6 +63,10 @@ Sensor OV3660. Dos trabajos:
 La cámara se inicia al tamaño MAYOR (XGA) y baja a 480×320 para el vivo:
 agrandar en caliente corta las fotos. No hay servidor web en la placa: la app va
 por https y el navegador bloquearía un `http://` de la red local.
+
+Las capturas se borran desde la app, una a una o todas, con un solo `DELETE` y
+la lista en `prefixes` (por tandas de 100: una lista de cientos falla). Borrar
+una captura no toca la copia que se hubiera añadido a un paso.
 
 **Todo es público**: el broker es público y el bucket también, y los nombres
 están en el HTML. Quien los lea puede ver el vivo y el archivo.
