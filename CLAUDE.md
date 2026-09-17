@@ -160,6 +160,17 @@ Cada paso guarda además su propio cero (`zeroDist`, `zeroAt`).
 **Entre pasos no se dibuja nada.** El sensor suele estar en el aire o en la
 mano; esas filas no son de ningún paso.
 
+**El × del gráfico es el de la tarjeta, no el `rise` del aparato.** El firmware
+guarda inicio÷ahora en distancias, y eso no es lineal: se dispara cuando la
+masa se acerca al sensor. Dos pasos con el mismo objetivo salían uno gigante
+(3,4 cm → 2,8×) y otro enano (1,9 cm → 1,55×), con la línea del objetivo en
+otra escala. `withJarX()` recalcula cada fila como la tarjeta: cm desde el cero
+de SU paso y, con equivalencia, el × del bote (1,9 cm de 2,5 = 2,29×, el 76%).
+Sin equivalencia, inicio÷ahora con el cero del paso. El crudo queda en
+`rise_device`. Cada paso guarda su cero y su objetivo; los antiguos sin cero
+usan la mediana de sus diez primeros minutos. La columna es `dist_mm` — con
+`dist` `distAt()` nunca encontró nada.
+
 **La goma se ve como una goma.** Cursor propio mientras está activa, la línea
 desaparece bajo el arrastre (una máscara SVG sobre las capas de datos, la
 rejilla queda), y al confirmar la curva queda CORTADA, no unida con una recta
@@ -265,7 +276,8 @@ campos nuevos de sensores ya están ahí antes de existir como columnas.
 `proofbox_state` es **una sola fila compartida** (`device_id` fijo) y la preview
 local la lee y la escribe igual que el móvil. Gana el último que escribe.
 
-**Probar SIEMPRE en `index.html?sandbox`.** En ese modo un envoltorio de
+**Probar SIEMPRE en modo aislado.** En `localhost` lo es por defecto (`?live` lo
+desactiva a propósito); en cualquier otro sitio, con `?sandbox`. En ese modo un envoltorio de
 `fetch` al principio del script corta toda escritura a Supabase (hojas, filas,
 configuración, fotos) y `sendCmd` no manda nada al aparato; lecturas y
 `claude-proxy` sí pasan. Las hojas van a otra clave de localStorage. Hay un

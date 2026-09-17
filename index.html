@@ -745,7 +745,10 @@ body.board .app{max-width:none;padding:16px 22px 80px}
 // la app funciona entera, pero TODA escritura a Supabase se corta aquí, en un
 // solo sitio que no se puede olvidar: hojas, filas, configuración, fotos. Las
 // lecturas y la API de Claude sí pasan — son solo lectura.
-const SANDBOX=/[?&]sandbox\b/.test(location.search);
+// En localhost es aislado POR DEFECTO: la preview se abre sin parámetros y así
+// fue como pisó hojas reales. ?live lo desactiva a propósito.
+const SANDBOX=/[?&]sandbox\b/.test(location.search)
+  ||(/^(localhost|127\.0\.0\.1)$/.test(location.hostname)&&!/[?&]live\b/.test(location.search));
 if(SANDBOX){
   const realFetch=window.fetch.bind(window);
   window.fetch=(url,opt={})=>{
@@ -1009,12 +1012,59 @@ function handWindows(){
   return (sess?sess.stages:[]).filter(x=>x.manual&&x.startedAt)
     .map(x=>({from:x.startedAt,to:x.endedAt||Date.now()}));
 }
+// ─── El × que se dibuja ────────────────────────────────────────────────────
+// El `rise` que guarda el aparato es inicio÷ahora en distancias, y eso NO es
+// lineal: se dispara cuando la masa se acerca al sensor. Con la misma subida en
+// cm, un paso que acabó cerca del sensor salía altísimo y otro a medias salía
+// enano, y la línea del objetivo (que es tu × del bote) estaba en otra escala.
+// Ahora cada fila se recalcula como la tarjeta: cm desde el cero DE SU PASO y,
+// si hay equivalencia (2,5 cm = 2,7×), el × del bote. Sin equivalencia queda la
+// fórmula del aparato, pero con el cero de su paso. Se copia la fila: el dato
+// crudo no se toca y sigue en `rise_device`.
+function stageOfTime(t){
+  const st=(sess?sess.stages:[]).filter(x=>!x.manual&&x.startedAt);
+  for(let i=st.length-1;i>=0;i--) if(t>=st[i].startedAt&&t<=(st[i].endedAt||Date.now())) return st[i];
+  return null;
+}
+const zeroCache=new Map();
+function stageZeroDist(st){
+  if(st.zeroDist>0) return st.zeroDist;
+  const key=st.id+':'+history.length;
+  if(zeroCache.has(key)) return zeroCache.get(key);
+  // Sin cero guardado (pasos de antes de guardarlo): la mediana de sus primeros
+  // diez minutos, que es donde estaba la masa al empezar.
+  const v=history.filter(r=>{const t=new Date(r.logged_at).getTime();
+      return t>=st.startedAt&&t<=st.startedAt+10*60000&&r.dist_mm!=null;})
+    .map(r=>+r.dist_mm).sort((a,b)=>a-b);
+  const z=v.length?v[Math.floor(v.length/2)]:null;
+  zeroCache.set(key,z);
+  return z;
+}
+function stageGoal(st){
+  return {cm:(st&&st.goalCm>0)?st.goalCm:((sess&&sess.goalCm>0)?sess.goalCm:0),
+          x:(st&&st.myRatio>1)?st.myRatio:((sess&&sess.myRatio>1)?sess.myRatio:0)};
+}
+function withJarX(rows){
+  return rows.map(r=>{
+    const t=new Date(r.logged_at).getTime();
+    const st=stageOfTime(t);
+    const z=st&&stageZeroDist(st);
+    if(!z||r.dist_mm==null) return r;
+    const d=Math.max(1,+r.dist_mm);
+    const cm=(z-d)/10;
+    const g=stageGoal(st);
+    // Por debajo de 1× solo hay ruido del sensor al empezar: se recorta como
+    // hace el firmware, o el eje se estira hacia abajo para enseñar nada.
+    const x=(g.cm&&g.x)?Math.max(1,1+(cm/g.cm)*(g.x-1)):Math.min(10,Math.max(1,z/d));
+    return {...r, rise_device:r.rise, rise:+x.toFixed(3), cm_step:+cm.toFixed(2)};
+  });
+}
 function rowsIn(win){
   const from=sheetFrom();
   if(from===null) return [];              // sin inicio marcado no hay nada que sea suyo
   const hand=handWindows(), gone=erasedWindows(), meas=measuredWindows();
   const lo=Math.max(from,win?win.from:from), hi=win?win.to:Infinity;
-  return history.filter(r=>{
+  return withJarX(history.filter(r=>{
     const t=new Date(r.logged_at).getTime();
     if(t<lo||t>hi) return false;
     // Entre dos pasos el sensor suele estar en el aire o en la mano: eso no es
@@ -1022,7 +1072,7 @@ function rowsIn(win){
     if(meas.length&&!meas.some(m=>t>=m.from&&t<=m.to)) return false;
     if(gone.some(g=>t>=g.from&&t<=g.to)) return false;
     return !hand.some(h=>t>=h.from&&t<=h.to);
-  });
+  }));
 }
 function chartRows(){ return rowsIn(chartWindow()); }
 function chartT0(){
@@ -2812,13 +2862,13 @@ function sensorRows(){
   // no basta con mirar las etapas medidas: hay que descontarlo igual que hace
   // el gráfico, o el informe cuenta como medido un rato que no lo fue.
   const hand=handWindows();
-  return history.filter(r=>{
+  return withJarX(history.filter(r=>{
     const t=new Date(r.logged_at).getTime();
     if(t<from) return false;
     if(hand.some(h=>t>=h.from&&t<=h.to)) return false;
     if(erasedWindows().some(g=>t>=g.from&&t<=g.to)) return false;
     return ms.some(s=>t>=s.startedAt&&t<=(s.endedAt||Date.now()));
-  });
+  }));
 }
 // Detectar el paso a estacionaria era demasiado fácil: bastaba UNA muestra con
 // la velocidad por debajo del 20% del pico para dar la logarítmica por cerrada.
@@ -2951,7 +3001,12 @@ async function makeReport(){
   if(sensed){
     const lastM=sRows[sRows.length-1];
     if(lastM.rise!=null)          data.final_rise_x=+(+lastM.rise).toFixed(2);
-    if(lastM.cm_grown!=null)      data.grown_cm=+(+lastM.cm_grown).toFixed(1);
+    if(lastM.cm_step!=null)       data.grown_cm=+(+lastM.cm_step).toFixed(1);
+    else if(lastM.cm_grown!=null) data.grown_cm=+(+lastM.cm_grown).toFixed(1);
+    const g=stageGoal(activeStage());
+    data.rise_scale=(g.cm&&g.x)
+      ? `x values are the baker's jar multiple, derived from centimetres grown with the baker's own equivalence ${g.cm} cm = ${g.x}x, each step measured from its own start`
+      : 'x values are start distance over current distance, each step measured from its own start';
     if(lastM.meta_progress!=null) data.target_reached=+lastM.meta_progress>=100;
   }
   data.sensors_used = sensed;
@@ -3731,9 +3786,10 @@ function closeStartEdit(){ document.getElementById('start-modal').classList.remo
 function distAt(ms){
   let best=null,bd=Infinity;
   for(const r of history){
-    if(r.dist==null) continue;
+    const dd=r.dist_mm!=null?r.dist_mm:r.dist;   // la columna se llama dist_mm; con "dist" nunca encontraba nada
+    if(dd==null) continue;
     const d=Math.abs(new Date(r.logged_at).getTime()-ms);
-    if(d<bd){bd=d;best=+r.dist;}
+    if(d<bd){bd=d;best=+dd;}
   }
   return (bd<=20*60000)?best:null;     // más de 20 min de distancia no es "ese momento"
 }
@@ -3764,6 +3820,11 @@ function applyStartTarget({whenMs,cm,x}){
   // dar el × mientras sube, que es el número que un panadero reconoce.
   if(cm>0){ sess.goalCm=cm; sendCmd({cmd:'metaSetGoalCm',cm}); }
   if(x>1){ sess.myRatio=x; myRatio=x; sendCmd({cmd:'metaSetGoalRatio',ratio:x}); }
+  // El paso abierto se queda con este objetivo; los ya cerrados conservan el suyo.
+  const st=activeStage();
+  if(st&&!st.manual&&(cm>0||x>1)){ if(cm>0) st.goalCm=cm; if(x>1) st.myRatio=x; }
+  // Mover el inicio mueve también el cero del paso abierto.
+  if(st&&!st.manual&&whenMs!=null&&isFinite(whenMs)){ st.zeroAt=sess.baseAt; st.zeroDist=sess.baseDist; }
   const g=sess.goalCm, r=sess.myRatio;
   if(g||r) dicho.push('target '+(g&&r?`${g} cm = ${r}×`:(g?g+' cm':r+'×')));
   if(!dicho.length) return '';
@@ -3800,7 +3861,12 @@ function markStart(){
   sess.baseDist=lastSmoothDist;
   sess.baseAt=Date.now();
   const cur=activeStage();
-  if(cur&&!cur.manual){ cur.zeroDist=sess.baseDist; cur.zeroAt=sess.baseAt; }
+  if(cur&&!cur.manual){
+    cur.zeroDist=sess.baseDist; cur.zeroAt=sess.baseAt;
+    // Hereda el objetivo vigente: así cambiarlo después no reescribe este paso.
+    if(sess.goalCm>0&&!cur.goalCm) cur.goalCm=sess.goalCm;
+    if(sess.myRatio>1&&!cur.myRatio) cur.myRatio=sess.myRatio;
+  }
   sess.baseGrams=parseFloat(document.getElementById('input-grams').value)||0;
   metaFired=false; mpBuf=[]; sess.metaFired=false;
   // El aparato guarda un cero solo: lo sigue la hoja que además registra, pero
