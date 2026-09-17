@@ -162,6 +162,15 @@ body.board .app{max-width:none;padding:16px 22px 80px}
 .num-input::placeholder{color:var(--muted);opacity:.45}
 .modal-box{background:var(--surface);border:1px solid var(--amber-d);border-radius:14px;padding:20px;
   width:100%;max-width:400px;box-shadow:0 18px 50px rgba(0,0,0,.6)}
+/* Capa propia además del Fullscreen API: en iPhone ese API solo existe para
+   vídeo, así que ahí el nativo no haría nada. El nativo se pide igual donde
+   exista, para ganar también la barra del navegador. */
+.cam-full{position:fixed;inset:0;background:#000;z-index:1400;display:none;flex-direction:column}
+.cam-full.show{display:flex}
+.cam-full img{flex:1;min-height:0;width:100%;object-fit:contain;background:#000}
+.cam-full-bar{display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--surface);flex-wrap:wrap}
+.cam-full-bar button{background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Mono',monospace;font-size:14px;padding:6px 12px;cursor:pointer}
+.cam-full-bar .who{flex:1;font-size:11px;color:var(--muted)}
 .chart-full{position:fixed;top:var(--bars,80px);left:0;right:0;bottom:0;background:var(--bg);z-index:900;display:none;flex-direction:column;padding:10px 12px 14px}
 .chart-full.show{display:flex}
 .chart-full-head{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
@@ -241,12 +250,22 @@ body.board .app{max-width:none;padding:16px 22px 80px}
     </div>
   </div>
 </div>
+<div class="cam-full" id="cam-full">
+  <img id="cam-full-img" alt="">
+  <div class="cam-full-bar">
+    <span class="who" id="cam-full-txt"></span>
+    <button onclick="askShot()">📸 Picture</button>
+    <button id="btn-live-full" onclick="toggleLive()">▶ Live</button>
+    <button onclick="closeCamFull()">✕ Close</button>
+  </div>
+</div>
 <div class="modal" id="cam-modal" onclick="if(event.target===this)closeShot()">
   <div class="modal-box" style="max-width:640px;text-align:center">
     <img id="cs-img" src="" style="max-width:100%;max-height:60vh;border-radius:10px;border:1px solid var(--border)">
     <div id="cs-cap" style="font-size:10px;color:var(--muted);margin:10px 0 12px"></div>
     <div class="log-btns">
       <button class="mark-btn" onclick="closeShot()">Close</button>
+      <button class="mark-btn" onclick="fullShot()">⛶ Full screen</button>
       <button class="mark-btn" onclick="shotToStep()">📌 Add to step</button>
       <button class="mark-btn" style="color:var(--red);border-color:var(--red)" onclick="deleteShot()">✕ Delete</button>
     </div>
@@ -502,6 +521,7 @@ body.board .app{max-width:none;padding:16px 22px 80px}
     </div>
     <div class="log-btns" style="margin-top:6px">
       <button class="mark-btn" id="btn-shot" onclick="askShot()" style="flex:1">📸 Take a picture now</button>
+      <button class="mark-btn" onclick="openCamFull()" style="flex:1">⛶ Full screen</button>
     </div>
     <div style="font-size:10px;color:var(--muted);margin-top:8px" id="cam-state"></div>
     <div class="pa-sep" style="margin-top:12px">Saved pictures · every 10 minutes
@@ -3573,7 +3593,9 @@ async function refreshCam(force){
     if(b.size<1000) throw new Error('empty');   // el marcador de prueba no cuenta
     if(!camBlob||lm!==camShotAt){
       if(img.src.startsWith('blob:')) URL.revokeObjectURL(img.src);
-      img.src=URL.createObjectURL(b); img.dataset.live='0';
+      const u2=URL.createObjectURL(b);
+      img.src=u2; img.dataset.live='0';
+      if(camFullOpen()&&!camFullSrc) document.getElementById('cam-full-img').src=u2;
       camBlob=b;
       loadCamShots();   // una foto nueva de archivo: la tira también cambia
     }
@@ -3624,6 +3646,7 @@ function startLive(){
   };
   beat(); liveBeat=setInterval(beat,5000);
   document.getElementById('btn-live').textContent='⏸ Pause live';
+  paintCamFullTxt();
   document.getElementById('cam-state').textContent='Live: starting the camera…';
 }
 function stopLive(){
@@ -3631,6 +3654,7 @@ function stopLive(){
   if(liveBeat){ clearInterval(liveBeat); liveBeat=null; }
   if(mqttClient&&mqttClient.connected) mqttClient.unsubscribe(CAM_TOPIC+'/live');
   const b=document.getElementById('btn-live'); if(b) b.textContent='▶ Watch live';
+  paintCamFullTxt();
   const g=document.getElementById('cam-live-badge'); if(g) g.style.display='none';
   const st=document.getElementById('cam-state'); if(st) st.textContent='';
   refreshCam(true);   // vuelve a la última foto de archivo
@@ -3640,7 +3664,9 @@ function onLiveFrame(bytes){
   const img=document.getElementById('cam-img'); if(!img) return;
   const b=new Blob([bytes],{type:'image/jpeg'});
   if(img.src.startsWith('blob:')&&img.dataset.live==='1') URL.revokeObjectURL(img.src);
-  img.src=URL.createObjectURL(b); img.dataset.live='1';
+  const url=URL.createObjectURL(b);
+  img.src=url; img.dataset.live='1';
+  if(camFullOpen()&&!camFullSrc) document.getElementById('cam-full-img').src=url;
   camBlob=b; camShotAt=Date.now(); liveLastFrame=Date.now();
   document.getElementById('cam-empty').style.display='none';
   document.getElementById('cam-live-badge').style.display='inline';
@@ -3653,7 +3679,7 @@ function onLiveFrame(bytes){
   paintCamAge();
 }
 document.addEventListener('visibilitychange',()=>{
-  if(document.visibilityState!=='visible'){ if(liveOn) stopLive(); }
+  if(document.visibilityState!=='visible'){ if(liveOn) stopLive(); }   // ahorra datos
   else autoLive();
 });
 
@@ -3740,11 +3766,40 @@ function renderCamShots(){
     : 'No pictures saved yet. The camera keeps one every 10 minutes.';
 }
 
-function openCamFull(){
-  if(!camBlob)return;
-  const w=window.open('','_blank');
-  if(w) w.document.write(`<title>ProofBox camera</title><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;height:100vh"><img src="${URL.createObjectURL(camBlob)}" style="max-width:100%;max-height:100%"></body>`);
+// A pantalla completa. Mientras está abierta, los fotogramas del vivo van
+// también a esta imagen: es la misma emisión, no una segunda suscripción.
+let camFullSrc=null;   // null = sigue el vivo; si no, una captura concreta
+function openCamFull(src){
+  const box=document.getElementById('cam-full'), img=document.getElementById('cam-full-img');
+  camFullSrc=src||null;
+  img.src=src||document.getElementById('cam-img').src;
+  box.classList.add('show');
+  paintCamFullTxt();
+  try{ if(box.requestFullscreen) box.requestFullscreen({navigationUI:'hide'}); }catch(e){}
+  if(!src) autoLive();
 }
+function closeCamFull(){
+  document.getElementById('cam-full').classList.remove('show');
+  camFullSrc=null;
+  try{ if(document.fullscreenElement&&document.exitFullscreen) document.exitFullscreen(); }catch(e){}
+}
+function camFullOpen(){ return document.getElementById('cam-full').classList.contains('show'); }
+function paintCamFullTxt(){
+  const t=document.getElementById('cam-full-txt'); if(!t)return;
+  if(camFullSrc){ t.textContent='Saved picture'; return; }
+  t.textContent=liveOn?'Live':'Last picture · press Live to watch';
+  const b=document.getElementById('btn-live-full');
+  if(b) b.textContent=liveOn?'⏸ Pause':'▶ Live';
+}
+function fullShot(){
+  if(!shotOpen)return;
+  const u=shotUrl(shotOpen);
+  closeShot();
+  openCamFull(u);
+}
+// Salir con Escape o con el gesto del navegador cierra la capa igual.
+addEventListener('keydown',e=>{ if(e.key==='Escape'&&camFullOpen()) closeCamFull(); });
+document.addEventListener('fullscreenchange',()=>{ if(!document.fullscreenElement&&camFullOpen()&&!camFullSrc) paintCamFullTxt(); });
 // Guardar la foto de ahora en el paso abierto: queda en el informe junto a lo
 // que se midió en ese momento.
 async function camToStep(){

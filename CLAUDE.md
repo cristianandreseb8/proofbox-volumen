@@ -64,6 +64,11 @@ La cámara se inicia al tamaño MAYOR (XGA) y baja a 480×320 para el vivo:
 agrandar en caliente corta las fotos. No hay servidor web en la placa: la app va
 por https y el navegador bloquearía un `http://` de la red local.
 
+**Pantalla completa** con capa propia (`.cam-full`) además del Fullscreen API:
+en iPhone ese API solo existe para vídeo. Mientras está abierta, los fotogramas
+del vivo se pintan también ahí — es la misma suscripción, no una segunda. Sirve
+igual para una captura guardada.
+
 Las capturas se borran desde la app, una a una o todas, con un solo `DELETE` y
 la lista en `prefixes` (por tandas de 100: una lista de cientos falla). Borrar
 una captura no toca la copia que se hubiera añadido a un paso.
