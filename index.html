@@ -414,6 +414,7 @@ body.board .app{max-width:none;padding:16px 22px 80px}
   </div>
 
 
+  <div class="warn" id="warn-link" style="margin-bottom:10px">📡 No signal from the ProofBox — <span id="warn-link-txt">last reading <b id="warn-age">--</b> ago</span>. Everything else keeps working.</div>
   <div id="sensor-note" class="warn show" style="display:none;background:rgba(122,143,168,.10);border-color:#7a8fa8;color:#9db4c9"></div>
   <div id="stack">
 
@@ -661,7 +662,6 @@ body.board .app{max-width:none;padding:16px 22px 80px}
   <div id="panel-settings" style="display:none">
   <div class="card">
     <div class="card-label">Sensor</div>
-    <div class="warn" id="warn-link">📡 No signal from the ProofBox — last reading <b id="warn-age">--</b> ago</div>
     <div class="warn" id="warn-laser">⚠️ The laser sensor is not responding — check the wiring</div>
     <div class="sensor-row" id="sensor-row">
       <div class="sensor-item"><div class="sensor-val" id="dist">--</div><div class="sensor-lbl">Distance</div></div>
@@ -2715,17 +2715,22 @@ function refreshHealth(){
   if(brokerUp&&lastStatusMs&&age>25000) forceReconnect();
 
   const frozen=!brokerUp||stale;
-  // Atenuar TODO lo que hay en el stack, sin listar ids a mano. La lista fija se
-  // quedó apuntando a una tarjeta que dejó de existir, refreshHealth petaba cada
-  // segundo, y al petar en el arranque se llevaba por delante a fetchConfig() —
-  // que es quien aplica el intervalo de registro.
-  for(const el of document.getElementById('stack').children) el.classList.toggle('dim',frozen);
+  // Sin señal ya NO se atenúa la app: medio apagada parecía rota y se usaba
+  // peor — la cámara, las hojas, el gráfico y el informe no dependen del
+  // sensor. Basta el aviso de arriba con la antigüedad del último dato.
+  for(const el of document.getElementById('stack').children) el.classList.remove('dim');
   const sr=document.getElementById('sensor-row');
-  if(sr) sr.classList.toggle('dim',frozen);
+  if(sr) sr.classList.remove('dim');
 
   const wl=document.getElementById('warn-link');
-  wl.classList.toggle('show',frozen&&lastStatusMs>0);
-  if(frozen&&lastStatusMs>0)document.getElementById('warn-age').textContent=fmtAge(age);
+  // También cuando nunca llegó nada: antes, sin ningún dato, no avisaba.
+  const waited=performance.now()>15000;
+  wl.classList.toggle('show',frozen&&(lastStatusMs>0||waited));
+  const wt=document.getElementById('warn-link-txt');
+  if(frozen&&lastStatusMs>0){
+    if(!document.getElementById('warn-age')) wt.innerHTML='last reading <b id="warn-age"></b> ago';
+    document.getElementById('warn-age').textContent=fmtAge(age);
+  }else if(frozen&&waited) wt.textContent='no reading since the app opened';
   document.getElementById('warn-laser').classList.toggle('show',!frozen&&!laserOk);
   document.getElementById('warn-cond').classList.toggle('show',!frozen&&!condOk);
   document.getElementById('warn-temp').classList.toggle('show',!frozen&&!tempOk);

@@ -243,6 +243,11 @@ eran de su masa. Los tramos de pasos anotados a mano se descuentan también, y
 `sensorRows()` usa exactamente el mismo criterio que el gráfico: si dan números
 distintos, es un fallo.
 
+**Sin señal no se atenúa nada.** Media app en gris parecía rota, y la cámara,
+las hojas, el gráfico y el informe no dependen del sensor. Solo se enseña el
+aviso, que ahora vive arriba del tablero y no escondido en Ajustes, y que
+también aparece cuando nunca llegó ninguna lectura.
+
 **Las tarjetas no se esconden nunca.** Temperatura y conductividad son lo que
 marca el instrumento y existen igual en un paso anotado a mano; la de
 crecimiento es donde vive el botón de marcar inicio, así que ocultarla dejaba a
