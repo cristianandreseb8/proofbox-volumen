@@ -364,12 +364,15 @@ body.board .app{max-width:none;padding:16px 22px 80px}
       <option value="900">Strong · 15 min</option>
       <option value="1800">Very strong · 30 min</option>
     </select>
+    <button id="btn-eraser" onclick="toggleEraser()" title="Drag across the chart to hide a stretch">🧽 Erase</button>
     <button onclick="closeChartFull()">✕</button>
   </div>
+  <div id="eraser-hint" style="display:none;font-size:11px;color:var(--amber-l);padding:4px 2px">Drag across the stretch you want to hide — a knock, the sensor moved. Nothing is deleted: you can bring it back below.</div>
   <div class="series-row" id="series-row-full"></div>
   <div class="chart-full-box" id="chart-full-box"></div>
   <div class="chart-readout" id="chart-readout"></div>
   <div class="series-legend" id="legend-full"></div>
+  <div id="erased-list" style="font-size:11px;color:var(--muted);padding:6px 2px"></div>
 </div>
 <div class="alarm-banner" id="alarm-banner">
   <b id="alarm-msg">⏰</b>
@@ -948,11 +951,23 @@ function chartWindow(){
 // Desde cuándo cuenta esta hoja. El cero de la masa si lo hay, y si no el
 // primer paso medido: empezar con el reloj o con Start reading también empieza,
 // y su gráfico tiene que arrancar ahí y no en el histórico del aparato.
+// OJO: el cero de la masa se mueve con cada Mark start, y usarlo como límite
+// inferior hacía desaparecer del gráfico todos los pasos anteriores al marcar
+// el siguiente — 9 h de un primer refresco, invisibles, con las filas intactas
+// en la base de datos. El límite es el PRIMER comienzo de la hoja, que no se
+// mueve nunca.
 function sheetFrom(){
   if(!sess) return null;
-  if(sess.baseAt) return sess.baseAt;
   const st=(sess.stages||[]).filter(x=>!x.manual&&x.startedAt).map(x=>x.startedAt);
+  if(sess.baseAt) st.push(sess.baseAt);
   return st.length?Math.min(...st):null;
+}
+// Tramos borrados a mano con la goma. No se borra nada de la base de datos:
+// lo que se grabó queda grabado, y un tramo se puede recuperar.
+function erasedWindows(){ return (sess&&sess.erased)||[]; }
+function measuredWindows(){
+  return (sess?sess.stages:[]).filter(x=>!x.manual&&x.startedAt)
+    .map(x=>({from:x.startedAt,to:x.endedAt||Date.now()}));
 }
 function handWindows(){
   return (sess?sess.stages:[]).filter(x=>x.manual&&x.startedAt)
@@ -961,11 +976,15 @@ function handWindows(){
 function rowsIn(win){
   const from=sheetFrom();
   if(from===null) return [];              // sin inicio marcado no hay nada que sea suyo
-  const hand=handWindows();
+  const hand=handWindows(), gone=erasedWindows(), meas=measuredWindows();
   const lo=Math.max(from,win?win.from:from), hi=win?win.to:Infinity;
   return history.filter(r=>{
     const t=new Date(r.logged_at).getTime();
     if(t<lo||t>hi) return false;
+    // Entre dos pasos el sensor suele estar en el aire o en la mano: eso no es
+    // de ningún paso y no se dibuja.
+    if(meas.length&&!meas.some(m=>t>=m.from&&t<=m.to)) return false;
+    if(gone.some(g=>t>=g.from&&t<=g.to)) return false;
     return !hand.some(h=>t>=h.from&&t<=h.to);
   });
 }
@@ -1576,7 +1595,8 @@ function drawChart(rows,boxId,W,H){
   </div>`);
   if(boxId==='chart-full-box'){
     renderLegend(legend);
-    chartState={xs,rows,active:legend,W,H,p,x1,sx,raw,win};
+    chartState={xs,rows,active:legend,W,H,p,x1,sx,raw,win,t0};
+    renderErased();
     showReadout(null);
   }
 }
@@ -1627,6 +1647,63 @@ function showReadout(vbx){
     ln.setAttribute('y1',p);  ln.setAttribute('y2',chartState.H-p);
   }
 }
+// ─── Goma de borrar ───────────────────────────────────────────────────────
+// Un golpe al bote o el sensor movido dejan una curva enorme que ensucia la
+// escala y engaña al análisis de fases. Se arrastra sobre el tramo y se oculta.
+// Es una marca en la hoja, no un DELETE: las filas siguen en la base de datos.
+let eraser=false, eraseFrom=null;
+function toggleEraser(){
+  eraser=!eraser;
+  document.getElementById('btn-eraser').style.background=eraser?'var(--amber-d)':'';
+  document.getElementById('eraser-hint').style.display=eraser?'block':'none';
+  eraseFrom=null; eraseShade(null,null);
+  if(!eraser) showReadout(null);
+}
+function vbToAbs(vbx){
+  const {W,p,x1,t0}=chartState;
+  const t=x1*Math.max(0,Math.min(1,(vbx-p)/(W-2*p)));
+  return t0+t;
+}
+function eraseShade(a,b){
+  const svg=document.querySelector('#chart-full-box svg'); if(!svg)return;
+  let r=svg.querySelector('#erase-shade');
+  if(a==null){ if(r)r.remove(); return; }
+  if(!r){
+    r=document.createElementNS('http://www.w3.org/2000/svg','rect');
+    r.id='erase-shade'; r.setAttribute('fill','rgba(192,57,43,.25)');
+    r.setAttribute('stroke','var(--red)'); r.setAttribute('stroke-dasharray','4 3');
+    svg.appendChild(r);
+  }
+  const {p,H}=chartState;
+  r.setAttribute('x',Math.min(a,b)); r.setAttribute('width',Math.max(1,Math.abs(b-a)));
+  r.setAttribute('y',p); r.setAttribute('height',H-2*p);
+}
+function commitErase(a,b){
+  if(!sess||!chartState)return;
+  const from=vbToAbs(Math.min(a,b)), to=vbToAbs(Math.max(a,b));
+  const n=chartState.rows.filter(r=>{const t=new Date(r.logged_at).getTime();return t>=from&&t<=to;}).length;
+  if(!n){ eraseShade(null,null); showToast('No readings in that stretch'); return; }
+  const f=ms=>new Date(ms).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+  if(!confirm(`Hide ${n} readings from ${f(from)} to ${f(to)}?\n\nThey stay saved and you can bring them back.`)){ eraseShade(null,null); return; }
+  sess.erased=(sess.erased||[]).concat([{from,to,n,at:Date.now()}]);
+  saveSessions(); drawChartFull(); renderHistory();
+  showToast('🧽 '+n+' readings hidden');
+}
+function restoreErased(i){
+  if(!sess||!sess.erased)return;
+  sess.erased.splice(i,1);
+  saveSessions(); drawChartFull(); renderHistory();
+  showToast('Stretch restored');
+}
+function renderErased(){
+  const box=document.getElementById('erased-list'); if(!box)return;
+  const e=erasedWindows();
+  if(!e.length){ box.innerHTML=''; return; }
+  const f=ms=>new Date(ms).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
+  box.innerHTML='Hidden: '+e.map((g,i)=>
+    `<span style="display:inline-block;margin:2px 8px 2px 0">${f(g.from)}–${new Date(g.to).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}`+
+    `${g.n?` (${g.n})`:''} <button class="mark-btn" style="padding:2px 6px;font-size:10px" onclick="restoreErased(${i})">↺ restore</button></span>`).join('');
+}
 function initReadout(){
   const box=document.getElementById('chart-full-box');
   const toVb=e=>{
@@ -1634,12 +1711,29 @@ function initReadout(){
     const r=svg.getBoundingClientRect();
     return (e.clientX-r.left)/r.width*chartState.W;
   };
-  const move=e=>{e.preventDefault(); const v=toVb(e); if(v!=null)showReadout(v);};
-  box.addEventListener('pointerdown',e=>{box.setPointerCapture(e.pointerId);move(e);});
-  box.addEventListener('pointermove',e=>{if(box.hasPointerCapture&&box.hasPointerCapture(e.pointerId))move(e);});
-  const off=()=>showReadout(null);
-  box.addEventListener('pointerup',off);
-  box.addEventListener('pointercancel',off);
+  const move=e=>{
+    e.preventDefault(); const v=toVb(e); if(v==null)return;
+    if(eraser){ if(eraseFrom!=null) eraseShade(eraseFrom,v); return; }
+    showReadout(v);
+  };
+  box.addEventListener('pointerdown',e=>{
+    try{ box.setPointerCapture(e.pointerId); }catch(err){}
+    if(eraser){ eraseFrom=toVb(e); return; }
+    move(e);
+  });
+  box.addEventListener('pointermove',e=>{
+    if(eraser&&eraseFrom!=null){ move(e); return; }
+    if(box.hasPointerCapture&&box.hasPointerCapture(e.pointerId))move(e);
+  });
+  box.addEventListener('pointerup',e=>{
+    if(eraser&&eraseFrom!=null){
+      const v=toVb(e), a=eraseFrom; eraseFrom=null;
+      if(v!=null&&Math.abs(v-a)>3) commitErase(a,v); else eraseShade(null,null);
+      return;
+    }
+    showReadout(null);
+  });
+  box.addEventListener('pointercancel',()=>{ eraseFrom=null; eraseShade(null,null); showReadout(null); });
 }
 function renderLegend(active){
   const box=document.getElementById('legend-full'); if(!box)return;
@@ -2633,6 +2727,7 @@ function sensorRows(){
     const t=new Date(r.logged_at).getTime();
     if(t<from) return false;
     if(hand.some(h=>t>=h.from&&t<=h.to)) return false;
+    if(erasedWindows().some(g=>t>=g.from&&t<=g.to)) return false;
     return ms.some(s=>t>=s.startedAt&&t<=(s.endedAt||Date.now()));
   });
 }
@@ -2753,7 +2848,8 @@ async function makeReport(){
     elapsed_h:+(((last.logged_at?new Date(last.logged_at).getTime():Date.now())-t0)/3600000).toFixed(2),
     grams:last.grams||null,
     baker_target_x:myRatio||null,
-    baker_target_cm:(sess&&sess.goalCm>0)?sess.goalCm:null
+    baker_target_cm:(sess&&sess.goalCm>0)?sess.goalCm:null,
+    hidden_by_baker:erasedWindows().map(g=>({from:new Date(g.from).toISOString(),to:new Date(g.to).toISOString()}))
   };
   // Qué sensores estuvieron realmente presentes en esta hoja. Sin esto el
   // informe hablaba de 3300 lecturas en una sesión donde ningún paso se midió.
@@ -2843,6 +2939,7 @@ Rules that matter:
 - Fields are only present when they were recorded. "date_known: false" means not even the day is known; "time_known: false" with a "day" means the day is known but not the clock time; a stage may have a duration and no date at all. Say so plainly in one short clause and carry on with what it does have. Do not estimate a time for it, do not leave it out of the sequence, and do not treat the gap as a problem with the bake — it simply was not recorded. The same applies to any stage with no target or no temperature.
 - baker_target_x, when present, is the baker's own reading from a graduated jar. It is authoritative. Do not replace it with the sensor's ratio.
 - baker_target_cm, when present, is a growth in centimetres the baker marked on the jar, and it is the target the percentages are measured against. It is authoritative in the same way.
+- hidden_by_baker lists stretches the baker removed from the curve as sensor artefacts — the jar knocked, the sensor moved. They are already excluded from every figure you were given. Do not describe them as gaps, missing data or failures, and do not speculate about what happened there.
 - A start time or target may have been corrected after the fact. The figures given are the corrected ones and apply to the whole rise, including the part recorded before the correction. Report them as the targets; do not mention an earlier value you were not given.
 - If the dough was stopped before reaching a phase, say plainly that it did not get there, and only then estimate what would have followed under the same conditions, labelled as an estimate.
 - The phase block reports what the curve shows, and a phase is only closed when the field says so. "still_rising: true" or "reached_stationary: false" means the dough is IN the logarithmic phase right now: do not write that it left it, peaked, slowed down or reached a plateau. "log_end_h: null" is not a missing value, it is the statement that the phase has not ended. "too_early_to_tell: true" means the run is too short to name any phase transition at all — describe the growth and say it is early, nothing more. Declaring a phase the dough has not reached changes what the baker does next, so err on the side of the earlier phase.
@@ -3605,6 +3702,8 @@ function markStart(){
   ensureFirstStage();
   sess.baseDist=lastSmoothDist;
   sess.baseAt=Date.now();
+  const cur=activeStage();
+  if(cur&&!cur.manual){ cur.zeroDist=sess.baseDist; cur.zeroAt=sess.baseAt; }
   sess.baseGrams=parseFloat(document.getElementById('input-grams').value)||0;
   metaFired=false; mpBuf=[]; sess.metaFired=false;
   // El aparato guarda un cero solo: lo sigue la hoja que además registra, pero

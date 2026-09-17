@@ -150,6 +150,22 @@ hiciste en el bote, y el porcentaje sale de `cm/goalCm`.
 `<figure data-photo="N">` en su sitio y la app lo rellena; lo que no colocó se
 agrupa al final. Una foto a tres pantallas de su párrafo no ilustra nada.
 
+**El límite inferior del gráfico es el PRIMER comienzo de la hoja, no el cero
+actual.** `baseAt` se mueve con cada Mark start, y usarlo como límite hizo que al
+empezar el 2º refresco de "Panettone habana" desapareciera el 1º — 9 h y 597
+lecturas invisibles, intactas en `proofbox_readings`. Si un paso deja de verse,
+mirar primero los filtros de `rowsIn()`: la base de datos casi seguro está bien.
+Cada paso guarda además su propio cero (`zeroDist`, `zeroAt`).
+
+**Entre pasos no se dibuja nada.** El sensor suele estar en el aire o en la
+mano; esas filas no son de ningún paso.
+
+**La goma no borra: oculta.** Arrastrar sobre el gráfico grande guarda el tramo
+en `sess.erased`; `rowsIn()` y `sensorRows()` lo excluyen y se puede recuperar.
+Nunca un DELETE en `proofbox_readings` — lo que se grabó queda grabado. El
+informe recibe los tramos como `hidden_by_baker` y tiene prohibido tratarlos
+como huecos.
+
 **Una fila del histórico es de la hoja solo si es posterior a su marca de
 inicio.** El registro de la nube escribe cada minuto pase lo que pase, así que
 `proofbox_readings` tiene datos del aparato siempre. Sin filtrar por `baseAt`,
