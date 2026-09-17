@@ -1,20 +1,26 @@
 // ProofBox — módulo Cámara
-// Placa: Seeed XIAO ESP32S3 Sense (OV2640/OV3660 en la placa de expansión).
+// Placa: Seeed XIAO ESP32S3 Sense (sensor OV3660) + antena externa U.FL.
 //
-// Hace una foto cada CAPTURE_MS y la sube a Supabase Storage como
-// cam/<CAM_ID>/latest.jpg. La app la lee de ahí.
+// Dos trabajos:
+//  1. EN VIVO: mientras la app lo pide, publica fotogramas JPEG por MQTT
+//     (proofboxcam/<id>/live). La app manda un latido cada pocos segundos a
+//     proofboxcam/<id>/viewer; sin latidos durante VIEWER_TTL_MS se corta.
+//     Transmitir sin nadie mirando solo calienta la placa y gasta red.
+//  2. ARCHIVO: cada SHOT_EVERY_MS una foto grande a Storage, con la hora en el
+//     nombre (cam/<id>/shots/<epoch>.jpg), y la misma como latest.jpg.
 //
-// Por qué Storage y no un servidor web en la placa: la app vive en GitHub Pages
-// (https) y el navegador bloquea cargar imágenes de un http:// de la red local.
-// Además así la foto se ve fuera de casa, desde el móvil con datos.
+// Por qué MQTT y no un servidor web en la placa: la app va por https y el
+// navegador bloquea un http:// de la red local; además así se ve fuera de casa.
+// El broker ya es el que usa la app.
 //
-// Compilar con PSRAM=opi: sin PSRAM la cámara no tiene dónde guardar un
-// fotograma de más de 320x240 y esp_camera_init falla con "fb alloc".
+// Compilar con PSRAM=opi.
 
 #include <WiFi.h>
 #include <WiFiManager.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
+#include <PubSubClient.h>
+#include <time.h>
 #include "esp_camera.h"
 
 // ── Destino ──────────────────────────────────────────────────────────────────
@@ -24,7 +30,22 @@ const char* SUPA_KEY  = "sb_publishable_7AiXScdSAxipUu_Mi8Fulg_jFCZoKYJ";
 const char* BUCKET    = "proofbox-photos";
 const char* CAM_ID    = "proofbox-cam01";
 
-const unsigned long CAPTURE_MS = 10000;   // una foto cada 10 s
+#define MQTT_SERVER "broker.hivemq.com"
+#define MQTT_PORT   1883
+const char* TOPIC_LIVE   = "proofboxcam/proofbox-cam01/live";
+const char* TOPIC_VIEWER = "proofboxcam/proofbox-cam01/viewer";
+const char* TOPIC_STATE  = "proofboxcam/proofbox-cam01/state";
+
+const unsigned long SHOT_EVERY_MS  = 10UL * 60UL * 1000UL;  // archivo: cada 10 min
+const unsigned long VIEWER_TTL_MS  = 15000;                 // sin latido en 15 s, se corta el vivo
+const unsigned long FRAME_MS       = 150;                   // ~6 fps como techo
+
+// Tamaños. La cámara se inicia al MAYOR que se va a usar: el búfer se reserva
+// para ese tamaño y agrandar después en caliente cortaría las fotos.
+const framesize_t SIZE_SHOT = FRAMESIZE_XGA;   // 1024x768, ~80-120 KB a calidad 10
+const int         QUAL_SHOT = 10;
+const framesize_t SIZE_LIVE = FRAMESIZE_HVGA;  // 480x320, ~10-15 KB a calidad 20
+const int         QUAL_LIVE = 20;
 
 // ── Pines de la cámara del XIAO ESP32S3 Sense (según Seeed) ─────────────────
 #define PWDN_GPIO_NUM   -1
@@ -45,11 +66,20 @@ const unsigned long CAPTURE_MS = 10000;   // una foto cada 10 s
 #define PCLK_GPIO_NUM   13
 #define LED_PIN         21      // LED de usuario, activo en BAJO
 
-bool camOk = false;
-unsigned long lastShot = 0;
-unsigned long okCount = 0, failCount = 0;
+WiFiClient   mqttNet;
+PubSubClient mqtt(mqttNet);
 
-bool initCamera() {
+bool camOn = false;
+unsigned long lastViewerMs = 0;
+unsigned long lastFrameMs = 0;
+unsigned long lastShotMs = 0;
+bool firstShotDone = false;
+unsigned long framesSent = 0;
+
+bool viewerPresent() { return lastViewerMs && millis() - lastViewerMs < VIEWER_TTL_MS; }
+
+bool camStart() {
+  if (camOn) return true;
   camera_config_t c;
   c.ledc_channel = LEDC_CHANNEL_0;
   c.ledc_timer   = LEDC_TIMER_0;
@@ -61,92 +91,143 @@ bool initCamera() {
   c.pin_pwdn = PWDN_GPIO_NUM; c.pin_reset = RESET_GPIO_NUM;
   c.xclk_freq_hz = 20000000;
   c.pixel_format = PIXFORMAT_JPEG;
-  c.grab_mode    = CAMERA_GRAB_LATEST;   // la más reciente, no una que llevaba segundos en cola
+  c.grab_mode    = CAMERA_GRAB_LATEST;   // siempre el fotograma más reciente
   c.fb_location  = CAMERA_FB_IN_PSRAM;
-  // 800x600 con calidad 12: ~40-80 KB, suficiente para ver la cúpula y el
-  // alveolado a través del bote sin que cada subida tarde.
-  c.frame_size   = FRAMESIZE_SVGA;
-  c.jpeg_quality = 12;
-  c.fb_count     = 1;
-
+  c.frame_size   = SIZE_SHOT;
+  c.jpeg_quality = QUAL_SHOT;
+  c.fb_count     = 2;
   if (!psramFound()) {
-    Serial.println("⚠️ Sin PSRAM: compilar con PSRAM=opi. Bajo a 320x240.");
-    c.frame_size = FRAMESIZE_QVGA;
-    c.fb_location = CAMERA_FB_IN_DRAM;
+    Serial.println("⚠️ Sin PSRAM: compilar con PSRAM=opi.");
+    return false;
   }
-
   esp_err_t err = esp_camera_init(&c);
   if (err != ESP_OK) {
     Serial.printf("❌ esp_camera_init 0x%x — ¿está bien encajada la placa de la cámara?\n", err);
     return false;
   }
-  sensor_t* s = esp_camera_sensor_get();
-  if (s) {
-    Serial.printf("📷 Sensor PID 0x%x\n", s->id.PID);
-  }
-  // Las primeras capturas salen verdosas mientras el sensor ajusta exposición.
-  for (int i = 0; i < 3; i++) { camera_fb_t* fb = esp_camera_fb_get(); if (fb) esp_camera_fb_return(fb); delay(200); }
+  camOn = true;
+  // Las primeras capturas salen verdosas mientras ajusta la exposición.
+  for (int i = 0; i < 3; i++) { camera_fb_t* fb = esp_camera_fb_get(); if (fb) esp_camera_fb_return(fb); delay(150); }
   return true;
 }
 
-// Sube el JPEG con upsert: siempre el mismo nombre, así la app no tiene que
-// buscar cuál es la última.
-bool uploadJpeg(const uint8_t* buf, size_t len) {
+void camStop() {
+  if (!camOn) return;
+  esp_camera_deinit();
+  camOn = false;
+}
+
+void camMode(framesize_t size, int quality) {
+  sensor_t* s = esp_camera_sensor_get();
+  if (!s) return;
+  s->set_framesize(s, size);
+  s->set_quality(s, quality);
+  // Tras cambiar de tamaño el primer fotograma sale a medias.
+  camera_fb_t* fb = esp_camera_fb_get(); if (fb) esp_camera_fb_return(fb);
+}
+
+// ── Storage ──────────────────────────────────────────────────────────────────
+bool uploadJpeg(const String& path, const uint8_t* buf, size_t len, bool upsert) {
   WiFiClientSecure tls;
-  // Sin verificar el certificado: la foto no es secreta y fijar la CA de
-  // Supabase obliga a regrabar cuando la rotan. Si un día importa, se fija aquí.
+  // Sin verificar el certificado: la foto no es secreta y fijar la CA obliga a
+  // regrabar cuando Supabase la rota.
   tls.setInsecure();
   HTTPClient http;
-  String url = String("https://") + SUPA_HOST + "/storage/v1/object/" + BUCKET + "/cam/" + CAM_ID + "/latest.jpg";
+  String url = String("https://") + SUPA_HOST + "/storage/v1/object/" + BUCKET + "/" + path;
   if (!http.begin(tls, url)) return false;
-  http.setTimeout(15000);
+  http.setTimeout(20000);
   http.addHeader("apikey", SUPA_KEY);
   http.addHeader("Authorization", String("Bearer ") + SUPA_KEY);
   http.addHeader("Content-Type", "image/jpeg");
-  http.addHeader("x-upsert", "true");
-  // Sin caché en la CDN: si no, el navegador vería la misma foto un rato.
+  if (upsert) http.addHeader("x-upsert", "true");
   http.addHeader("cache-control", "no-cache");
   int code = http.POST((uint8_t*)buf, len);
-  if (code != 200) {
-    Serial.printf("⚠️ Subida HTTP %d: %s\n", code, http.getString().c_str());
-  }
+  if (code != 200) Serial.printf("⚠️ %s → HTTP %d: %s\n", path.c_str(), code, http.getString().c_str());
   http.end();
   return code == 200;
 }
 
-// La cámara se enciende solo para la foto. Encendida sin parar, el sensor
-// captura fotogramas continuamente aunque nadie los use, y la placa se pone
-// caliente al tacto; con una foto cada 10 s pasa casi todo el tiempo apagada.
-void shoot() {
-  if (!initCamera()) { failCount++; return; }
+// Foto de archivo: grande, con la hora en el nombre. Si el vivo estaba en
+// marcha, se vuelve a él al terminar.
+void archiveShot() {
+  bool wasLive = camOn;
+  if (!camStart()) return;
+  camMode(SIZE_SHOT, QUAL_SHOT);
   camera_fb_t* fb = esp_camera_fb_get();
-  if (!fb) { Serial.println("⚠️ Sin fotograma"); failCount++; esp_camera_deinit(); return; }
-  digitalWrite(LED_PIN, LOW);
-  unsigned long t = millis();
-  bool ok = uploadJpeg(fb->buf, fb->len);
-  digitalWrite(LED_PIN, HIGH);
-  Serial.printf("%s %u KB en %lu ms (ok %lu / fallos %lu)\n",
-                ok ? "✅" : "❌", (unsigned)(fb->len / 1024), millis() - t,
-                ok ? ++okCount : okCount, ok ? failCount : ++failCount);
+  if (fb) {
+    digitalWrite(LED_PIN, LOW);
+    time_t now = time(nullptr);
+    bool ok1 = false;
+    // Sin hora (NTP aún no respondió) no se archiva: un nombre 1970 rompería el orden.
+    if (now > 1700000000) {
+      ok1 = uploadJpeg(String("cam/") + CAM_ID + "/shots/" + String((long long)now) + ".jpg", fb->buf, fb->len, false);
+    }
+    bool ok2 = uploadJpeg(String("cam/") + CAM_ID + "/latest.jpg", fb->buf, fb->len, true);
+    Serial.printf("🗂️ archivo %u KB  shots:%s latest:%s\n", (unsigned)(fb->len / 1024),
+                  now > 1700000000 ? (ok1 ? "ok" : "fallo") : "sin hora", ok2 ? "ok" : "fallo");
+    esp_camera_fb_return(fb);
+    digitalWrite(LED_PIN, HIGH);
+  }
+  if (wasLive) camMode(SIZE_LIVE, QUAL_LIVE);
+  else camStop();
+}
+
+// ── Vivo ─────────────────────────────────────────────────────────────────────
+void sendFrame() {
+  camera_fb_t* fb = esp_camera_fb_get();
+  if (!fb) return;
+  // beginPublish escribe el JPEG directamente al socket: no hace falta un
+  // búfer de MQTT del tamaño del fotograma.
+  if (mqtt.beginPublish(TOPIC_LIVE, fb->len, false)) {
+    mqtt.write(fb->buf, fb->len);
+    if (mqtt.endPublish()) framesSent++;
+  }
   esp_camera_fb_return(fb);
-  esp_camera_deinit();
+}
+
+void publishState(const char* s) {
+  mqtt.publish(TOPIC_STATE, s, true);
+}
+
+void onMqtt(char* topic, byte* payload, unsigned int len) {
+  if (strcmp(topic, TOPIC_VIEWER) == 0) {
+    if (!viewerPresent()) Serial.println("👀 alguien mira: vivo encendido");
+    lastViewerMs = millis();
+  }
+}
+
+void mqttEnsure() {
+  if (mqtt.connected()) return;
+  static unsigned long lastTry = 0;
+  if (millis() - lastTry < 3000) return;
+  lastTry = millis();
+  String cid = String("pbcam-") + String((uint32_t)ESP.getEfuseMac(), HEX);
+  // Última voluntad: si la placa se cae, la app ve "offline" en vez de esperar.
+  if (mqtt.connect(cid.c_str(), nullptr, nullptr, TOPIC_STATE, 0, true, "offline")) {
+    mqtt.subscribe(TOPIC_VIEWER);
+    publishState("idle");
+    Serial.println("MQTT ✅");
+  } else {
+    Serial.printf("MQTT ❌ rc=%d\n", mqtt.state());
+  }
 }
 
 void setup() {
   Serial.begin(115200);
   delay(1500);
-  Serial.println("\n=== ProofBox Cam ===");
+  Serial.println("\n=== ProofBox Cam (vivo + archivo) ===");
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, HIGH);
 
-  camOk = initCamera();
-  if (camOk) esp_camera_deinit();
+  if (camStart()) {
+    sensor_t* s = esp_camera_sensor_get();
+    if (s) Serial.printf("📷 Sensor PID 0x%x\n", s->id.PID);
+    camStop();
+  }
 
-  // La primera vez abre la red "ProofBox-Cam": conectarse desde el móvil y
-  // elegir la WiFi. Después recuerda la red sola.
   WiFi.mode(WIFI_STA);
-  // Antes de nada, qué redes se oyen y con qué fuerza. Sin la antena externa
-  // enchufada esta placa apenas oye nada, y eso se ve aquí en un segundo.
+  // Qué redes se oyen y con qué fuerza: sin la antena externa esta placa apenas
+  // oye nada, y aquí se ve en un segundo.
   int n = WiFi.scanNetworks();
   Serial.printf("📡 %d redes:\n", n);
   for (int i = 0; i < n; i++)
@@ -155,29 +236,58 @@ void setup() {
 
   WiFiManager wm;
   wm.setConfigPortalTimeout(300);
-  // Por defecto oculta las redes con menos de un 8% de señal: con antena floja
-  // la red de casa no aparecía en la lista y parecía que el portal no funcionaba.
+  // Por defecto oculta las redes con menos de un 8% de señal.
   wm.setMinimumSignalQuality(0);
   wm.setRemoveDuplicateAPs(true);
   wm.setConnectTimeout(30);
   wm.setConnectRetries(3);
   if (!wm.autoConnect("ProofBox-Cam")) ESP.restart();
-  // Con ahorro de energía la subida tarda algo más, pero entre foto y foto la
-  // radio descansa y la placa se calienta bastante menos. A 10 s sobra tiempo.
-  WiFi.setSleep(true);
   Serial.println("📶 " + WiFi.SSID() + "  " + WiFi.localIP().toString());
+
+  configTime(0, 0, "pool.ntp.org", "time.google.com");
+
+  mqtt.setServer(MQTT_SERVER, MQTT_PORT);
+  mqtt.setCallback(onMqtt);
+  mqtt.setKeepAlive(20);
+  mqtt.setBufferSize(512);   // los fotogramas no pasan por aquí (beginPublish)
+  mqtt.setSocketTimeout(5);
 }
 
 void loop() {
   if (WiFi.status() != WL_CONNECTED) {
+    camStop();
     Serial.println("📶 WiFi caída, reconectando…");
     WiFi.reconnect();
     delay(3000);
     return;
   }
-  if (lastShot == 0 || millis() - lastShot >= CAPTURE_MS) {
-    lastShot = millis();
-    shoot();
+  mqttEnsure();
+  mqtt.loop();
+
+  // Archivo: la primera en cuanto hay hora (o a los 30 s si NTP no responde),
+  // luego cada 10 min.
+  bool timeOk = time(nullptr) > 1700000000;
+  if (!firstShotDone) {
+    if (timeOk || millis() > 30000) { archiveShot(); lastShotMs = millis(); firstShotDone = true; }
+  } else if (millis() - lastShotMs >= SHOT_EVERY_MS) {
+    lastShotMs = millis();
+    archiveShot();
   }
-  delay(50);
+
+  if (viewerPresent()) {
+    if (!camOn) {
+      if (camStart()) { camMode(SIZE_LIVE, QUAL_LIVE); WiFi.setSleep(false); publishState("live"); }
+    }
+    if (camOn && millis() - lastFrameMs >= FRAME_MS) {
+      lastFrameMs = millis();
+      sendFrame();
+    }
+  } else if (camOn) {
+    // Nadie mira: cámara apagada y radio a dormir, que es lo que evita el calor.
+    Serial.printf("😴 sin espectadores, vivo apagado (%lu fotogramas)\n", framesSent);
+    camStop();
+    WiFi.setSleep(true);
+    publishState("idle");
+  }
+  delay(5);
 }

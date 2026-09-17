@@ -39,10 +39,24 @@ en segundos — `reposo=LOW` significa que falta el pull-up.
 
 ### Cámara: Seeed XIAO ESP32S3 Sense (placa aparte)
 
-Sensor OV3660. Hace una foto cada 10 s y la sube a Storage como
-`proofbox-photos/cam/proofbox-cam01/latest.jpg` (upsert); la app la lee de ahí.
-No hay servidor web en la placa: la app va por https y el navegador bloquearía
-un `http://` de la red local, y así la foto se ve también fuera de casa.
+Sensor OV3660. Dos trabajos:
+
+- **En vivo por MQTT**, solo mientras alguien mira. La app publica un latido en
+  `proofboxcam/proofbox-cam01/viewer` cada 5 s; la placa transmite JPEG 480×320
+  a `.../live` (~6 fps, ~5 KB) mientras el último latido tenga menos de 15 s, y
+  si no apaga cámara y radio. La app corta sola a los 15 min y al ocultar la
+  pestaña. Estado retenido en `.../state` (idle / live / offline como última
+  voluntad). Los fotogramas se publican con `beginPublish`, sin búfer grande.
+- **Archivo cada 10 min** a Storage: `cam/proofbox-cam01/shots/<epoch>.jpg`
+  (XGA, calidad 10) y la misma como `latest.jpg`. Sin hora NTP no se archiva.
+  ~30 KB por foto hoy; a 144 al día el plan gratis aguanta meses.
+
+La cámara se inicia al tamaño MAYOR (XGA) y baja a 480×320 para el vivo:
+agrandar en caliente corta las fotos. No hay servidor web en la placa: la app va
+por https y el navegador bloquearía un `http://` de la red local.
+
+**Todo es público**: el broker es público y el bucket también, y los nombres
+están en el HTML. Quien los lea puede ver el vivo y el archivo.
 
 - **Compilar con `PSRAM=opi`**: `esp32:esp32:XIAO_ESP32S3:PSRAM=opi`. Sin PSRAM
   no cabe un fotograma de 800×600.
@@ -52,8 +66,8 @@ un `http://` de la red local, y así la foto se ve también fuera de casa.
 - **WiFi con WiFiManager**: sin red guardada abre `ProofBox-Cam`
   (192.168.4.1). Muestra también las redes débiles (`setMinimumSignalQuality(0)`)
   y reintenta 3 veces. Si la señal es buena y aun así falla, es la contraseña.
-- **Se calienta.** La cámara se enciende solo para cada foto y la radio duerme
-  entre subidas. Trae disipadores: van sobre el chip de la XIAO.
+- **Se calienta.** Fuera del vivo la cámara está apagada y la radio duerme.
+  Trae disipadores: van sobre el chip de la XIAO.
 - **macOS:** la primera vez no aparecía ningún puerto USB — ni en `ioreg`. Era un
   cable de solo carga (la luz amarilla de la placa se encendía igual). El puerto
   bueno es `/dev/cu.usbmodem101`; se graba sin pulsar BOOT.

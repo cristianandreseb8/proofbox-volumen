@@ -476,7 +476,7 @@ body.board .app{max-width:none;padding:16px 22px 80px}
   <div class="card sortable" id="panel-cam">
     <div class="drag-handle" title="Drag to reorder">⠿</div>
     <div class="big-row">
-      <div class="card-label" style="margin:0">Camera</div>
+      <div class="card-label" style="margin:0">Camera <span id="cam-live-badge" style="display:none;background:var(--red);color:#fff;border-radius:4px;padding:1px 5px;font-size:9px;margin-left:6px;letter-spacing:.08em">● LIVE</span></div>
       <div style="font-size:11px;color:var(--muted)" id="cam-age">--</div>
     </div>
     <div style="margin-top:10px;position:relative;background:#000;border-radius:8px;overflow:hidden;aspect-ratio:4/3">
@@ -485,9 +485,13 @@ body.board .app{max-width:none;padding:16px 22px 80px}
     </div>
     <div class="warn" id="warn-cam" style="margin:10px 0 0">📷 No new picture for a while — is the camera plugged in and on WiFi?</div>
     <div class="log-btns" style="margin-top:10px">
-      <button class="mark-btn" onclick="refreshCam(true)" style="flex:1">↻ Refresh</button>
+      <button class="cal-btn" id="btn-live" onclick="toggleLive()" style="flex:1;margin:0">▶ Watch live</button>
       <button class="mark-btn" onclick="camToStep()" style="flex:1">📌 Add to step</button>
     </div>
+    <div style="font-size:10px;color:var(--muted);margin-top:8px" id="cam-state"></div>
+    <div class="pa-sep" style="margin-top:12px">Every 10 minutes</div>
+    <div id="cam-shots" style="display:flex;gap:5px;overflow-x:auto;padding-bottom:4px"></div>
+    <div style="font-size:10px;color:var(--muted);margin-top:4px" id="cam-shots-note"></div>
   </div>
 
   <div class="card sortable" id="panel-temp">
@@ -771,7 +775,7 @@ if(SANDBOX){
   window.fetch=(url,opt={})=>{
     const m=(opt.method||'GET').toUpperCase();
     const u=String(url);
-    if(m!=='GET'&&u.includes('supabase.co')&&!u.includes('/functions/v1/claude-proxy')){
+    if(m!=='GET'&&u.includes('supabase.co')&&!u.includes('/functions/v1/claude-proxy')&&!u.includes('/storage/v1/object/list/')){
       console.warn('[sandbox] blocked',m,u);
       return Promise.resolve(new Response('{}',{status:200,headers:{'Content-Type':'application/json'}}));
     }
@@ -3532,10 +3536,12 @@ async function photoDataUrl(id){
 // La placa (ProofBox_Cam) sube cam/<id>/latest.jpg cada 10 s. Se lee de Storage
 // y no de la placa porque la app va por https y la placa sería http en la red
 // de casa — el navegador lo bloquearía — y así se ve también fuera de casa.
+// Ahora la placa la renueva cada 10 min; en vivo, los fotogramas van por MQTT.
 const CAM_URL=`${SUPA_URL}/storage/v1/object/public/proofbox-photos/cam/proofbox-cam01/latest.jpg`;
 let camShotAt=0, camBlob=null, camTimer=null;
 async function refreshCam(force){
   const img=document.getElementById('cam-img'); if(!img)return;
+  if(liveOn) return;   // el vivo manda; la foto de archivo no lo pisa
   if(!force&&document.visibilityState!=='visible') return;
   try{
     // El parámetro evita la caché: la foto se sobrescribe con el mismo nombre.
@@ -3546,8 +3552,9 @@ async function refreshCam(force){
     if(b.size<1000) throw new Error('empty');   // el marcador de prueba no cuenta
     if(!camBlob||lm!==camShotAt){
       if(img.src.startsWith('blob:')) URL.revokeObjectURL(img.src);
-      img.src=URL.createObjectURL(b);
+      img.src=URL.createObjectURL(b); img.dataset.live='0';
       camBlob=b;
+      loadCamShots();   // una foto nueva de archivo: la tira también cambia
     }
     camShotAt=isFinite(lm)?lm:Date.now();
     document.getElementById('cam-empty').style.display='none';
@@ -3560,10 +3567,88 @@ function paintCamAge(){
   const el=document.getElementById('cam-age'); if(!el)return;
   if(!camShotAt){ el.textContent='--'; return; }
   const age=Date.now()-camShotAt;
-  el.textContent=age<90000?Math.max(0,Math.round(age/1000))+' s ago':fmtAge(age)+' ago';
-  // Una foto vieja no es la masa de ahora: se avisa en vez de dejarla pasar.
-  document.getElementById('warn-cam').classList.toggle('show',age>60000);
+  el.textContent=liveOn&&age<5000?'now':(age<90000?Math.max(0,Math.round(age/1000))+' s ago':fmtAge(age)+' ago');
+  // Una foto vieja no es la masa de ahora. Sin vivo, la última se renueva cada
+  // 10 min, así que el aviso salta pasados 15.
+  document.getElementById('warn-cam').classList.toggle('show',!liveOn&&age>15*60000);
 }
+// ─── En vivo ───────────────────────────────────────────────────────────────
+// Los fotogramas llegan por el mismo broker MQTT que el sensor. La placa solo
+// transmite mientras recibe latidos: cerrar la pestaña o parar el vivo la deja
+// fría y callada a los 15 s. Se corta solo a los 15 min por si se olvida.
+const CAM_TOPIC='proofboxcam/proofbox-cam01';
+const LIVE_MAX_MS=15*60*1000;
+let liveOn=false, liveSince=0, liveBeat=null, liveFrames=0, liveFpsAt=0, liveLastFrame=0;
+function toggleLive(){ liveOn?stopLive():startLive(); }
+function startLive(){
+  if(!mqttClient||!mqttClient.connected){ showToast('Not connected to the broker yet'); return; }
+  liveOn=true; liveSince=Date.now(); liveFrames=0; liveFpsAt=Date.now(); liveLastFrame=0;
+  mqttClient.subscribe(CAM_TOPIC+'/live');
+  const beat=()=>{
+    if(!liveOn) return;
+    if(Date.now()-liveSince>LIVE_MAX_MS){ stopLive(); showToast('Live view stopped after 15 min'); return; }
+    if(mqttClient&&mqttClient.connected) mqttClient.publish(CAM_TOPIC+'/viewer','1');
+    // Sin fotogramas en un rato: se dice, en vez de dejar la última imagen quieta.
+    const st=document.getElementById('cam-state');
+    if(st&&liveLastFrame&&Date.now()-liveLastFrame>8000) st.textContent='Live: waiting for frames…';
+  };
+  beat(); liveBeat=setInterval(beat,5000);
+  document.getElementById('btn-live').textContent='■ Stop live';
+  document.getElementById('cam-state').textContent='Live: starting the camera…';
+}
+function stopLive(){
+  liveOn=false;
+  if(liveBeat){ clearInterval(liveBeat); liveBeat=null; }
+  if(mqttClient&&mqttClient.connected) mqttClient.unsubscribe(CAM_TOPIC+'/live');
+  const b=document.getElementById('btn-live'); if(b) b.textContent='▶ Watch live';
+  const g=document.getElementById('cam-live-badge'); if(g) g.style.display='none';
+  const st=document.getElementById('cam-state'); if(st) st.textContent='';
+  refreshCam(true);   // vuelve a la última foto de archivo
+}
+function onLiveFrame(bytes){
+  if(!liveOn) return;
+  const img=document.getElementById('cam-img'); if(!img) return;
+  const b=new Blob([bytes],{type:'image/jpeg'});
+  if(img.src.startsWith('blob:')&&img.dataset.live==='1') URL.revokeObjectURL(img.src);
+  img.src=URL.createObjectURL(b); img.dataset.live='1';
+  camBlob=b; camShotAt=Date.now(); liveLastFrame=Date.now();
+  document.getElementById('cam-empty').style.display='none';
+  document.getElementById('cam-live-badge').style.display='inline';
+  liveFrames++;
+  const dt=Date.now()-liveFpsAt;
+  if(dt>=2000){
+    document.getElementById('cam-state').textContent=`Live · ${(liveFrames*1000/dt).toFixed(1)} fps · ${Math.round(bytes.length/1024)} KB per frame`;
+    liveFrames=0; liveFpsAt=Date.now();
+  }
+  paintCamAge();
+}
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState!=='visible'&&liveOn) stopLive(); });
+
+// ─── Archivo cada 10 min ───────────────────────────────────────────────────
+let camShots=[];
+async function loadCamShots(){
+  try{
+    const r=await fetch(`${SUPA_URL}/storage/v1/object/list/proofbox-photos`,{
+      method:'POST',
+      headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY,'Content-Type':'application/json'},
+      body:JSON.stringify({prefix:'cam/proofbox-cam01/shots',limit:1000,sortBy:{column:'name',order:'desc'}})});
+    const rows=await r.json();
+    camShots=(Array.isArray(rows)?rows:[]).map(o=>({name:o.name,t:parseInt(o.name,10)*1000})).filter(o=>o.t>0);
+  }catch(e){ camShots=[]; }
+  renderCamShots();
+}
+function shotUrl(o){ return `${SUPA_URL}/storage/v1/object/public/proofbox-photos/cam/proofbox-cam01/shots/${o.name}`; }
+function renderCamShots(){
+  const box=document.getElementById('cam-shots'), note=document.getElementById('cam-shots-note');
+  if(!box) return;
+  const f=t=>new Date(t).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
+  box.innerHTML=camShots.slice(0,12).map(o=>
+    `<img src="${shotUrl(o)}" loading="lazy" data-photo-cam="${o.name}" title="${f(o.t)}" onclick="window.open('${shotUrl(o)}','_blank')" style="width:64px;height:48px;object-fit:cover;border-radius:5px;border:1px solid var(--border);cursor:pointer;flex:none">`).join('');
+  note.textContent=camShots.length
+    ? `${camShots.length} saved · last ${f(camShots[0].t)}`
+    : 'No pictures saved yet. The camera keeps one every 10 minutes.';
+}
+
 function openCamFull(){
   if(!camBlob)return;
   const w=window.open('','_blank');
@@ -3579,8 +3664,9 @@ async function camToStep(){
 }
 function startCam(){
   refreshCam(true);
+  loadCamShots();
   if(camTimer) clearInterval(camTimer);
-  camTimer=setInterval(()=>refreshCam(false),10000);
+  camTimer=setInterval(()=>refreshCam(false),60000);
   setInterval(paintCamAge,1000);
 }
 addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') refreshCam(true); });
@@ -4021,8 +4107,18 @@ function connect(){
   // tarda hasta minuto y medio en detectarse, y ese es justo el rato de "no
   // signal" que había que aguantar antes de que reaccionara solo.
   mqttClient=mqtt.connect(BROKER_URL,{clientId:cid,clean:true,reconnectPeriod:3000,keepalive:20,resubscribe:true});
-  mqttClient.on('connect',()=>{brokerUp=true;mqttClient.subscribe(TOPIC_STATUS);mqttClient.subscribe(TOPIC_NOTIFY);refreshHealth();});
+  mqttClient.on('connect',()=>{brokerUp=true;mqttClient.subscribe(TOPIC_STATUS);mqttClient.subscribe(TOPIC_NOTIFY);
+    mqttClient.subscribe(CAM_TOPIC+'/state');
+    if(liveOn) mqttClient.subscribe(CAM_TOPIC+'/live');   // tras reconectar, el vivo sigue
+    refreshHealth();});
   mqttClient.on('message',(t,msg)=>{
+    // Los fotogramas son JPEG binario: nunca deben llegar al JSON.parse de abajo.
+    if(t===CAM_TOPIC+'/live'){ onLiveFrame(msg); return; }
+    if(t===CAM_TOPIC+'/state'){
+      const v=msg.toString(), el=document.getElementById('cam-state');
+      if(el&&!liveOn) el.textContent=v==='offline'?'Camera offline':(v==='live'?'Camera streaming to someone':'Camera on · saving every 10 min');
+      return;
+    }
     if(t===TOPIC_NOTIFY){
       try{const n=JSON.parse(msg.toString());
         // El aviso del aparato se ignora: cuenta desde SU cero único y con su ×
