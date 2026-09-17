@@ -3573,27 +3573,36 @@ function paintCamAge(){
   document.getElementById('warn-cam').classList.toggle('show',!liveOn&&age>15*60000);
 }
 // ─── En vivo ───────────────────────────────────────────────────────────────
-// Los fotogramas llegan por el mismo broker MQTT que el sensor. La placa solo
-// transmite mientras recibe latidos: cerrar la pestaña o parar el vivo la deja
-// fría y callada a los 15 s. Se corta solo a los 15 min por si se olvida.
+// Los fotogramas llegan por el mismo broker MQTT que el sensor. La placa
+// transmite siempre que está enchufada, así que la app se suscribe sola al
+// abrirse: el vídeo está ahí sin pulsar nada. Pausar es cosa de este aparato
+// (ahorra datos del móvil) y se recuerda. Con la pestaña oculta se deja de
+// recibir y al volver se reanuda.
+// Los latidos siguen saliendo: si la placa vuelve al modo a demanda, basta.
 const CAM_TOPIC='proofboxcam/proofbox-cam01';
-const LIVE_MAX_MS=15*60*1000;
 let liveOn=false, liveSince=0, liveBeat=null, liveFrames=0, liveFpsAt=0, liveLastFrame=0;
-function toggleLive(){ liveOn?stopLive():startLive(); }
+function livePaused(){ try{ return localStorage.getItem('pb-live-paused')==='1'; }catch(e){ return false; } }
+function setLivePaused(v){ try{ localStorage.setItem('pb-live-paused',v?'1':'0'); }catch(e){} }
+function toggleLive(){
+  if(liveOn){ setLivePaused(true); stopLive(); }
+  else{ setLivePaused(false); startLive(); }
+}
+function autoLive(){
+  if(!liveOn&&!livePaused()&&document.visibilityState==='visible'&&mqttClient&&mqttClient.connected) startLive();
+}
 function startLive(){
   if(!mqttClient||!mqttClient.connected){ showToast('Not connected to the broker yet'); return; }
   liveOn=true; liveSince=Date.now(); liveFrames=0; liveFpsAt=Date.now(); liveLastFrame=0;
   mqttClient.subscribe(CAM_TOPIC+'/live');
   const beat=()=>{
     if(!liveOn) return;
-    if(Date.now()-liveSince>LIVE_MAX_MS){ stopLive(); showToast('Live view stopped after 15 min'); return; }
     if(mqttClient&&mqttClient.connected) mqttClient.publish(CAM_TOPIC+'/viewer','1');
     // Sin fotogramas en un rato: se dice, en vez de dejar la última imagen quieta.
     const st=document.getElementById('cam-state');
-    if(st&&liveLastFrame&&Date.now()-liveLastFrame>8000) st.textContent='Live: waiting for frames…';
+    if(st&&Date.now()-(liveLastFrame||liveSince)>8000) st.textContent='Live: no frames — is the camera plugged in?';
   };
   beat(); liveBeat=setInterval(beat,5000);
-  document.getElementById('btn-live').textContent='■ Stop live';
+  document.getElementById('btn-live').textContent='⏸ Pause live';
   document.getElementById('cam-state').textContent='Live: starting the camera…';
 }
 function stopLive(){
@@ -3622,7 +3631,10 @@ function onLiveFrame(bytes){
   }
   paintCamAge();
 }
-document.addEventListener('visibilitychange',()=>{ if(document.visibilityState!=='visible'&&liveOn) stopLive(); });
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState!=='visible'){ if(liveOn) stopLive(); }
+  else autoLive();
+});
 
 // ─── Archivo cada 10 min ───────────────────────────────────────────────────
 let camShots=[];
@@ -4110,6 +4122,7 @@ function connect(){
   mqttClient.on('connect',()=>{brokerUp=true;mqttClient.subscribe(TOPIC_STATUS);mqttClient.subscribe(TOPIC_NOTIFY);
     mqttClient.subscribe(CAM_TOPIC+'/state');
     if(liveOn) mqttClient.subscribe(CAM_TOPIC+'/live');   // tras reconectar, el vivo sigue
+    else autoLive();
     refreshHealth();});
   mqttClient.on('message',(t,msg)=>{
     // Los fotogramas son JPEG binario: nunca deben llegar al JSON.parse de abajo.

@@ -41,12 +41,17 @@ en segundos — `reposo=LOW` significa que falta el pull-up.
 
 Sensor OV3660. Dos trabajos:
 
-- **En vivo por MQTT**, solo mientras alguien mira. La app publica un latido en
-  `proofboxcam/proofbox-cam01/viewer` cada 5 s; la placa transmite JPEG 480×320
-  a `.../live` (~6 fps, ~5 KB) mientras el último latido tenga menos de 15 s, y
-  si no apaga cámara y radio. La app corta sola a los 15 min y al ocultar la
-  pestaña. Estado retenido en `.../state` (idle / live / offline como última
-  voluntad). Los fotogramas se publican con `beginPublish`, sin búfer grande.
+- **En vivo por MQTT, siempre que está enchufada** (`ALWAYS_LIVE`, decisión del
+  usuario: el vídeo tiene que estar al abrir la app). JPEG 480×320 a
+  `proofboxcam/proofbox-cam01/live`, ~6,5 fps, ~5 KB. La app se suscribe sola al
+  abrirse; deja de recibir con la pestaña oculta y reanuda al volver; "Pause
+  live" es por aparato y se recuerda. Cuesta calor: cámara y radio sin
+  descanso. Con `ALWAYS_LIVE=false` vuelve al modo a demanda: la app ya manda
+  latidos a `.../viewer` cada 5 s y la placa corta a los 15 s sin ellos.
+  Estado retenido en `.../state` (live / idle / offline como última voluntad).
+  Los fotogramas se publican con `beginPublish`, sin búfer grande.
+- **Abrir el puerto serie reinicia la placa** (USB nativo del S3): la app verá
+  "offline" unos segundos.
 - **Archivo cada 10 min** a Storage: `cam/proofbox-cam01/shots/<epoch>.jpg`
   (XGA, calidad 10) y la misma como `latest.jpg`. Sin hora NTP no se archiva.
   ~30 KB por foto hoy; a 144 al día el plan gratis aguanta meses.

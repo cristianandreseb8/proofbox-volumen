@@ -2,10 +2,10 @@
 // Placa: Seeed XIAO ESP32S3 Sense (sensor OV3660) + antena externa U.FL.
 //
 // Dos trabajos:
-//  1. EN VIVO: mientras la app lo pide, publica fotogramas JPEG por MQTT
-//     (proofboxcam/<id>/live). La app manda un latido cada pocos segundos a
-//     proofboxcam/<id>/viewer; sin latidos durante VIEWER_TTL_MS se corta.
-//     Transmitir sin nadie mirando solo calienta la placa y gasta red.
+//  1. EN VIVO: mientras está enchufada publica fotogramas JPEG por MQTT
+//     (proofboxcam/<id>/live), mire alguien o no — así la app lo enseña en
+//     cuanto se abre, sin esperar a que la cámara arranque. Con ALWAYS_LIVE en
+//     false vuelve al modo a demanda (latidos en .../viewer), que calienta menos.
 //  2. ARCHIVO: cada SHOT_EVERY_MS una foto grande a Storage, con la hora en el
 //     nombre (cam/<id>/shots/<epoch>.jpg), y la misma como latest.jpg.
 //
@@ -76,7 +76,10 @@ unsigned long lastShotMs = 0;
 bool firstShotDone = false;
 unsigned long framesSent = 0;
 
-bool viewerPresent() { return lastViewerMs && millis() - lastViewerMs < VIEWER_TTL_MS; }
+// Siempre en vivo, por decisión del usuario: el vídeo tiene que estar ahí al
+// abrir la app. Cuesta calor (cámara y radio sin descanso) — lleva disipador.
+const bool ALWAYS_LIVE = true;
+bool viewerPresent() { return ALWAYS_LIVE || (lastViewerMs && millis() - lastViewerMs < VIEWER_TTL_MS); }
 
 bool camStart() {
   if (camOn) return true;
@@ -191,7 +194,7 @@ void publishState(const char* s) {
 
 void onMqtt(char* topic, byte* payload, unsigned int len) {
   if (strcmp(topic, TOPIC_VIEWER) == 0) {
-    if (!viewerPresent()) Serial.println("👀 alguien mira: vivo encendido");
+    if (!ALWAYS_LIVE && !viewerPresent()) Serial.println("👀 alguien mira: vivo encendido");
     lastViewerMs = millis();
   }
 }
