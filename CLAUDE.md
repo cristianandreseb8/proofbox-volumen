@@ -4,8 +4,9 @@ Mide cuánto sube una masa (ToF), su temperatura (DS18B20) y su conductividad
 (dos electrodos), y lo publica por MQTT. La app web lo lee en vivo y registra
 el histórico en Supabase.
 
-Dos piezas y nada más: `ProofBox_Volumen.ino` (firmware) e `index.html` (app).
-La app se despliega sola en GitHub Pages al pushear a `main`.
+Tres piezas: `ProofBox_Volumen.ino` (firmware del sensor), `ProofBox_Cam/`
+(firmware de la cámara) e `index.html` (app). La app se despliega sola en
+GitHub Pages al pushear a `main`.
 
 ---
 
@@ -35,6 +36,28 @@ Poner la del DS18B20 en serie con el cable rojo ahoga la alimentación del
 sensor y deja el bus sin pull-up. Da `DS18B20 no encontrado` y cuesta horas de
 encontrar. Si pasa: un sketch que haga `OneWire.reset()` por pin lo diagnostica
 en segundos — `reposo=LOW` significa que falta el pull-up.
+
+### Cámara: Seeed XIAO ESP32S3 Sense (placa aparte)
+
+Sensor OV3660. Hace una foto cada 10 s y la sube a Storage como
+`proofbox-photos/cam/proofbox-cam01/latest.jpg` (upsert); la app la lee de ahí.
+No hay servidor web en la placa: la app va por https y el navegador bloquearía
+un `http://` de la red local, y así la foto se ve también fuera de casa.
+
+- **Compilar con `PSRAM=opi`**: `esp32:esp32:XIAO_ESP32S3:PSRAM=opi`. Sin PSRAM
+  no cabe un fotograma de 800×600.
+- **Necesita la antena externa** (plana, conector U.FL). Sin ella oía una sola
+  red a -91 dBm y la de casa ni aparecía; con ella, 13 redes y la de casa a
+  -57. El firmware lista las redes con su señal al arrancar: es el diagnóstico.
+- **WiFi con WiFiManager**: sin red guardada abre `ProofBox-Cam`
+  (192.168.4.1). Muestra también las redes débiles (`setMinimumSignalQuality(0)`)
+  y reintenta 3 veces. Si la señal es buena y aun así falla, es la contraseña.
+- **Se calienta.** La cámara se enciende solo para cada foto y la radio duerme
+  entre subidas. Trae disipadores: van sobre el chip de la XIAO.
+- **macOS:** la primera vez no aparecía ningún puerto USB — ni en `ioreg`. Era un
+  cable de solo carga (la luz amarilla de la placa se encendía igual). El puerto
+  bueno es `/dev/cu.usbmodem101`; se graba sin pulsar BOOT.
+- La foto es pública: la URL está en el HTML de la app.
 
 ---
 

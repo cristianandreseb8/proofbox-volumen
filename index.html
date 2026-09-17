@@ -473,6 +473,23 @@ body.board .app{max-width:none;padding:16px 22px 80px}
     <div id="timer-note" style="font-size:11px;color:var(--muted);margin-top:8px"></div>
   </div>
 
+  <div class="card sortable" id="panel-cam">
+    <div class="drag-handle" title="Drag to reorder">⠿</div>
+    <div class="big-row">
+      <div class="card-label" style="margin:0">Camera</div>
+      <div style="font-size:11px;color:var(--muted)" id="cam-age">--</div>
+    </div>
+    <div style="margin-top:10px;position:relative;background:#000;border-radius:8px;overflow:hidden;aspect-ratio:4/3">
+      <img id="cam-img" alt="" style="width:100%;height:100%;object-fit:contain;display:block;cursor:zoom-in" onclick="openCamFull()">
+      <div id="cam-empty" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:11px;text-align:center;padding:12px">Waiting for the camera…</div>
+    </div>
+    <div class="warn" id="warn-cam" style="margin:10px 0 0">📷 No new picture for a while — is the camera plugged in and on WiFi?</div>
+    <div class="log-btns" style="margin-top:10px">
+      <button class="mark-btn" onclick="refreshCam(true)" style="flex:1">↻ Refresh</button>
+      <button class="mark-btn" onclick="camToStep()" style="flex:1">📌 Add to step</button>
+    </div>
+  </div>
+
   <div class="card sortable" id="panel-temp">
     <div class="drag-handle" title="Drag to reorder">⠿</div>
     <div class="big-row">
@@ -2436,7 +2453,7 @@ async function clearAlarmFile(){
 
 // ─── QUÉ SE VE EN PANTALLA ────────────────────────────────────────────────
 const BLOCKS=[
-  ['panel-meta','Progress'],['panel-timer','Timer'],['panel-temp','Temperature'],
+  ['panel-meta','Progress'],['panel-timer','Timer'],['panel-cam','Camera'],['panel-temp','Temperature'],
   ['panel-cond','Conductivity'],['panel-grams','Dough weight'],
   ['panel-goal','Start & target'],['panel-session','Session & stages'],['panel-report','Fermentation report'],['panel-log','Session history'],['panel-history','Cloud history'],
   ['panel-ratio','Rise × (on the Rise tab)']
@@ -3511,6 +3528,63 @@ async function photoDataUrl(id){
   return await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.onerror=()=>r(null);fr.readAsDataURL(b);});
 }
 
+// ─── Cámara ────────────────────────────────────────────────────────────────
+// La placa (ProofBox_Cam) sube cam/<id>/latest.jpg cada 10 s. Se lee de Storage
+// y no de la placa porque la app va por https y la placa sería http en la red
+// de casa — el navegador lo bloquearía — y así se ve también fuera de casa.
+const CAM_URL=`${SUPA_URL}/storage/v1/object/public/proofbox-photos/cam/proofbox-cam01/latest.jpg`;
+let camShotAt=0, camBlob=null, camTimer=null;
+async function refreshCam(force){
+  const img=document.getElementById('cam-img'); if(!img)return;
+  if(!force&&document.visibilityState!=='visible') return;
+  try{
+    // El parámetro evita la caché: la foto se sobrescribe con el mismo nombre.
+    const r=await fetch(CAM_URL+'?t='+Date.now(),{cache:'no-store'});
+    if(!r.ok) throw new Error(r.status);
+    const lm=Date.parse(r.headers.get('last-modified')||'');
+    const b=await r.blob();
+    if(b.size<1000) throw new Error('empty');   // el marcador de prueba no cuenta
+    if(!camBlob||lm!==camShotAt){
+      if(img.src.startsWith('blob:')) URL.revokeObjectURL(img.src);
+      img.src=URL.createObjectURL(b);
+      camBlob=b;
+    }
+    camShotAt=isFinite(lm)?lm:Date.now();
+    document.getElementById('cam-empty').style.display='none';
+  }catch(e){
+    if(!camBlob) document.getElementById('cam-empty').textContent='No picture yet. Plug in the camera and connect it to WiFi.';
+  }
+  paintCamAge();
+}
+function paintCamAge(){
+  const el=document.getElementById('cam-age'); if(!el)return;
+  if(!camShotAt){ el.textContent='--'; return; }
+  const age=Date.now()-camShotAt;
+  el.textContent=age<90000?Math.max(0,Math.round(age/1000))+' s ago':fmtAge(age)+' ago';
+  // Una foto vieja no es la masa de ahora: se avisa en vez de dejarla pasar.
+  document.getElementById('warn-cam').classList.toggle('show',age>60000);
+}
+function openCamFull(){
+  if(!camBlob)return;
+  const w=window.open('','_blank');
+  if(w) w.document.write(`<title>ProofBox camera</title><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;height:100vh"><img src="${URL.createObjectURL(camBlob)}" style="max-width:100%;max-height:100%"></body>`);
+}
+// Guardar la foto de ahora en el paso abierto: queda en el informe junto a lo
+// que se midió en ese momento.
+async function camToStep(){
+  if(!camBlob){showToast('No camera picture yet');return;}
+  const st=activeStage();
+  if(!st){showToast('Start a step first');return;}
+  await addPhoto(st.id,new File([camBlob],'camera.jpg',{type:'image/jpeg'}));
+}
+function startCam(){
+  refreshCam(true);
+  if(camTimer) clearInterval(camTimer);
+  camTimer=setInterval(()=>refreshCam(false),10000);
+  setInterval(paintCamAge,1000);
+}
+addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') refreshCam(true); });
+
 // ─── Informes guardados ───────────────────────────────────────────────────
 // Van a IndexedDB, no a localStorage: un informe con fotos pesa megas. Se
 // guardan al generarlos, así que cerrar la vista ya no pierde nada.
@@ -3994,6 +4068,7 @@ setDMode(startMode==='settings'?'meta':startMode);   // nunca abrir en Ajustes
 loadSeries();
 loadRep();
 loadSess();
+startCam();
 loadReports();
 setTimeout(()=>pullState(),1200);
 loadLog();
