@@ -2840,7 +2840,8 @@ async function makeReport(){
   btn.disabled=true; st.style.color='var(--muted)'; st.textContent='Reading the session...';
 
   const t0=chartT0()||(history.length?new Date(history[0].logged_at).getTime():(sess?sess.startedAt:Date.now()));
-  const last=history.length?history[history.length-1]:{};
+  const vis=sensorRows();
+  const last=vis.length?vis[vis.length-1]:{};
   const data={
     // Por defecto toma el nombre de la sesión; escribir en el campo lo pisa.
     dough:document.getElementById('rep-name').value.trim()||(sess&&sess.name)||'Unnamed dough',
@@ -2885,7 +2886,9 @@ async function makeReport(){
       const end=s.endedAt||Date.now();
       // Un paso manual no se queda con las lecturas que coincidan en hora: el
       // aparato pudo estar en la mesa, y eso no es una medida de esta masa.
-      const rows=(s.manual||!s.startedAt)?[]:history.filter(r=>{const t=new Date(r.logged_at).getTime();return t>=s.startedAt&&t<=end;});
+      // Las mismas filas que dibuja el gráfico de ese paso: con la goma aplicada.
+      // Con el histórico crudo, un pico borrado seguía fijando el "subió de X a Y".
+      const rows=(s.manual||!s.startedAt)?[]:rowsIn({from:s.startedAt,to:end});
       const o={name:s.name, readings:rows.length};
       if(s.startedAt){
         o.started=new Date(s.startedAt).toISOString();
@@ -2918,8 +2921,10 @@ async function makeReport(){
     if(repSel.photos) sess.stages.forEach(s=>(s.photos||[]).forEach(pid=>photos.push({stage:s.name,id:pid})));
   }
   if(repSel.raw){
-    const step=Math.max(1,Math.floor(history.length/40));
-    data.sample=history.filter((_,i)=>i%step===0).map(r=>({
+    // La muestra también sale de lo que se ve: con el histórico entero se
+    // colaban lecturas de antes de la hoja, de entre pasos y de tramos borrados.
+    const step=Math.max(1,Math.floor(sRows.length/40));
+    data.sample=sRows.filter((_,i)=>i%step===0).map(r=>({
       h:+((new Date(r.logged_at).getTime()-t0)/3600000).toFixed(2),
       x:r.rise!=null?+(+r.rise).toFixed(2):null,
       t:r.temp_c!=null?+(+r.temp_c).toFixed(1):null
