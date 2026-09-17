@@ -160,6 +160,13 @@ Cada paso guarda además su propio cero (`zeroDist`, `zeroAt`).
 **Entre pasos no se dibuja nada.** El sensor suele estar en el aire o en la
 mano; esas filas no son de ningún paso.
 
+**La goma se ve como una goma.** Cursor propio mientras está activa, la línea
+desaparece bajo el arrastre (una máscara SVG sobre las capas de datos, la
+rejilla queda), y al confirmar la curva queda CORTADA, no unida con una recta
+que dibuje una subida que nadie midió. Lo mismo entre pasos. ↶ Undo erase
+recupera el último tramo; las marcas de dónde hay algo oculto solo se ven con
+la goma en la mano.
+
 **La goma no borra: oculta.** Arrastrar sobre el gráfico grande guarda el tramo
 en `sess.erased`; `rowsIn()` y `sensorRows()` lo excluyen y se puede recuperar.
 Nunca un DELETE en `proofbox_readings` — lo que se grabó queda grabado. El
@@ -237,6 +244,7 @@ firmware, para que exista aunque el aparato se reinicie o se reflashee.
   ocultas a ~1 tick/minuto).
 - **Preview local:** `.claude/launch.json` levanta `python3 -m http.server 8747`.
   Hace falta servidor real — con `file://` el websocket al broker no abre.
+  Abrirla con `?sandbox` (ver "Cuidado al probar").
 
 `raw` en `proofbox_readings` guarda el JSON de status completo, así que los
 campos nuevos de sensores ya están ahí antes de existir como columnas.
@@ -255,11 +263,25 @@ campos nuevos de sensores ya están ahí antes de existir como columnas.
 ## Cuidado al probar
 
 `proofbox_state` es **una sola fila compartida** (`device_id` fijo) y la preview
-local la lee y la escribe igual que el móvil. Guardar durante una prueba pisa
-las hojas reales: gana el último que escribe y no hay historial. Ya se perdió
-una hoja así. Si hay que probar con hojas de mentira, anular antes `pushState`,
-`pullState` y `fetchHistory`, y no llamar a `saveSessions()` hasta haberlas
-quitado.
+local la lee y la escribe igual que el móvil. Gana el último que escribe.
+
+**Probar SIEMPRE en `index.html?sandbox`.** En ese modo un envoltorio de
+`fetch` al principio del script corta toda escritura a Supabase (hojas, filas,
+configuración, fotos) y `sendCmd` no manda nada al aparato; lecturas y
+`claude-proxy` sí pasan. Las hojas van a otra clave de localStorage. Hay un
+aviso fijo abajo. Anular funciones a mano (`pushState=()=>{}`) no basta: se
+recarga la página y la protección desaparece.
+
+Así se borraron hojas reales dos veces. La segunda (2026-09-17 06:41 UTC): vaciar
+`pb-sessions` en la preview hizo que la migración antigua resucitara una hoja
+de `pb-session` y la subiera encima de las cuatro buenas. Se recuperaron porque
+el Chrome del usuario aún las tenía en local y las volvió a subir. Desde
+entonces la migración no corre si el aparato ya sincronizó alguna vez
+(`pb-synced-once`).
+
+**Historial de `proofbox_state`.** Un trigger guarda cada versión anterior en
+`proofbox_state_history` (las 500 últimas por aparato, sin acceso para `anon`).
+Si una sobrescritura se lleva algo, está ahí. Nunca limpiar esa tabla.
 
 ## Pendiente
 

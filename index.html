@@ -164,7 +164,13 @@ body.board .app{max-width:none;padding:16px 22px 80px}
   width:100%;max-width:400px;box-shadow:0 18px 50px rgba(0,0,0,.6)}
 .chart-full{position:fixed;top:var(--bars,80px);left:0;right:0;bottom:0;background:var(--bg);z-index:900;display:none;flex-direction:column;padding:10px 12px 14px}
 .chart-full.show{display:flex}
-.chart-full-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.chart-full-head{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+/* En el móvil el título ocupa su propia línea: al lado de cuatro botones se
+   partía en seis renglones y empujaba la goma fuera de la pantalla. */
+@media (max-width:700px){
+  .chart-full-head b{flex:1 1 100%;order:-1}
+  .chart-full-head button{font-size:13px;padding:6px 10px}
+}
 .chart-full-head b{flex:1;font-size:12px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;font-weight:500}
 .chart-full-head button{background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Mono',monospace;font-size:15px;padding:6px 12px;cursor:pointer}
 .chart-full-box{flex:1;min-height:0}
@@ -178,6 +184,10 @@ body.board .app{max-width:none;padding:16px 22px 80px}
 .chart-readout{display:flex;flex-wrap:wrap;gap:14px;align-items:baseline;font-size:12px;margin-top:8px;min-height:18px}
 .chart-readout b{font-size:14px}
 .chart-full-box{touch-action:none}
+/* Con la goma activa el puntero lo dice: la punta de la flecha es lo que borra. */
+.chart-full-box.erasing{cursor:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'><path d='M2 2 L2 15 L5.5 11.5 L8 17 L10 16 L7.5 10.5 L12 10.5 Z' fill='white' stroke='black' stroke-width='1.2' stroke-linejoin='round'/><g transform='translate(19 21) rotate(-35)'><rect x='-9' y='-5' width='18' height='10' rx='2' fill='%23f3a0b0' stroke='black' stroke-width='1.2'/><rect x='-9' y='-5' width='7' height='10' rx='2' fill='%234a7fd0' stroke='black' stroke-width='1.2'/></g></svg>") 2 2, crosshair}
+.chart-full-head button.on{background:var(--amber-d);border-color:var(--amber)}
+#btn-erase-undo[hidden]{display:none}
 .series-legend{display:flex;flex-wrap:wrap;gap:12px;font-size:10px;color:var(--muted);margin-top:6px}
 .alarm-banner{position:fixed;top:0;left:0;right:0;background:var(--red);color:#fff;padding:14px 16px;z-index:2000;display:none;align-items:center;gap:12px;box-shadow:0 4px 20px rgba(0,0,0,.5)}
 .alarm-banner.show{display:flex}
@@ -364,15 +374,16 @@ body.board .app{max-width:none;padding:16px 22px 80px}
       <option value="900">Strong · 15 min</option>
       <option value="1800">Very strong · 30 min</option>
     </select>
+    <button id="btn-erase-undo" hidden onclick="undoErase()" title="Bring back the last stretch you hid">↶ Undo erase</button>
     <button id="btn-eraser" onclick="toggleEraser()" title="Drag across the chart to hide a stretch">🧽 Erase</button>
     <button onclick="closeChartFull()">✕</button>
   </div>
-  <div id="eraser-hint" style="display:none;font-size:11px;color:var(--amber-l);padding:4px 2px">Drag across the stretch you want to hide — a knock, the sensor moved. Nothing is deleted: you can bring it back below.</div>
+  <div id="eraser-hint" style="display:none;font-size:11px;color:var(--amber-l);padding:4px 2px">Drag across the stretch you want to hide — a knock, the sensor moved. Nothing is deleted: ↶ Undo erase brings it back.</div>
+  <div id="erased-list" style="font-size:11px;color:var(--muted);padding:2px 2px 6px"></div>
   <div class="series-row" id="series-row-full"></div>
   <div class="chart-full-box" id="chart-full-box"></div>
   <div class="chart-readout" id="chart-readout"></div>
   <div class="series-legend" id="legend-full"></div>
-  <div id="erased-list" style="font-size:11px;color:var(--muted);padding:6px 2px"></div>
 </div>
 <div class="alarm-banner" id="alarm-banner">
   <b id="alarm-msg">⏰</b>
@@ -729,6 +740,31 @@ body.board .app{max-width:none;padding:16px 22px 80px}
   </div>
 </div>
 <script>
+// ═══ MODO AISLADO (?sandbox) ═══════════════════════════════════════════════
+// Probar contra la fila compartida borró hojas reales dos veces. Con ?sandbox
+// la app funciona entera, pero TODA escritura a Supabase se corta aquí, en un
+// solo sitio que no se puede olvidar: hojas, filas, configuración, fotos. Las
+// lecturas y la API de Claude sí pasan — son solo lectura.
+const SANDBOX=/[?&]sandbox\b/.test(location.search);
+if(SANDBOX){
+  const realFetch=window.fetch.bind(window);
+  window.fetch=(url,opt={})=>{
+    const m=(opt.method||'GET').toUpperCase();
+    const u=String(url);
+    if(m!=='GET'&&u.includes('supabase.co')&&!u.includes('/functions/v1/claude-proxy')){
+      console.warn('[sandbox] blocked',m,u);
+      return Promise.resolve(new Response('{}',{status:200,headers:{'Content-Type':'application/json'}}));
+    }
+    return realFetch(url,opt);
+  };
+  addEventListener('DOMContentLoaded',()=>{
+    const b=document.createElement('div');
+    b.textContent='SANDBOX — nothing you do here is saved or sent to the device';
+    b.style.cssText='position:fixed;bottom:0;left:0;right:0;z-index:3000;background:#7a4a08;color:#fff;font:600 11px monospace;text-align:center;padding:4px';
+    document.body.appendChild(b);
+  });
+}
+
 const DEVICE_ID   = 'proofbox-vol01';
 const CMD_SECRET  = 'pb-vol-b3ccb5';
 const BROKER_URL  = 'wss://broker.hivemq.com:8884/mqtt';
@@ -829,7 +865,7 @@ function newChart(){
     sessionStart=now; history=[]; renderHistory();
     showToast('📊 New chart — logging from now');
     setTimeout(()=>{
-      fetch(`${SUPA_URL}/functions/v1/proofbox-logger`,{method:'POST',headers:{Authorization:'Bearer '+SUPA_JWT}})
+      fetch(LOGGER_URL,{method:'POST',headers:{Authorization:'Bearer '+SUPA_JWT}})
         .then(()=>fetchHistory()).catch(()=>{});
     },2000);
   }).catch(()=>showToast('Could not start the new chart'));
@@ -851,7 +887,7 @@ function zeroForNewSheet(){
   metaFired=false; mpBuf=[]; if(sess){sess.metaFired=false; sess.baseDist=0; sess.baseAt=0; saveSessions();}
   // Un punto de referencia en cuanto el ESP32 haya recalibrado.
   setTimeout(()=>{
-    fetch(`${SUPA_URL}/functions/v1/proofbox-logger`,{method:'POST',headers:{Authorization:'Bearer '+SUPA_JWT}})
+    fetch(LOGGER_URL,{method:'POST',headers:{Authorization:'Bearer '+SUPA_JWT}})
       .then(()=>fetchHistory()).catch(()=>{});
   },2500);
 }
@@ -864,7 +900,7 @@ function updateFastTimer(sec){
   if(!sensorMode()) return;
   if(sec<60){
     fastTimer=setInterval(()=>{
-      if(brokerUp&&sensorMode()) fetch(`${SUPA_URL}/functions/v1/proofbox-logger`,
+      if(brokerUp&&sensorMode()) fetch(LOGGER_URL,
         {method:'POST',headers:{Authorization:'Bearer '+SUPA_JWT}})
         .then(()=>fetchHistory())   // refresh the chart as soon as the new point lands
         .catch(()=>{});
@@ -1006,12 +1042,19 @@ function chartT0(){
 // dos dispositivos es suficiente y es previsible; algo más elaborado exigiría
 // cuentas y fusión por campos, que aquí no se justifica.
 let syncTimer=null, lastPulled=0, syncing=false;
+// ?sandbox en la URL: la app funciona entera pero no escribe NADA compartido
+// — ni hojas en la nube, ni órdenes al aparato, ni filas, ni fotos. Existe
+// porque probar contra la fila real ya borró hojas de verdad dos veces.
+const LOGGER_URL=`${SUPA_URL}/functions/v1/proofbox-logger`;
+const LS_SESS=SANDBOX?'pb-sessions-sandbox':'pb-sessions';
+const LS_ACTIVE=SANDBOX?'pb-active-sess-sandbox':'pb-active-sess';
 function syncState(){ return {sessions, activeSess, reports, v:2}; }
 function setSyncNote(t,col){
   const el=document.getElementById('sync-note'); if(!el)return;
   el.textContent=t; el.style.color=col||'var(--muted)';
 }
 async function pushState(){
+  if(SANDBOX){ setSyncNote('Sandbox — nothing is saved to the cloud','var(--amber)'); return; }
   if(syncing) return;
   syncing=true;
   try{
@@ -1032,6 +1075,7 @@ function queueSync(){
   syncTimer=setTimeout(pushState,1500);
 }
 async function pullState(force){
+  if(SANDBOX) return;
   try{
     const r=await fetch(`${SUPA_URL}/rest/v1/proofbox_state?device_id=eq.${DEVICE_ID}&select=data,updated_at`,
       {headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY}});
@@ -1050,6 +1094,7 @@ async function pullState(force){
     saveSessions();
     renderSessBar(); renderSess(); renderReports(); renderHistory();
     lastPulled=remote;
+    try{ localStorage.setItem('pb-synced-once','1'); }catch(e){}
     backfillPhotos();
     setSyncNote('Synced · '+new Date(remote).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}),'var(--green)');
   }catch(e){ setSyncNote('Could not reach the server','var(--red)'); }
@@ -1521,9 +1566,29 @@ function drawChart(rows,boxId,W,H){
   const y1=Math.max(...raw,1.1,topGoal?topGoal*1.03:0);
   const sx=t=>p+(x1===x0?0:(t-x0)/(x1-x0))*(W-2*p);
   const sy=v=>H-p-(y1===y0?0:(v-y0)/(y1-y0))*(H-2*p);
-  const path=arr=>arr.map((v,i)=>(i?'L':'M')+sx(xs[i]).toFixed(1)+' '+sy(v).toFixed(1)).join(' ');
+  // Donde se borró con la goma, o entre dos pasos, la línea se CORTA. Unir los
+  // dos lados con una recta hacía que borrar pareciera no haber hecho nada, y
+  // dibujaba una subida que nadie midió.
+  const gone=erasedWindows().map(g=>({a:g.from-t0,b:g.to-t0}));
+  const stepOf=t=>{const ms=measuredWindows(); for(let k=0;k<ms.length;k++){ if(t+t0>=ms[k].from&&t+t0<=ms[k].to) return k; } return -1;};
+  const cut=xs.map((x,i)=>{
+    if(!i) return true;
+    const a=xs[i-1];
+    if(gone.some(g=>g.a<x&&g.b>a)) return true;
+    return stepOf(a)!==stepOf(x);
+  });
+  const path=arr=>arr.map((v,i)=>(cut[i]?'M':'L')+sx(xs[i]).toFixed(1)+' '+sy(v).toFixed(1)).join(' ');
   const line=path(ys);
-  const area=`M${sx(x0).toFixed(1)} ${H-p} `+ys.map((v,i)=>'L'+sx(xs[i]).toFixed(1)+' '+sy(v).toFixed(1)).join(' ')+` L${sx(x1).toFixed(1)} ${H-p} Z`;
+  // El relleno, un polígono por tramo: uno solo rellenaría también el hueco.
+  let area='', segStart=0;
+  for(let i=1;i<=ys.length;i++){
+    if(i===ys.length||cut[i]){
+      const seg=[];
+      for(let k=segStart;k<i;k++) seg.push('L'+sx(xs[k]).toFixed(1)+' '+sy(ys[k]).toFixed(1));
+      area+=`M${sx(xs[segStart]).toFixed(1)} ${H-p} `+seg.join(' ')+` L${sx(xs[i-1]).toFixed(1)} ${H-p} Z `;
+      segStart=i;
+    }
+  }
   // Con suavizado, el crudo queda de fondo: se ve qué se ha limpiado y cuánto.
   const ghost=(win&&seriesOn.rise)?`<path d="${path(raw)}" fill="none" stroke="var(--amber-l)" stroke-width="1" opacity=".22"/>`:'';
 
@@ -1548,6 +1613,7 @@ function drawChart(rows,boxId,W,H){
     for(let i=0;i<vals.length;i++){
       const v=vals[i];
       if(v==null||!isFinite(v)){pen=false;continue;}
+      if(cut[i]) pen=false;
       d+=(pen?'L':'M')+sx(xs[i]).toFixed(1)+' '+yv(v).toFixed(1)+' ';
       pen=true;
     }
@@ -1582,11 +1648,18 @@ function drawChart(rows,boxId,W,H){
   box.innerHTML=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:${W>500?'100%':H+'px'};display:block" preserveAspectRatio="none">
     ${grid}
     ${stageSvg(t0,x0,x1,sx,H,p,W)}
+    ${(W>500&&eraser)?erasedSvg(t0,x0,x1,sx,H,p):''}
     ${goalSvg(marks,sy,W,p,Math.max(...raw))}
+    <defs><mask id="erase-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="${W}" height="${H}">
+      <rect x="0" y="0" width="${W}" height="${H}" fill="white"/>
+      <rect id="erase-hole" x="0" y="0" width="0" height="${H}" fill="black"/>
+    </mask></defs>
+    <g id="data-layer" mask="url(#erase-mask)">
     ${seriesOn.rise?`<path d="${area}" fill="rgba(212,130,14,.12)"/>`:''}
     ${ghost}
     ${seriesOn.rise?`<path d="${line}" fill="none" stroke="var(--amber-l)" stroke-width="1.5" stroke-linejoin="round"/>`:''}
     ${extra}
+    </g>
   </svg>`+(W>500?'':`
   <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--muted);margin-top:2px">
     <span>0min</span>
@@ -1651,12 +1724,25 @@ function showReadout(vbx){
 // Un golpe al bote o el sensor movido dejan una curva enorme que ensucia la
 // escala y engaña al análisis de fases. Se arrastra sobre el tramo y se oculta.
 // Es una marca en la hoja, no un DELETE: las filas siguen en la base de datos.
-let eraser=false, eraseFrom=null;
+var eraser=false, eraseFrom=null;   // var: drawChart lo lee y puede correr antes de esta línea
+// Bandas tenues donde hay algo oculto: si no se ve dónde se borró, no se sabe
+// qué recuperar.
+function erasedSvg(t0,x0,x1,sx,H,p){
+  return erasedWindows().map(g=>{
+    const a=Math.max(x0,g.from-t0), b=Math.min(x1,g.to-t0);
+    if(b<=a) return '';
+    const xa=sx(a), xb=sx(b);
+    return `<rect x="${xa.toFixed(1)}" y="${p}" width="${Math.max(2,xb-xa).toFixed(1)}" height="${H-2*p}" fill="none" stroke="rgba(192,57,43,.35)" stroke-dasharray="2 4"/>`;
+  }).join('');
+}
 function toggleEraser(){
   eraser=!eraser;
-  document.getElementById('btn-eraser').style.background=eraser?'var(--amber-d)':'';
+  document.getElementById('btn-eraser').classList.toggle('on',eraser);
+  document.getElementById('btn-eraser').textContent=eraser?'🧽 Erasing — done':'🧽 Erase';
+  document.getElementById('chart-full-box').classList.toggle('erasing',eraser);
   document.getElementById('eraser-hint').style.display=eraser?'block':'none';
   eraseFrom=null; eraseShade(null,null);
+  if(fullOpen()) drawChartFull();
   if(!eraser) showReadout(null);
 }
 function vbToAbs(vbx){
@@ -1664,19 +1750,13 @@ function vbToAbs(vbx){
   const t=x1*Math.max(0,Math.min(1,(vbx-p)/(W-2*p)));
   return t0+t;
 }
+// Borrar se ve como borrar: la máscara abre un hueco en las líneas justo donde
+// pasa la goma, y la rejilla y los ejes quedan intactos debajo.
 function eraseShade(a,b){
-  const svg=document.querySelector('#chart-full-box svg'); if(!svg)return;
-  let r=svg.querySelector('#erase-shade');
-  if(a==null){ if(r)r.remove(); return; }
-  if(!r){
-    r=document.createElementNS('http://www.w3.org/2000/svg','rect');
-    r.id='erase-shade'; r.setAttribute('fill','rgba(192,57,43,.25)');
-    r.setAttribute('stroke','var(--red)'); r.setAttribute('stroke-dasharray','4 3');
-    svg.appendChild(r);
-  }
-  const {p,H}=chartState;
-  r.setAttribute('x',Math.min(a,b)); r.setAttribute('width',Math.max(1,Math.abs(b-a)));
-  r.setAttribute('y',p); r.setAttribute('height',H-2*p);
+  const hole=document.querySelector('#chart-full-box #erase-hole'); if(!hole)return;
+  if(a==null){ hole.setAttribute('width','0'); return; }
+  hole.setAttribute('x',Math.min(a,b));
+  hole.setAttribute('width',Math.max(1,Math.abs(b-a)));
 }
 function commitErase(a,b){
   if(!sess||!chartState)return;
@@ -1687,7 +1767,14 @@ function commitErase(a,b){
   if(!confirm(`Hide ${n} readings from ${f(from)} to ${f(to)}?\n\nThey stay saved and you can bring them back.`)){ eraseShade(null,null); return; }
   sess.erased=(sess.erased||[]).concat([{from,to,n,at:Date.now()}]);
   saveSessions(); drawChartFull(); renderHistory();
-  showToast('🧽 '+n+' readings hidden');
+  showToast('🧽 '+n+' readings hidden — ↶ Undo erase brings them back',3500);
+}
+// Deshacer = recuperar el último tramo ocultado. Es lo que uno busca justo
+// después de equivocarse, sin tener que encontrarlo en una lista.
+function undoErase(){
+  const e=erasedWindows(); if(!e.length)return;
+  let last=0; e.forEach((g,i)=>{ if((g.at||0)>=(e[last].at||0)) last=i; });
+  restoreErased(last);
 }
 function restoreErased(i){
   if(!sess||!sess.erased)return;
@@ -1698,6 +1785,7 @@ function restoreErased(i){
 function renderErased(){
   const box=document.getElementById('erased-list'); if(!box)return;
   const e=erasedWindows();
+  const u=document.getElementById('btn-erase-undo'); if(u) u.hidden=!e.length;
   if(!e.length){ box.innerHTML=''; return; }
   const f=ms=>new Date(ms).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
   box.innerHTML='Hidden: '+e.map((g,i)=>
@@ -2548,6 +2636,7 @@ function refreshHealth(){
 }
 setInterval(refreshHealth,1000);
 function sendCmd(payload){
+  if(SANDBOX) return;
   if(mqttClient&&mqttClient.connected)
     mqttClient.publish(TOPIC_CMD,JSON.stringify({...payload,secret:CMD_SECRET}));
 }
@@ -3010,13 +3099,15 @@ const STAGE_PRESETS=['Lievito out of the fridge','1st refresh','2nd refresh','3r
 // masa madre de mantenimiento y un panettone de tres días no se pisan.
 let sessions=[], activeSess=null, sess=null;
 function loadSess(){
-  try{sessions=JSON.parse(localStorage.getItem('pb-sessions')||'[]')||[];}catch(e){sessions=[];}
+  try{sessions=JSON.parse(localStorage.getItem(LS_SESS)||'[]')||[];}catch(e){sessions=[];}
   // Migración de la versión de una sola sesión: no se pierde la que hubiera.
-  if(!sessions.length){
+  // Nunca en sandbox, y nunca si la nube puede tener hojas: esta migración fue
+  // la que resucitó una hoja vieja y la subió encima de las buenas.
+  if(!sessions.length&&!SANDBOX&&!localStorage.getItem('pb-synced-once')){
     let old=null; try{old=JSON.parse(localStorage.getItem('pb-session')||'null');}catch(e){}
     if(old){ old.id=old.startedAt||Date.now(); sessions=[old]; saveSessions(); }
   }
-  try{activeSess=+localStorage.getItem('pb-active-sess')||null;}catch(e){}
+  try{activeSess=+localStorage.getItem(LS_ACTIVE)||null;}catch(e){}
   if(!sessions.find(s=>s.id===activeSess)) activeSess=sessions.length?sessions[0].id:null;
   sess=sessions.find(s=>s.id===activeSess)||null;
   // Migración desde cuando todo esto era global: se adopta una sola vez en la
@@ -3036,8 +3127,8 @@ function loadSess(){
 function saveSessions(){
   queueSync();
   try{
-    localStorage.setItem('pb-sessions',JSON.stringify(sessions));
-    if(activeSess) localStorage.setItem('pb-active-sess',String(activeSess));
+    localStorage.setItem(LS_SESS,JSON.stringify(sessions));
+    if(activeSess) localStorage.setItem(LS_ACTIVE,String(activeSess));
   }catch(e){}
 }
 function saveSess(){ saveSessions(); }
@@ -3259,6 +3350,7 @@ async function addPhoto(stageId,file){
 // y en la hoja solo viaja el id: el otro aparato lo resuelve a una URL.
 const PHOTO_URL=id=>`${SUPA_URL}/storage/v1/object/public/proofbox-photos/${id}.jpg`;
 async function uploadPhoto(id,blob){
+  if(SANDBOX) return;
   try{
     const r=await fetch(`${SUPA_URL}/storage/v1/object/proofbox-photos/${id}.jpg`,{
       method:'POST',
@@ -3316,7 +3408,7 @@ async function delPhoto(){
   // la seguiría viendo y al sincronizar volvería.
   try{ await idbDo('readwrite',st=>st.delete('photo-'+pid)); }catch(e){}
   photoUp.delete(pid); try{localStorage.setItem('pb-photo-up',JSON.stringify([...photoUp]));}catch(e){}
-  fetch(`${SUPA_URL}/storage/v1/object/proofbox-photos/${pid}.jpg`,
+  if(!SANDBOX) fetch(`${SUPA_URL}/storage/v1/object/proofbox-photos/${pid}.jpg`,
     {method:'DELETE',headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY}}).catch(()=>{});
   saveSess(); renderSess(); closePhoto(); showToast('Photo removed');
 }
@@ -3829,7 +3921,7 @@ document.addEventListener('visibilitychange',()=>{
   fetchHistory();
   const sec=parseInt(document.getElementById('interval-sel').value);
   if(sec<60&&brokerUp){
-    fetch(`${SUPA_URL}/functions/v1/proofbox-logger`,{method:'POST',headers:{Authorization:'Bearer '+SUPA_JWT}})
+    fetch(LOGGER_URL,{method:'POST',headers:{Authorization:'Bearer '+SUPA_JWT}})
       .then(()=>fetchHistory()).catch(()=>{});
   }
 });
