@@ -38,17 +38,32 @@ const char* TOPIC_VIEWER = "proofboxcam/proofbox-cam01/viewer";
 const char* TOPIC_STATE  = "proofboxcam/proofbox-cam01/state";
 const char* TOPIC_CMD    = "proofboxcam/proofbox-cam01/cmd";
 const char* TOPIC_FLIP   = "proofboxcam/proofbox-cam01/flip";
+const char* TOPIC_QUAL   = "proofboxcam/proofbox-cam01/quality";
 
 const unsigned long SHOT_EVERY_MS  = 10UL * 60UL * 1000UL;  // archivo: cada 10 min
 const unsigned long VIEWER_TTL_MS  = 15000;                 // sin latido en 15 s, se corta el vivo
-const unsigned long FRAME_MS       = 150;                   // ~6 fps como techo
+unsigned long FRAME_MS             = 150;                   // lo fija la calidad elegida
 
 // Tamaños. La cámara se inicia al MAYOR que se va a usar: el búfer se reserva
 // para ese tamaño y agrandar después en caliente cortaría las fotos.
 const framesize_t SIZE_SHOT = FRAMESIZE_XGA;   // 1024x768, ~80-120 KB a calidad 10
 const int         QUAL_SHOT = 10;
-const framesize_t SIZE_LIVE = FRAMESIZE_HVGA;  // 480x320, ~10-15 KB a calidad 20
-const int         QUAL_LIVE = 20;
+// Calidad del vivo, elegible desde la app. Más píxeles y menos compresión
+// cuestan fotogramas: lo que limita no es el sensor sino subir cada JPEG por
+// WiFi al broker. Se guarda en NVS.
+struct LiveQ { framesize_t size; int quality; unsigned long frameMs; const char* name; };
+const LiveQ LIVE_Q[3] = {
+  { FRAMESIZE_HVGA, 20, 150, "fluid"    },   // 480x320, ~5 KB, ~6 fps
+  { FRAMESIZE_SVGA, 12, 300, "balanced" },   // 800x600, ~25 KB, ~3 fps
+  { FRAMESIZE_XGA,  10, 600, "sharp"    },   // 1024x768, ~45 KB, ~1-2 fps
+};
+int liveQ = 0;
+framesize_t SIZE_LIVE = FRAMESIZE_HVGA;
+int         QUAL_LIVE = 20;
+void setLiveQ(int q) {
+  liveQ = constrain(q, 0, 2);
+  SIZE_LIVE = LIVE_Q[liveQ].size; QUAL_LIVE = LIVE_Q[liveQ].quality; FRAME_MS = LIVE_Q[liveQ].frameMs;
+}
 
 // ── Pines de la cámara del XIAO ESP32S3 Sense (según Seeed) ─────────────────
 #define PWDN_GPIO_NUM   -1
@@ -118,10 +133,34 @@ bool camStart() {
     return false;
   }
   camOn = true;
+  tuneSensor();
   applyFlip();
   // Las primeras capturas salen verdosas mientras ajusta la exposición.
   for (int i = 0; i < 3; i++) { camera_fb_t* fb = esp_camera_fb_get(); if (fb) esp_camera_fb_return(fb); delay(150); }
   return true;
+}
+
+// Ajustes del sensor para sacar más detalle sin cambiar de cámara: corrección
+// de lente (el centro no se lleva todo el brillo), corrección de píxeles
+// muertos, gamma, y exposición automática con el modo de poca luz. Ganancia
+// limitada: subirla aclara pero llena la imagen de grano, y la masa no se mueve,
+// así que es mejor exponer más tiempo.
+void tuneSensor() {
+  sensor_t* s = esp_camera_sensor_get();
+  if (!s) return;
+  s->set_lenc(s, 1);
+  s->set_bpc(s, 1);
+  s->set_wpc(s, 1);
+  s->set_raw_gma(s, 1);
+  s->set_dcw(s, 1);
+  s->set_whitebal(s, 1);
+  s->set_awb_gain(s, 1);
+  s->set_exposure_ctrl(s, 1);
+  s->set_aec2(s, 1);
+  s->set_gain_ctrl(s, 1);
+  s->set_gainceiling(s, GAINCEILING_8X);
+  s->set_sharpness(s, 2);
+  s->set_denoise(s, 1);
 }
 
 void applyFlip() {
@@ -129,6 +168,10 @@ void applyFlip() {
   if (!s) return;
   s->set_vflip(s, vflip ? 1 : 0);
   s->set_hmirror(s, hmirror ? 1 : 0);
+}
+
+void publishQuality() {
+  mqtt.publish(TOPIC_QUAL, LIVE_Q[liveQ].name, true);
 }
 
 void publishFlip() {
@@ -238,6 +281,14 @@ void onMqtt(char* topic, byte* payload, unsigned int len) {
     else if (c == "mirror") { hmirror = !hmirror; changed = true; }
     else if (c.startsWith("flip:"))   { vflip = c.endsWith("1"); changed = true; }
     else if (c.startsWith("mirror:")) { hmirror = c.endsWith("1"); changed = true; }
+    else if (c.startsWith("q:")) {
+      setLiveQ(c.substring(2).toInt());
+      prefs.putInt("liveq", liveQ);
+      if (camOn) camMode(SIZE_LIVE, QUAL_LIVE);
+      publishQuality();
+      Serial.printf("🎚️ calidad del vivo: %s\n", LIVE_Q[liveQ].name);
+      return;
+    }
     if (changed) {
       prefs.putBool("vflip", vflip);
       prefs.putBool("hmirror", hmirror);
@@ -265,6 +316,7 @@ void mqttEnsure() {
     mqtt.subscribe(TOPIC_CMD);
     publishState("idle");
     publishFlip();
+    publishQuality();
     Serial.println("MQTT ✅");
   } else {
     Serial.printf("MQTT ❌ rc=%d\n", mqtt.state());
@@ -281,6 +333,7 @@ void setup() {
   prefs.begin("pbcam", false);
   vflip   = prefs.getBool("vflip", false);
   hmirror = prefs.getBool("hmirror", false);
+  setLiveQ(prefs.getInt("liveq", 0));
   Serial.printf("🔄 vflip=%d hmirror=%d\n", vflip, hmirror);
 
   if (camStart()) {
@@ -314,7 +367,7 @@ void setup() {
   mqtt.setCallback(onMqtt);
   mqtt.setKeepAlive(20);
   mqtt.setBufferSize(512);   // los fotogramas no pasan por aquí (beginPublish)
-  mqtt.setSocketTimeout(5);
+  mqtt.setSocketTimeout(10);   // un fotograma nítido de ~45 KB tarda más en salir
 }
 
 void loop() {

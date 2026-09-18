@@ -578,6 +578,10 @@ body.board .app{max-width:none;padding:16px 22px 80px}
       <button id="btn-vflip" onclick="camFlip('flip')" title="Upside down — for a camera hanging above">⇅</button>
       <button id="btn-hmirror" onclick="camFlip('mirror')" title="Mirror left to right">⇄</button>
       <button id="btn-rot" onclick="toggleRot()" title="Turn the image by any angle">⟳ <span id="cam-rot-n">0°</span></button>
+      <select id="cam-quality" onchange="setCamQuality(this.value)" title="Live picture quality — sharper means fewer frames per second"
+        style="background:transparent;border:1px solid var(--border);border-radius:7px;color:var(--text);font-family:'DM Mono',monospace;font-size:12px;padding:3px 4px">
+        <option value="0">Fluid</option><option value="1">Balanced</option><option value="2">Sharp</option>
+      </select>
       <span style="flex:1"></span>
       <button id="btn-shots" onclick="toggleShots()" title="Pictures saved every 10 minutes">🗂️ <span id="cam-shots-n">0</span></button>
     </div>
@@ -4041,6 +4045,20 @@ function rotCss(el){
 // a la derecha aunque la imagen esté girada 128°.
 const ZOOM_STEPS=[1,1.1,1.25,1.5,1.75,2,2.5,3,4,5];
 let camZoom=1, panX=0, panY=0;
+// Se recuerdan entre aperturas (y entre visitas): cerrar la pantalla completa
+// para mirar otra cosa no puede obligar a volver a buscar el frasco. El
+// desplazamiento se guarda en fracciones de la pantalla, así sobrevive a girar
+// el móvil o cambiar el tamaño de la ventana.
+try{
+  const z=JSON.parse(localStorage.getItem('pb-cam-zoom')||'null');
+  if(z){ camZoom=Math.max(1,Math.min(5,+z.z||1)); window._panFx=+z.fx||0; window._panFy=+z.fy||0; }
+}catch(e){}
+// Guarda las FRACCIONES calculadas mientras la capa estaba abierta: si se cierra
+// antes de que salte el guardado, la capa ya mide 0 y dividir por eso guardaba
+// píxeles como si fueran fracciones.
+function saveZoom(){
+  try{ localStorage.setItem('pb-cam-zoom',JSON.stringify({z:camZoom,fx:window._panFx||0,fy:window._panFy||0})); }catch(e){}
+}
 function rotFit(img){
   if(!img) return;
   const box=img.parentElement; if(!box) return;
@@ -4058,6 +4076,10 @@ function rotFit(img){
   if(fit*camZoom!==1) t.push(`scale(${(fit*camZoom).toFixed(3)})`);
   img.style.transform=t.join(' ');
   const z=document.getElementById('cam-zoom-pct'); if(z) z.textContent=Math.round(camZoom*100)+'%';
+  if(img.id==='cam-full-img'&&camFullOpen()){
+    const st2=box; window._panFx=panX/(st2.clientWidth||1); window._panFy=panY/(st2.clientHeight||1);
+    clearTimeout(rotFit._t); rotFit._t=setTimeout(saveZoom,300);
+  }
   const st=document.getElementById('cam-full-stage'); if(st) st.style.cursor=camZoom>1?'grab':'default';
 }
 function setZoom(z){
@@ -4286,7 +4308,17 @@ async function straightenWithClaude(){
 
 // Girar se pide a la placa y se aplica en el sensor, así que también sale
 // derecha en las fotos guardadas. La placa contesta con el estado retenido.
-let camVflip=false, camHmirror=false;
+let camVflip=false, camHmirror=false, camQualityAsked=null;
+// Calidad del vivo: la decide la placa (tamaño y compresión de cada fotograma)
+// y contesta con la que aplicó. Si no contesta, es que lleva un firmware anterior.
+const CAM_Q=['fluid','balanced','sharp'];
+function setCamQuality(v){
+  if(!mqttClient||!mqttClient.connected){ showToast('Not connected to the camera'); return; }
+  camQualityAsked=+v;
+  mqttClient.publish(CAM_TOPIC+'/cmd','q:'+v);
+  showToast(['Fluid · ~6 fps','Balanced · ~3 fps, sharper','Sharp · ~1-2 fps, sharpest'][+v]);
+  setTimeout(()=>{ if(camQualityAsked!=null){ showToast('The camera did not answer — it needs the new firmware (plug it into the Mac)',5000); camQualityAsked=null; } },6000);
+}
 function camFlip(which){
   if(!mqttClient||!mqttClient.connected){ showToast('Not connected to the camera'); return; }
   mqttClient.publish(CAM_TOPIC+'/cmd',which);
@@ -4553,11 +4585,16 @@ let camFullSrc=null;   // null = sigue el vivo; si no, una captura concreta
 function openCamFull(src){
   const box=document.getElementById('cam-full'), img=document.getElementById('cam-full-img');
   camFullSrc=src||null;
-  camZoom=1; panX=0; panY=0;
   img.dataset.fitted='';
   img.onload=()=>{ rotFit(img); img.dataset.fitted='1'; };
   img.src=src||document.getElementById('cam-img').src;
   box.classList.add('show');
+  // Zoom y posición como se dejaron, rehechos en píxeles de la pantalla de
+  // ahora. Tiene que ser lo PRIMERO tras mostrar la capa: cualquier repintado
+  // anterior recalculaba la fracción guardada con la posición a cero.
+  { const st=document.getElementById('cam-full-stage');
+    panX=(window._panFx||0)*st.clientWidth; panY=(window._panFy||0)*st.clientHeight;
+    rotFit(img); }
   adoptOverlays();
   paintCamFullTxt();
   setTimeout(paintRot,30);
@@ -5052,6 +5089,7 @@ function connect(){
     mqttClient.subscribe(CAM_TOPIC+'/state');
     mqttClient.subscribe(CAM_TOPIC+'/flip');
     mqttClient.subscribe(CAM_TOPIC+'/rot');
+    mqttClient.subscribe(CAM_TOPIC+'/quality');
     if(liveOn) mqttClient.subscribe(CAM_TOPIC+'/live');   // tras reconectar, el vivo sigue
     else autoLive();
     refreshHealth();});
@@ -5065,6 +5103,12 @@ function connect(){
           const si=document.getElementById('cam-subject'); if(si&&document.activeElement!==si) si.value=camSubject; }
         if(isFinite(+o.deg)&&+o.deg!==camRot) setRot(+o.deg,true);
       }catch(e){}
+      return;
+    }
+    if(t===CAM_TOPIC+'/quality'){
+      const i=CAM_Q.indexOf(msg.toString());
+      const sel=document.getElementById('cam-quality'); if(sel&&i>=0) sel.value=String(i);
+      camQualityAsked=null;
       return;
     }
     if(t===CAM_TOPIC+'/flip'){
