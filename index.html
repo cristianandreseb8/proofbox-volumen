@@ -458,9 +458,11 @@ body.board .app{max-width:none;padding:16px 22px 80px}
       <option value="1800">Very strong · 30 min</option>
     </select>
     <button id="btn-erase-undo" hidden onclick="undoErase()" title="Bring back the last stretch you hid">↶ Undo erase</button>
+    <button id="btn-section" onclick="toggleSection()" title="Mark steps on the chart: tap to split, drag to make a section, drag a line to move it">⎸⎸ Steps</button>
     <button id="btn-eraser" onclick="toggleEraser()" title="Drag across the chart to hide a stretch">🧽 Erase</button>
     <button onclick="closeChartFull()">✕</button>
   </div>
+  <div id="section-hint" style="display:none;font-size:11px;color:var(--amber-l);padding:4px 2px">Tap to split a step there · drag across to make a new step from start to end · drag a dotted line to move it · tap a step's name to rename it.</div>
   <div id="eraser-hint" style="display:none;font-size:11px;color:var(--amber-l);padding:4px 2px">Drag across the stretch you want to hide — a knock, the sensor moved. Nothing is deleted: ↶ Undo erase brings it back.</div>
   <div id="erased-list" style="font-size:11px;color:var(--muted);padding:2px 2px 6px"></div>
   <div class="series-row" id="series-row-full"></div>
@@ -1415,6 +1417,7 @@ function openPast(){
   document.getElementById('past-modal').classList.add('show');
 }
 // Editar cualquier paso, lo anotaras vos o lo registrara el sensor.
+let paEditShown='';
 function editStage(id){
   const st=sess&&sess.stages.find(x=>x.id===id); if(!st)return;
   openPast();
@@ -1433,6 +1436,9 @@ function editStage(id){
       document.getElementById('pa-m').value=mins%60||'';
     }
   }
+  // Lo que se enseñó, para saber después si se tocó: el formulario redondea al
+  // minuto, y guardar tal cual movía unos segundos las horas de un paso medido.
+  paEditShown=['pa-date','pa-time','pa-h','pa-m'].map(i=>document.getElementById(i).value).join('|');
   document.getElementById('pa-rise').value=st.manualRise||'';
   document.getElementById('pa-temp').value=st.manualTemp!=null?st.manualTemp:'';
   document.getElementById('pa-note').value=st.note||'';
@@ -1440,6 +1446,27 @@ function editStage(id){
   paTemps=(st.manualTemps||[]).slice(); renderPaTemps();
   document.getElementById('pa-where').parentElement.style.display='none';
 }
+// Cambiar el nombre es cambiar el nombre: un cuadro de texto encima de donde
+// se tocó, Enter guarda, Esc cancela. Sin abrir el diálogo grande, que es para
+// los pasos anotados a mano.
+function renameStageAt(id,x,y,w){
+  const st=sess&&sess.stages.find(s=>s.id===id); if(!st) return;
+  document.querySelectorAll('.inline-rename').forEach(e=>e.remove());
+  const inp=document.createElement('input');
+  inp.className='num-input inline-rename'; inp.value=st.name;
+  inp.style.cssText=`position:fixed;left:${Math.max(4,Math.min(innerWidth-190,x))}px;top:${Math.max(4,y)}px;width:${Math.max(150,w||150)}px;z-index:3000;font-size:13px;padding:6px 8px;border-color:var(--amber)`;
+  const host=document.fullscreenElement||document.body;
+  host.appendChild(inp); inp.focus(); inp.select();
+  let done=false;
+  const finish=save=>{
+    if(done) return; done=true;
+    const v=inp.value.trim(); inp.remove();
+    if(save&&v&&v!==st.name){ st.name=v; saveSessions(); renderSess(); renderHistory(); if(fullOpen()) drawChartFull(); showToast('✎ Renamed to '+v); }
+  };
+  inp.addEventListener('keydown',e=>{ if(e.key==='Enter'){e.preventDefault();finish(true);} else if(e.key==='Escape'){e.preventDefault();finish(false);} e.stopPropagation(); });
+  inp.addEventListener('blur',()=>finish(true));
+}
+function renameStageEl(id,el){ const r=el.getBoundingClientRect(); renameStageAt(id,r.left-4,r.top-6,r.width+40); }
 function closePast(){ document.getElementById('past-modal').classList.remove('show'); }
 
 // Se guarda exactamente lo que sabés y se marca lo que no. Día sin hora es un
@@ -1476,6 +1503,20 @@ function addPastStage(){
   if(paEditId){
     const st=sess.stages.find(x=>x.id===paEditId);
     if(st){
+      // Editar no cambia la NATURALEZA del paso. Este diálogo es el de los pasos
+      // a mano y guardaba manual:true siempre: cambiarle el nombre a un paso
+      // medido lo convertía en "anotado" y el gráfico y el informe perdían sus
+      // lecturas. Un paso medido sigue medido; lo manual solo se añade si se
+      // escribió algo en esos campos.
+      if(!st.manual){
+        fields.manual=false;
+        if(fields.manualRise==null) delete fields.manualRise;
+        if(fields.manualTemp==null) delete fields.manualTemp;
+        if(!fields.manualTemps) delete fields.manualTemps;
+        // Las horas de un paso medido solo cambian si se cambiaron en el formulario.
+        const nowShown=['pa-date','pa-time','pa-h','pa-m'].map(i=>document.getElementById(i).value).join('|');
+        if(!day||nowShown===paEditShown){ delete fields.startedAt; delete fields.endedAt; delete fields.timeKnown; delete fields.durMin; }
+      }
       Object.assign(st,fields);
       if(startedAt) sess.startedAt=Math.min(sess.startedAt,startedAt);
       saveSessions(); renderSess(); renderHistory(); fetchHistory();
@@ -1737,9 +1778,14 @@ function stageSvg(t0,x0,x1,sx,H,p,W){
     const band=s.manual
       ? `<rect x="${xa.toFixed(1)}" y="${p}" width="${(xb-xa).toFixed(1)}" height="${H-2*p}" fill="#7a8fa8" opacity=".10"/>`
       : '';
-    const tick=`<line x1="${xa.toFixed(1)}" y1="${p}" x2="${xa.toFixed(1)}" y2="${H-p}" stroke="var(--muted)" stroke-width="1" opacity=".45" stroke-dasharray="2 3"/>`;
-    const lab=big&&(xb-xa)>44
-      ? `<text x="${(xa+4).toFixed(1)}" y="${p+11}" font-size="9" fill="${s.manual?'#7a8fa8':'var(--muted)'}" opacity=".9">${s.name}${s.manual?' ✎':''}</text>`
+    const sec=big&&typeof sectionMode!=='undefined'&&sectionMode&&!s.manual;
+    const tick=`<line x1="${xa.toFixed(1)}" y1="${p}" x2="${xa.toFixed(1)}" y2="${H-p}" stroke="${sec?'var(--amber-l)':'var(--muted)'}" stroke-width="${sec?2:1}" opacity="${sec?.9:.45}" stroke-dasharray="${sec?'5 3':'2 3'}"/>`
+      +(sec&&s.endedAt?`<line x1="${xb.toFixed(1)}" y1="${p}" x2="${xb.toFixed(1)}" y2="${H-p}" stroke="var(--amber-l)" stroke-width="2" opacity=".6" stroke-dasharray="5 3"/>`:'');
+    // El nombre cabe en su franja o se recorta con "…": solapados no se leían.
+    const fs=sec?11:9, room=Math.floor((xb-xa-8)/(fs*0.62));
+    const nm=(s.name.length>room?s.name.slice(0,Math.max(1,room-1))+'…':s.name);
+    const lab=big&&(xb-xa)>30
+      ? `<text x="${(xa+4).toFixed(1)}" y="${p+11}" font-size="${sec?11:9}" fill="${s.manual?'#7a8fa8':(sec?'var(--amber-l)':'var(--muted)')}" opacity=".9" ${sec?'text-decoration="underline"':''}><title>${s.name}</title>${nm}${s.manual?' ✎':''}</text>`
       : '';
     return band+tick+lab;
   }).join('');
@@ -1779,9 +1825,15 @@ function drawChart(rows,boxId,W,H){
   // dibujaba una subida que nadie midió.
   const gone=erasedWindows().map(g=>({a:g.from-t0,b:g.to-t0}));
   const stepOf=t=>{const ms=measuredWindows(); for(let k=0;k<ms.length;k++){ if(t+t0>=ms[k].from&&t+t0<=ms[k].to) return k; } return -1;};
+  // Un hueco largo sin lecturas (aparato apagado, sin red) también corta: unir
+  // los dos lados con una recta dibujaba horas de subida que nadie midió.
+  const gaps=xs.slice(1).map((x,i)=>x-xs[i]).sort((a,b)=>a-b);
+  const typical=gaps.length?gaps[Math.floor(gaps.length/2)]:60000;
+  const maxGap=Math.max(10*60000,typical*8);
   const cut=xs.map((x,i)=>{
     if(!i) return true;
     const a=xs[i-1];
+    if(x-a>maxGap) return true;
     if(gone.some(g=>g.a<x&&g.b>a)) return true;
     return stepOf(a)!==stepOf(x);
   });
@@ -1945,6 +1997,7 @@ function erasedSvg(t0,x0,x1,sx,H,p){
 }
 function toggleEraser(){
   eraser=!eraser;
+  if(eraser&&sectionMode) toggleSection();
   document.getElementById('btn-eraser').classList.toggle('on',eraser);
   document.getElementById('btn-eraser').textContent=eraser?'🧽 Erasing — done':'🧽 Erase';
   document.getElementById('chart-full-box').classList.toggle('erasing',eraser);
@@ -2000,6 +2053,152 @@ function renderErased(){
     `<span style="display:inline-block;margin:2px 8px 2px 0">${f(g.from)}–${new Date(g.to).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}`+
     `${g.n?` (${g.n})`:''} <button class="mark-btn" style="padding:2px 6px;font-size:10px" onclick="restoreErased(${i})">↺ restore</button></span>`).join('');
 }
+// ─── Pasos marcados en el gráfico ─────────────────────────────────────────
+// Como las secciones de GarageBand: una marca es una frontera. Tocar parte el
+// paso ahí; arrastrar de A a B crea un paso de A a B; arrastrar una línea de
+// paso la mueve. Los pasos nacen MEDIDOS —el dato ya está grabado—, con su
+// cero en la lectura de ese momento y el objetivo del paso del que salen.
+let sectionMode=false, secDrag=null;
+function toggleSection(){
+  sectionMode=!sectionMode;
+  if(sectionMode&&eraser) toggleEraser();
+  document.getElementById('btn-section').classList.toggle('on',sectionMode);
+  document.getElementById('section-hint').style.display=sectionMode?'block':'none';
+  // Las fronteras solo se ven con toda la hoja a la vista.
+  if(sectionMode&&stagePick!=='all'){ stagePick='all'; renderHistory(); }
+  if(fullOpen()) drawChartFull();
+}
+// La sección que se está marcando se ve como una franja, no como un borrado.
+function secShade(a,b){
+  const svg=document.querySelector('#chart-full-box svg'); if(!svg||!chartState) return;
+  let r=svg.querySelector('#sec-shade');
+  if(a==null){ if(r) r.remove(); return; }
+  if(!r){ r=document.createElementNS('http://www.w3.org/2000/svg','rect'); r.id='sec-shade';
+    r.setAttribute('fill','rgba(240,168,50,.18)'); r.setAttribute('stroke','var(--amber-l)'); svg.appendChild(r); }
+  r.setAttribute('x',Math.min(a,b)); r.setAttribute('width',Math.max(1,Math.abs(b-a)));
+  r.setAttribute('y',chartState.p); r.setAttribute('height',chartState.H-2*chartState.p);
+}
+function measured(){ return (sess?sess.stages:[]).filter(s=>!s.manual&&s.startedAt).sort((a,b)=>a.startedAt-b.startedAt); }
+function stageAtTime(t){ return measured().find(s=>t>=s.startedAt&&t<=(s.endedAt||Date.now())); }
+function newStageFrom(src,from,to,name){
+  const z=distAt(from);
+  const st={id:Date.now()+Math.floor(Math.random()*1000),name:name,startedAt:from,endedAt:to,note:'',photos:[]};
+  if(z!=null){ st.zeroDist=z; st.zeroAt=from; }
+  if(src){ if(src.goalCm) st.goalCm=src.goalCm; if(src.myRatio) st.myRatio=src.myRatio; }
+  return st;
+}
+function insertStage(st){
+  sess.stages.push(st);
+  sess.stages.sort((a,b)=>(a.startedAt||0)-(b.startedAt||0));
+  if(st.startedAt) sess.startedAt=Math.min(sess.startedAt,st.startedAt);
+}
+function nextName(){ return 'Step '+(sess.stages.length+1); }
+// Tocar: partir el paso que hay ahí. En un hueco entre pasos, un paso nuevo
+// desde ahí hasta el siguiente.
+function splitAt(t){
+  const S=stageAtTime(t);
+  let st;
+  if(S){
+    if(t-S.startedAt<60000||(S.endedAt||Date.now())-t<60000){ showToast('Too close to the edge of the step'); return null; }
+    st=newStageFrom(S,t,S.endedAt||null,nextName());
+    S.endedAt=t;
+  }else{
+    const nx=measured().find(s=>s.startedAt>t);
+    st=newStageFrom(activeStage(),t,nx?nx.startedAt:null,nextName());
+    // Sin paso después, el nuevo queda abierto solo si no hay otro abierto.
+    if(!nx&&measured().some(s=>!s.endedAt)) st.endedAt=Date.now();
+  }
+  insertStage(st); return st;
+}
+// Arrastrar: un paso de A a B. Dentro de un paso lo parte en tres; en un hueco
+// ocupa el hueco. No se come pasos enteros: eso borraría lo que se nombró.
+function sectionRange(a,b){
+  if(b-a<120000){ showToast('Drag a little longer — at least two minutes'); return null; }
+  const inside=measured().filter(s=>s.startedAt<b&&(s.endedAt||Date.now())>a);
+  if(inside.length>1||(inside[0]&&inside[0].startedAt>=a&&(inside[0].endedAt||Date.now())<=b)){
+    showToast('A new step can’t cover a whole existing one — drag inside a step or in a gap'); return null;
+  }
+  const S=inside[0];
+  const st=newStageFrom(S||activeStage(),a,b,nextName());
+  if(S){
+    const end=S.endedAt;
+    if(a>S.startedAt&&b<(end||Date.now())){
+      // En medio: S | nuevo | resto de S
+      S.endedAt=a;
+      const rest=newStageFrom(S,b,end||null,S.name+' (2)');
+      insertStage(rest);
+    }else if(a<=S.startedAt){ S.startedAt=b; S.zeroDist=distAt(b)??S.zeroDist; S.zeroAt=b; }
+    else{ S.endedAt=a; }
+  }
+  insertStage(st); return st;
+}
+// Frontera cercana al puntero, para moverla.
+function boundaryNear(vbx){
+  if(!chartState) return null;
+  const {t0,sx}=chartState;
+  for(const s of measured()){
+    for(const edge of ['start','end']){
+      const t=edge==='start'?s.startedAt:s.endedAt; if(!t) continue;
+      if(Math.abs(sx(t-t0)-vbx)<7) return {s,edge};
+    }
+  }
+  return null;
+}
+function afterSectionEdit(st,rename){
+  saveSessions(); renderSess(); renderHistory(); drawChartFull(); fetchHistory();
+  if(st&&rename){
+    // Recién marcado: el nombre se puede cambiar en el acto, encima de su etiqueta.
+    const svg=document.querySelector('#chart-full-box svg'); if(!svg||!chartState) return;
+    const r=svg.getBoundingClientRect(), k=r.width/chartState.W;
+    const x=r.left+chartState.sx(st.startedAt-chartState.t0)*k;
+    setTimeout(()=>renameStageAt(st.id,x,r.top+chartState.p*k,160),60);
+  }
+}
+function initSectionHandlers(box,toVb){
+  box.addEventListener('pointerdown',e=>{
+    if(!sectionMode) return;
+    e.stopImmediatePropagation();
+    try{ box.setPointerCapture(e.pointerId); }catch(err){}
+    const v=toVb(e); if(v==null) return;
+    const svg=box.querySelector('svg'), r=svg.getBoundingClientRect();
+    const vy=(e.clientY-r.top)/r.height*chartState.H;
+    // Tocar el nombre de un paso (franja de arriba) lo renombra.
+    if(vy<chartState.p+16){
+      const S=stageAtTime(vbToAbs(v));
+      if(S){ const x=r.left+chartState.sx(S.startedAt-chartState.t0)*r.width/chartState.W; renameStageAt(S.id,x,r.top+chartState.p*r.height/chartState.H,160); secDrag=null; return; }
+    }
+    const bnd=boundaryNear(v);
+    secDrag={v0:v,bnd,moved:false};
+  },true);
+  box.addEventListener('pointermove',e=>{
+    if(!sectionMode||!secDrag) return;
+    e.stopImmediatePropagation();
+    const v=toVb(e); if(v==null) return;
+    if(Math.abs(v-secDrag.v0)>4) secDrag.moved=true;
+    if(secDrag.bnd){
+      // Mover una frontera: el paso vecino que la comparte se mueve con ella.
+      const t=vbToAbs(v), {s,edge}=secDrag.bnd;
+      const prev=measured().filter(x=>x!==s&&x.endedAt&&Math.abs(x.endedAt-s.startedAt)<60000)[0];
+      const next=measured().filter(x=>x!==s&&s.endedAt&&Math.abs(x.startedAt-s.endedAt)<60000)[0];
+      if(edge==='start'&&t<(s.endedAt||Date.now())-60000){ s.startedAt=t; if(prev) prev.endedAt=t; }
+      if(edge==='end'&&t>s.startedAt+60000){ s.endedAt=t; if(next) next.startedAt=t; }
+      drawChartFull();
+    }else if(secDrag.moved){ secShade(secDrag.v0,v); }
+  },true);
+  box.addEventListener('pointerup',e=>{
+    if(!sectionMode||!secDrag) return;
+    e.stopImmediatePropagation();
+    const v=toVb(e), d=secDrag; secDrag=null; secShade(null,null);
+    if(v==null) return;
+    if(d.bnd){
+      if(d.moved){ const {s}=d.bnd; const z=distAt(s.startedAt); if(z!=null){ s.zeroDist=z; s.zeroAt=s.startedAt; } afterSectionEdit(null,false); showToast('Step moved'); }
+      else{ const st=splitAt(vbToAbs(v)); if(st) afterSectionEdit(st,true); }
+      return;
+    }
+    const st=d.moved ? sectionRange(vbToAbs(Math.min(d.v0,v)),vbToAbs(Math.max(d.v0,v))) : splitAt(vbToAbs(v));
+    if(st) afterSectionEdit(st,true);
+  },true);
+}
 function initReadout(){
   const box=document.getElementById('chart-full-box');
   const toVb=e=>{
@@ -2007,6 +2206,7 @@ function initReadout(){
     const r=svg.getBoundingClientRect();
     return (e.clientX-r.left)/r.width*chartState.W;
   };
+  initSectionHandlers(box,toVb);
   const move=e=>{
     e.preventDefault(); const v=toVb(e); if(v==null)return;
     if(eraser){ if(eraseFrom!=null) eraseShade(eraseFrom,v); return; }
@@ -3497,7 +3697,7 @@ function renderSess(){
     return `<div style="padding:8px 0;border-bottom:1px solid var(--border)">
       <div style="display:flex;align-items:center;gap:8px">
         <span style="color:var(--muted);min-width:38px">${t}</span>
-        <span style="flex:1">${s.name}${hand}${s.endedAt?'':' <span style="color:var(--green)">•</span>'}</span>
+        <span style="flex:1"><span onclick="renameStageEl(${s.id},this)" title="Tap to rename" style="cursor:text;border-bottom:1px dotted var(--border)">${s.name}</span>${hand}${s.endedAt?'':' <span style="color:var(--green)">•</span>'}</span>
         <span style="color:var(--muted)">${dur!=null?fmtElapsed(dur):'no time'}</span>
       </div>
       ${handVals}
@@ -4272,7 +4472,13 @@ let hudTimer=null, hudChartAt=0;
 // minigráfico solo de temperatura.
 function hudChart(el){
   const box=el.querySelector('.hud-chart'); if(!box) return;
-  drawChart(chartRows(),box.id,220,78);
+  // Solo el paso en curso: con la cámara delante interesa cómo va ESTA subida,
+  // no la hoja entera. Se mira a través del mismo filtro de "paso elegido" que
+  // usa el gráfico de la app, y se deja como estaba.
+  const a=activeStage(), keep=stagePick;
+  if(a&&!a.manual&&a.startedAt) stagePick=String(a.id);
+  try{ drawChart(chartRows(),box.id,220,78); } finally{ stagePick=keep; }
+  const ttl=el.querySelector('.l'); if(ttl) ttl.textContent=a?('Chart · '+a.name):'Chart';
   const lg=el.querySelector('.hud-legend');
   if(lg) lg.innerHTML=SERIES.filter(sr=>seriesOn[sr.key]).map(sr=>`<span style="color:${sr.color}">● ${sr.label}</span>`).join(' ');
 }

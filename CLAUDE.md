@@ -97,7 +97,8 @@ gráfico agrandado sea el mismo gráfico). Posición y tamaño en fracciones de 
 pantalla (`pb-hud-pos`), así sobreviven a girar el móvil; nunca se salen. Se
 crean una vez y solo se actualiza su contenido, o el arrastre se rompería a
 medio gesto. La caja "Chart" es el MISMO `drawChart` que el de la app — mismas
-series, suavizado y paso —; antes era un minigráfico solo de temperatura.
+series y suavizado —, pero SOLO del paso en curso: con la cámara delante
+interesa esta subida, no la hoja entera. Antes era un minigráfico de temperatura.
 
 **El giro se comparte entre aparatos** como mensaje retenido en
 `proofboxcam/proofbox-cam01/rot` (`{deg, subject}`), no en `proofbox_state`: no
@@ -293,6 +294,25 @@ percentil 95 del paso, no del máximo: un pico del ToF lo marcaba antes de tiemp
 **El aviso `meta_reached` del aparato se ignora.** Cuenta desde su cero único y
 con su × de distancias; decía "objetivo alcanzado 1,9×" con la hoja al 88%. La
 alarma la decide la hoja.
+
+**Pasos marcados en el gráfico, como las secciones de GarageBand** (botón
+"⎸⎸ Steps" del gráfico grande). Una marca es una frontera: tocar parte el paso
+ahí (`splitAt`); arrastrar de A a B crea un paso de A a B, y dentro de un paso lo
+parte en tres (`sectionRange`); arrastrar una línea la mueve y el vecino que la
+comparte se mueve con ella. No se permite tragarse un paso entero. Los pasos
+nacen MEDIDOS —el dato ya está grabado— con su cero en la lectura de ese momento
+(`distAt`) y el objetivo del paso del que salen. Recién marcado, se abre el
+cuadro para ponerle nombre encima de su etiqueta.
+
+**Renombrar no es editar.** Tocar el nombre (en la lista o en la franja del
+gráfico) abre un cuadro en el sitio: Enter guarda, Esc cancela. Y el diálogo
+**Edit** ya no convierte un paso medido en manual —guardaba `manual:true`
+siempre— ni le mueve las horas, que redondeaba al minuto: solo cambian si se
+tocaron los campos de fecha, hora o duración.
+
+**Un hueco largo sin lecturas corta la línea** (más de 10 min, u 8 veces el
+intervalo típico): la recta entre los dos lados dibujaba horas de subida que
+nadie midió.
 
 **La goma se ve como una goma.** Cursor propio mientras está activa, la línea
 desaparece bajo el arrastre (una máscara SVG sobre las capas de datos, la
