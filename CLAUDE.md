@@ -82,6 +82,15 @@ fotograma del VIVO: la foto de archivo puede ser de hace 10 min, de antes de
 mover la cámara. Primera prueba con esto: encontró el frasco tumbado y lo giró
 128°, derecho. Por debajo de 0,3 de confianza propone y no aplica.
 
+**Zoom en pantalla completa**, como el de Chrome: − y + con pasos fijos
+(100, 110, 125, 150, 175, 200, 250, 300, 400, 500 %), el % a la vista y un toque
+en él vuelve a 100 %; teclas + − 0; rueda y pellizco de trackpad. En el móvil,
+con dos dedos (continuo) y un dedo para moverse ampliado; los botones + − se
+ocultan con `(hover:none)`. Doble toque: 100 ↔ 200 %. El desplazamiento va antes
+del giro en el `transform`, así arrastrar a la derecha mueve a la derecha aunque
+la imagen esté girada, y se limita para no sacar la imagen de la pantalla.
+Zoom, ⚙ y ✕ van juntos arriba a la derecha.
+
 **El giro se comparte entre aparatos** como mensaje retenido en
 `proofboxcam/proofbox-cam01/rot` (`{deg, subject}`), no en `proofbox_state`: no
 toca la fila compartida y llega al instante a cualquiera que se conecte. En

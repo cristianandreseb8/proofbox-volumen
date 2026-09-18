@@ -175,14 +175,21 @@ body.board .app{max-width:none;padding:16px 22px 80px}
 .cam-full.show{display:flex}
 .cam-full-stage{flex:1;min-height:0;position:relative;overflow:hidden;background:#000}
 .cam-full-stage img{width:100%;height:100%;object-fit:contain;display:block}
-/* La X flota encima de todo: con la imagen girada y ampliada, en el móvil la
-   barra de abajo quedaba tapada y no había manera de salir. */
-.cam-full-x{position:absolute;top:max(10px,env(safe-area-inset-top));right:max(10px,env(safe-area-inset-right));z-index:5;
-  width:40px;height:40px;border-radius:50%;border:1px solid rgba(255,255,255,.35);background:rgba(0,0,0,.55);color:#fff;font-size:18px;cursor:pointer}
+/* Zoom, tuerca y X flotan arriba a la derecha, encima de todo: con la imagen
+   girada y ampliada, en el móvil la barra de abajo quedaba tapada y no había
+   manera de salir. */
+.cam-full-top{position:absolute;top:max(10px,env(safe-area-inset-top));right:max(10px,env(safe-area-inset-right));z-index:5;
+  display:flex;gap:6px;align-items:center}
+.cam-full-top button{height:38px;min-width:38px;border-radius:19px;border:1px solid rgba(255,255,255,.35);background:rgba(0,0,0,.55);
+  color:#fff;font-size:16px;cursor:pointer;padding:0 10px;font-family:'DM Mono',monospace}
+.cam-full-top .zp{font-size:12px;min-width:56px}
+/* En el móvil el zoom es con los dedos: los botones + y − sobran. */
+@media (hover:none){ .cam-full-top .zb{display:none} }
+.cam-full-stage{touch-action:none;cursor:grab}
 .cam-full-bar{position:relative;z-index:4}
 .cam-hud{position:absolute;top:10px;bottom:10px;display:flex;flex-direction:column;gap:6px;z-index:3;pointer-events:none;max-width:42%}
 .cam-hud.left{left:10px}
-.cam-hud.right{right:10px;align-items:flex-end;top:60px}
+.cam-hud.right{right:10px;align-items:flex-end;top:62px}
 .hud-item{background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.15);border-radius:8px;padding:5px 8px;color:#fff;
   font-family:'DM Mono',monospace;font-size:11px;line-height:1.3;backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
 .hud-item b{font-size:15px;color:var(--amber-l);font-weight:600}
@@ -276,10 +283,15 @@ body.board .app{max-width:none;padding:16px 22px 80px}
     <div class="cam-hud left" id="hud-left"></div>
     <div class="cam-hud right" id="hud-right"></div>
   </div>
-  <button class="cam-full-x" onclick="closeCamFull()" title="Close">✕</button>
+  <div class="cam-full-top">
+    <button class="zb" onclick="zoomStep(-1)" title="Zoom out">−</button>
+    <button class="zp" id="cam-zoom-pct" onclick="setZoom(1)" title="Back to 100%">100%</button>
+    <button class="zb" onclick="zoomStep(1)" title="Zoom in">+</button>
+    <button onclick="openHudCfg()" title="What to show over the picture">⚙</button>
+    <button onclick="closeCamFull()" title="Close">✕</button>
+  </div>
   <div class="cam-full-bar">
     <span class="who" id="cam-full-txt"></span>
-    <button onclick="openHudCfg()" title="What to show over the picture">⚙</button>
     <button onclick="askShot()">📸 Picture</button>
     <button onclick="straightenWithClaude()" title="Claude levels the image">✨ Straighten</button>
     <button id="btn-live-full" onclick="toggleLive()">▶ Live</button>
@@ -3817,6 +3829,12 @@ function rotCss(el){
 // En pantalla completa, al revés que en la tarjeta: la imagen girada se ve
 // ENTERA, reducida lo justo para que quepa. Ampliar para tapar esquinas en una
 // pantalla alta de móvil cortaba medio frasco.
+// Zoom como el de Chrome: pasos fijos con + y −, y el % a la vista; con los
+// dedos, continuo. Ampliado, se arrastra para moverse. El desplazamiento va en
+// coordenadas de pantalla (antes del giro), así arrastrar a la derecha mueve
+// a la derecha aunque la imagen esté girada 128°.
+const ZOOM_STEPS=[1,1.1,1.25,1.5,1.75,2,2.5,3,4,5];
+let camZoom=1, panX=0, panY=0;
 function rotFit(img){
   if(!img) return;
   const box=img.parentElement; if(!box) return;
@@ -3824,9 +3842,75 @@ function rotFit(img){
   const iw=img.naturalWidth||4, ih=img.naturalHeight||3;
   const k=Math.min(bw/iw,bh/ih), w=iw*k, h=ih*k;       // tamaño que ocupa con contain
   const r=Math.abs(camRot*Math.PI/180), c=Math.abs(Math.cos(r)), si=Math.abs(Math.sin(r));
-  const fit=Math.min(bw/(w*c+h*si), bh/(w*si+h*c));
-  img.style.transform=camRot?`rotate(${camRot}deg) scale(${fit.toFixed(3)})`:'';
+  const fit=camRot?Math.min(bw/(w*c+h*si), bh/(w*si+h*c)):1;
+  // Que no se pueda arrastrar la imagen fuera de la pantalla.
+  const lim=(n,max)=>Math.max(-max,Math.min(max,n));
+  panX=lim(panX,(camZoom-1)*bw/2); panY=lim(panY,(camZoom-1)*bh/2);
+  const t=[];
+  if(panX||panY) t.push(`translate(${panX.toFixed(1)}px,${panY.toFixed(1)}px)`);
+  if(camRot) t.push(`rotate(${camRot}deg)`);
+  if(fit*camZoom!==1) t.push(`scale(${(fit*camZoom).toFixed(3)})`);
+  img.style.transform=t.join(' ');
+  const z=document.getElementById('cam-zoom-pct'); if(z) z.textContent=Math.round(camZoom*100)+'%';
+  const st=document.getElementById('cam-full-stage'); if(st) st.style.cursor=camZoom>1?'grab':'default';
 }
+function setZoom(z){
+  camZoom=Math.max(1,Math.min(5,z));
+  if(camZoom===1){ panX=0; panY=0; }
+  rotFit(document.getElementById('cam-full-img'));
+}
+function zoomStep(dir){
+  const i=ZOOM_STEPS.findIndex(v=>v>=camZoom-0.001);
+  let j=dir>0?(ZOOM_STEPS[i]>camZoom+0.001?i:i+1):(ZOOM_STEPS[i]<camZoom-0.001?i:i-1);
+  if(i<0) j=dir>0?ZOOM_STEPS.length-1:ZOOM_STEPS.length-2;
+  setZoom(ZOOM_STEPS[Math.max(0,Math.min(ZOOM_STEPS.length-1,j))]);
+}
+// Gestos: dos dedos = zoom (y mover), uno = arrastrar si está ampliado. En el
+// ordenador, el pellizco del trackpad llega como rueda con Ctrl.
+(function initZoomGestures(){
+  const st=()=>document.getElementById('cam-full-stage');
+  const pts=new Map(); let g=null;
+  const mid=()=>{const a=[...pts.values()]; return {x:(a[0].x+a[1].x)/2,y:(a[0].y+a[1].y)/2,d:Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y)};};
+  addEventListener('DOMContentLoaded',()=>{
+    const el=st(); if(!el) return;
+    el.addEventListener('pointerdown',e=>{
+      try{el.setPointerCapture(e.pointerId);}catch(err){}
+      pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
+      if(pts.size===2){ const m=mid(); g={z:camZoom,d:m.d,x:m.x,y:m.y,px:panX,py:panY}; }
+      else if(pts.size===1){ g={x:e.clientX,y:e.clientY,px:panX,py:panY,drag:true}; }
+    });
+    el.addEventListener('pointermove',e=>{
+      if(!pts.has(e.pointerId)) return;
+      pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
+      if(pts.size===2&&g&&g.d){
+        const m=mid();
+        camZoom=Math.max(1,Math.min(5,g.z*m.d/g.d));
+        panX=g.px+(m.x-g.x); panY=g.py+(m.y-g.y);
+        rotFit(document.getElementById('cam-full-img'));
+      }else if(pts.size===1&&g&&g.drag&&camZoom>1){
+        panX=g.px+(e.clientX-g.x); panY=g.py+(e.clientY-g.y);
+        rotFit(document.getElementById('cam-full-img'));
+      }
+    });
+    const up=e=>{ pts.delete(e.pointerId); if(pts.size===1){ const p=[...pts.values()][0]; g={x:p.x,y:p.y,px:panX,py:panY,drag:true}; } else if(!pts.size){ g=null; if(camZoom<1.02) setZoom(1); } };
+    el.addEventListener('pointerup',up); el.addEventListener('pointercancel',up);
+    el.addEventListener('wheel',e=>{
+      if(!camFullOpen()) return;
+      e.preventDefault();
+      // Ctrl+rueda (y el pellizco del trackpad) hacen zoom; la rueda sola también.
+      setZoom(camZoom*Math.exp(-e.deltaY*(e.ctrlKey?0.01:0.002)));
+    },{passive:false});
+    // Doble toque o doble clic: 100% ↔ 200%.
+    el.addEventListener('dblclick',()=>setZoom(camZoom>1.05?1:2));
+  });
+  // + y − del teclado, como en el navegador.
+  addEventListener('keydown',e=>{
+    if(!camFullOpen()) return;
+    if(e.key==='+'||e.key==='='){ e.preventDefault(); zoomStep(1); }
+    else if(e.key==='-'){ e.preventDefault(); zoomStep(-1); }
+    else if(e.key==='0'){ e.preventDefault(); setZoom(1); }
+  });
+})();
 function paintRot(){
   const n=document.getElementById('cam-rot-n'); if(n) n.textContent=Math.round(camRot)+'°';
   const r=document.getElementById('cam-rot-range'); if(r&&+r.value!==Math.round(camRot)) r.value=Math.round(camRot);
@@ -4114,6 +4198,7 @@ let camFullSrc=null;   // null = sigue el vivo; si no, una captura concreta
 function openCamFull(src){
   const box=document.getElementById('cam-full'), img=document.getElementById('cam-full-img');
   camFullSrc=src||null;
+  camZoom=1; panX=0; panY=0;
   img.dataset.fitted='';
   img.onload=()=>{ rotFit(img); img.dataset.fitted='1'; };
   img.src=src||document.getElementById('cam-img').src;
