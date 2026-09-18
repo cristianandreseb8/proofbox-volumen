@@ -85,6 +85,20 @@ pasada** sobre la imagen ya girada mide lo que falta y lo corrige si son ≤15°
 la prueba: 115°, con -7,3° de retoque, y la tapa quedó horizontal. Usa el
 fotograma del vivo; "What to level" le dice qué buscar.
 
+**En pantalla completa nativa solo se pinta lo que está DENTRO del elemento.**
+El diálogo de la tuerca, los avisos y la alarma se abrían detrás y había que
+salir para verlos. `adoptOverlays()` los muda dentro de `#cam-full` al abrir y
+`releaseOverlays()` los devuelve al cerrar. Cualquier overlay nuevo que deba
+verse en pantalla completa va en `FS_OVERLAYS`.
+
+**Cajas de la pantalla completa**: se arrastran desde cualquier parte y se
+agrandan por la esquina (0,6× a 4×, escalado entero con `transform` para que un
+gráfico agrandado sea el mismo gráfico). Posición y tamaño en fracciones de la
+pantalla (`pb-hud-pos`), así sobreviven a girar el móvil; nunca se salen. Se
+crean una vez y solo se actualiza su contenido, o el arrastre se rompería a
+medio gesto. La caja "Chart" es el MISMO `drawChart` que el de la app — mismas
+series, suavizado y paso —; antes era un minigráfico solo de temperatura.
+
 **El giro se comparte entre aparatos** como mensaje retenido en
 `proofboxcam/proofbox-cam01/rot` (`{deg, subject}`), no en `proofbox_state`: no
 toca la fila compartida y llega al instante a cualquiera que se conecte. En
