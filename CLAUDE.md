@@ -154,6 +154,22 @@ Las capturas se borran desde la app, una a una o todas, con un solo `DELETE` y
 la lista en `prefixes` (por tandas de 100: una lista de cientos falla). Borrar
 una captura no toca la copia que se hubiera añadido a un paso.
 
+**La IA mira el frasco** (🤖 en la tarjeta de la cámara; 👁 lo enseña u oculta
+sin pararlo). Complemento del ToF, no sustituto: la cámara ve en ángulo, el ToF
+mide, así que manda el ToF y se enseñan los dos porcentajes. Claude marca base y
+tapa del frasco (su eje), media anchura, la cima de la cúpula y los extremos de
+la línea de plumón, y dice si la masa la alcanzó. Las alturas se miden A LO LARGO
+DEL EJE en fracciones del largo del frasco: no cambian al acercar, girar o mover
+la cámara. Se analiza siempre la foto entera, no lo ampliado. El progreso cuenta
+desde la primera medida del paso (`visionStartH`). El aviso suena una vez por paso
+y con DOS lecturas seguidas (un reflejo en el cristal no basta).
+Dibujo: capa SVG del tamaño de la parte que pinta la foto (`contain`) con el
+MISMO transform que la imagen y el mismo centro, así acompaña giro, zoom y
+arrastre. Un solo análisis para todos los aparatos: el resultado va retenido a
+`.../vision` y un aparato solo analiza si el último es más viejo que el
+intervalo (2/5/10/15 min). Cada análisis es una llamada a Claude: cuesta.
+Solo corre con la app abierta en algún aparato.
+
 **Actualización por el aire (OTA).** Desde el firmware 2 la placa mira
 `fw/cam.json` en GitHub Pages al arrancar (pasado un minuto), cada 6 h y cuando
 la app manda `update`; si la versión publicada es mayor que su `FW_VERSION`, se
