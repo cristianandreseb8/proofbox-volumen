@@ -180,6 +180,20 @@ arrastre. Un solo análisis para todos los aparatos: el resultado va retenido a
 intervalo (2/5/10/15 min). Cada análisis es una llamada a Claude: cuesta.
 Solo corre con la app abierta en algún aparato.
 
+**Cualquier recipiente, y el panadero puede enmarcarlo.** La descripción ("What
+to level", por defecto "frasco o vaso con masa") es una pista, no una regla: el
+prompt acepta frasco con o sin tapa, vaso, taza, bol o tarrina, y "tapa" es la
+tapa o el borde de la boca. Con ⬚ se dibuja un recuadro sobre la imagen; se
+guarda en coordenadas de la FOTO (`screenToRaw` deshace el transform de la
+imagen con la inversa de su matriz y el `contain`; comprobado ida y vuelta con
+giro 30°, zoom 1,5 y desplazamiento) y la IA mira solo ese recorte con un 25% de
+margen, ampliado si es pequeño; las coordenadas se devuelven a la foto entera
+(`uncrop`). Con tu captura: sin recuadro 32-38% de confianza; con recuadro 72% y
+el frasco bien orientado. Tras una detección buena el recuadro se reajusta al
+recipiente, pero uno puesto a mano solo se mueve si lo encontrado cae dentro. Si
+el recuadro es automático y no encuentra nada dentro, mira la foto entera. El
+recuadro viaja retenido en `.../hint`.
+
 **Actualización por el aire (OTA).** Desde el firmware 2 la placa mira
 `fw/cam.json` en GitHub Pages al arrancar (pasado un minuto), cada 6 h y cuando
 la app manda `update`; si la versión publicada es mayor que su `FW_VERSION`, se

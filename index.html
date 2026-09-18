@@ -297,6 +297,7 @@ body.board .app{max-width:none;padding:16px 22px 80px}
     <button class="zb" onclick="zoomStep(-1)" title="Zoom out">−</button>
     <button class="zp" id="cam-zoom-pct" onclick="setZoom(1)" title="Back to 100%">100%</button>
     <button class="zb" onclick="zoomStep(1)" title="Zoom in">+</button>
+    <button id="btn-frame-full" onclick="toggleFrameMode()" title="Draw a box around the jar">⬚</button>
     <button id="btn-vis-eye-full" onclick="toggleVisShow()" title="Show or hide what the AI sees">👁</button>
     <button onclick="openHudCfg()" title="What to show over the picture">⚙</button>
     <button onclick="closeCamFull()" title="Close">✕</button>
@@ -602,6 +603,10 @@ body.board .app{max-width:none;padding:16px 22px 80px}
         </select>
         <button id="btn-vis-now" onclick="runVision(true)">Check now</button>
       </div>
+      <div class="cam-btns" style="margin-top:4px">
+        <button id="btn-frame" onclick="toggleFrameMode()" title="Draw a box around the jar so the AI knows where it is">⬚ Frame the jar</button>
+        <button onclick="clearHint()" title="Let the AI look at the whole picture">✕ Clear frame</button>
+      </div>
       <div style="font-size:10px;color:var(--muted);margin-top:6px;line-height:1.45" id="vis-note">It frames the jar, finds the top of the dough and the line you drew with a marker, and warns you when the dough reaches the line. The sensor still leads: the camera sees at an angle. Each check is a call to Claude and costs a little.</div>
     </div>
     <div id="cam-rot-box" style="display:none;margin-top:8px">
@@ -619,7 +624,7 @@ body.board .app{max-width:none;padding:16px 22px 80px}
       </div>
       <div class="cam-btns" style="margin-top:4px">
         <span style="font-size:10px;color:var(--muted)">What to level</span>
-        <input class="num-input" id="cam-subject" style="flex:1;font-size:11px;padding:4px 8px" placeholder="frasco de vidrio con tapa verde" onchange="setSubject(this.value)">
+        <input class="num-input" id="cam-subject" style="flex:1;font-size:11px;padding:4px 8px" placeholder="frasco o vaso con masa" onchange="setSubject(this.value)">
       </div>
     </div>
     <div style="font-size:10px;color:var(--muted);margin-top:6px;display:flex;gap:8px"><span id="cam-state" style="flex:1"></span><span id="cam-fw" style="opacity:.7"></span></div>
@@ -4015,7 +4020,7 @@ function askShot(){
 // queda recta. Se hace aquí y no en la cámara porque el sensor solo sabe
 // voltear; y se aplica al pintar Y al guardar, así lo que va al informe sale
 // derecho. Es del aparato, no de la hoja: depende de cómo esté puesta la cámara.
-let camRot=0, camSubject='frasco de vidrio con tapa verde';
+let camRot=0, camSubject='frasco o vaso con masa';
 try{ camRot=parseFloat(localStorage.getItem('pb-cam-rot')||'0')||0; }catch(e){}
 try{ camSubject=localStorage.getItem('pb-cam-subject')||camSubject; }catch(e){}
 // El giro es de la cámara, no de la pantalla: girarla en el ordenador y verla
@@ -4033,7 +4038,7 @@ function setRot(v,fromRemote){
   if(!fromRemote){ clearTimeout(setRot._t); setRot._t=setTimeout(publishRot,400); }   // el deslizador no inunda el broker
 }
 function setSubject(v){
-  camSubject=(v||'').trim()||'frasco de vidrio con tapa verde';
+  camSubject=(v||'').trim()||'frasco o vaso con masa';
   try{ localStorage.setItem('pb-cam-subject',camSubject); }catch(e){}
   publishRot();
 }
@@ -4215,12 +4220,12 @@ const PT={type:['object','null'],additionalProperties:false,required:['x','y'],p
 async function askLines(dataUrl,W,H,refine){
   const sys=`You mark straight edges in a photo so an app can rotate it until a container stands upright with its lid parallel to the floor.
 
-The container is: ${camSubject}. It holds bread dough. The photo is from a small camera: it may be dim or soft, and ${refine?'it has already been roughly straightened, so the lid should be close to horizontal':'it may be tilted, sideways or upside down'}. Find the container anyway — its lid, colour and outline are enough.
+The baker describes the container as "${camSubject}" — a hint, not a rule: it may be a jar with or without a lid, a glass, a cup, a bowl or a tub. It holds bread dough. The photo is from a small camera: it may be dim or soft, and ${refine?'it has already been roughly straightened, so the lid should be close to horizontal':'it may be tilted, sideways or upside down'}. Find the container anyway — its lid, colour and outline are enough.
 
 Coordinates are normalised to the image AS SHOWN: x from 0 (left) to 1 (right), y from 0 (top) to 1 (bottom). Each segment is two points on the SAME straight edge, as far apart along it as you can place them — long segments give a precise angle, short ones do not.
 
 - found: false only if the container is really not there.
-- lid_edge: the straight edge across the lid or rim of the opening — in side view the line where the lid meets the jar, or the lid's flat top edge. This is the most important one.
+- lid_edge: the straight edge across the top of the container — the lid's edge if it has one, otherwise the rim of the opening. This is the most important one.
 - base_edge: the straight line where the container's bottom sits, if visible. Null otherwise.
 - floor_edge: a straight edge of the floor, table or shelf the container stands on — a table edge, a tile line, the shelf front. Null if there is none.
 - left_side, right_side: the container's two straight vertical sides, top to bottom. Null for a side you cannot see as a straight line.
@@ -4399,15 +4404,16 @@ async function runVision(force){
   try{
     const d=await new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.onerror=rej;fr.readAsDataURL(blob);});
     const dim=await new Promise(res=>{const i=new Image();i.onload=()=>res([i.width,i.height]);i.onerror=()=>res([4,3]);i.src=d;});
+    const crop=await cropForVision(d,dim[0],dim[1]);
     const sys=`You watch bread dough rise inside a container, through a small camera, and report where things are so the app can draw them and warn the baker.
 
-The container is: ${camSubject}. The baker drew a line on the outside of the container with a marker pen: that is the target height. The photo may be tilted, sideways, upside down, dim or soft — work with it.
+The baker describes it as: "${camSubject}". Take that as a hint, not a rule: the container can be anything that holds dough — a jar with or without its lid, a drinking glass, a cup, a bowl, a plastic tub. Find the vessel with dough in it and work from what you see.${visHint&&visHint.byHand?' The baker framed it by hand, so it is in this picture.':''} The baker may have drawn a line on the outside with a marker pen: that is the target height. The photo may be tilted, sideways, upside down, dim or soft — work with it.
 
 Coordinates are normalised to the image AS SHOWN: x 0 (left) to 1 (right), y 0 (top) to 1 (bottom).
 
 - found: false only if the container is not in the photo.
 - base_center: middle of the container's bottom (or its lowest visible part along its own axis).
-- lid_center: middle of the lid or top opening.
+- lid_center: middle of the TOP of the container — its lid if it has one, otherwise the rim of the opening.
 - half_width: half the container's width, as a fraction of the base-to-lid distance.
 - dough_top: the highest point of the dough's dome along the container's axis (towards the lid) — the very top of the dome, not where the dough touches the glass.
 - marker_line: the two ends of the line drawn with the marker. Null if you cannot see one.
@@ -4416,19 +4422,26 @@ Coordinates are normalised to the image AS SHOWN: x 0 (left) to 1 (right), y 0 (
 - note: a few words in Spanish on what you see.`;
     const PT2={type:['object','null'],additionalProperties:false,required:['x','y'],properties:{x:{type:'number'},y:{type:'number'}}};
     const SEG2={type:['object','null'],additionalProperties:false,required:['x1','y1','x2','y2'],properties:{x1:{type:'number'},y1:{type:'number'},x2:{type:'number'},y2:{type:'number'}}};
-    const rr=await fetch(`${SUPA_URL}/functions/v1/claude-proxy`,{method:'POST',
+    const ask=img=>fetch(`${SUPA_URL}/functions/v1/claude-proxy`,{method:'POST',
       headers:{Authorization:'Bearer '+SUPA_JWT,'Content-Type':'application/json'},
       body:JSON.stringify({model:'claude-opus-5',max_tokens:5000,thinking:{type:'adaptive'},system:sys,
-        messages:[{role:'user',content:[{type:'image',source:{type:'base64',media_type:'image/jpeg',data:d.split(',')[1]}},
+        messages:[{role:'user',content:[{type:'image',source:{type:'base64',media_type:'image/jpeg',data:img.split(',')[1]}},
           {type:'text',text:'Where are the container, the top of the dough and the marker line?'}]}],
         output_config:{format:{type:'json_schema',schema:{type:'object',additionalProperties:false,
           required:['found','base_center','lid_center','half_width','dough_top','marker_line','reached','confidence','note'],
           properties:{found:{type:'boolean'},base_center:PT2,lid_center:PT2,half_width:{type:['number','null']},
             dough_top:PT2,marker_line:SEG2,reached:{type:'boolean'},confidence:{type:'number'},note:{type:'string'}}}}}})});
-    const res=await rr.json();
-    if(!rr.ok||res.error) throw new Error((res.error&&(res.error.message||res.error))||('HTTP '+rr.status));
-    const o=JSON.parse(res.content.filter(b=>b.type==='text').map(b=>b.text).join(''));
+    const parse=async rr=>{ const res=await rr.json();
+      if(!rr.ok||res.error) throw new Error((res.error&&(res.error.message||res.error))||('HTTP '+rr.status));
+      return JSON.parse(res.content.filter(b=>b.type==='text').map(b=>b.text).join('')); };
+    let o;
+    if(crop){
+      o=uncrop(await parse(await ask(crop.url)),crop.box);
+      // No estaba dentro del recuadro (la cámara se movió): foto entera.
+      if(!o.found&&!(visHint&&visHint.byHand)) o=await parse(await ask(d));
+    }else o=await parse(await ask(d));
     o.at=Date.now(); o.W=dim[0]; o.H=dim[1]; o.stage=activeStage()?activeStage().id:null;
+    followHint(o);
     onVision(o,true);
   }catch(e){ if(note) note.textContent='AI check failed: '+e.message; }
   finally{ visBusy=false; }
@@ -4484,8 +4497,15 @@ function visSvg(o){
 function drawVision(){
   for(const [svgId,imgId] of [['vis-card','cam-img'],['vis-full','cam-full-img']]){
     const svg=document.getElementById(svgId), img=document.getElementById(imgId); if(!svg||!img) continue;
-    const r=(visShow&&visOn&&visLast)?visSvg(visLast):null;
+    let r=(visShow&&visOn&&visLast)?visSvg(visLast):null;
+    // Mientras se enmarca, o con un recuadro puesto a mano, se ve aunque la IA
+    // aún no haya mirado.
+    if(!r&&(frameMode||frameDrag||(visHint&&visHint.byHand&&visShow))){
+      const iw=img.naturalWidth||4, ih=img.naturalHeight||3;
+      r={svg:'',W:1000,H:Math.round(1000*ih/iw)};
+    }
     if(!r){ svg.innerHTML=''; continue; }
+    r.svg+=hintSvg(r.W,r.H);
     // La capa ocupa exactamente la parte de la caja que pinta la foto (contain)…
     const box=img.parentElement, bw=box.clientWidth, bh=box.clientHeight;
     if(!bw||!bh){ svg.innerHTML=''; continue; }
@@ -4502,6 +4522,123 @@ function drawVision(){
 }
 setInterval(()=>runVision(false),30000);
 addEventListener('resize',drawVision);
+
+// ─── Enmarcar a mano el recipiente ────────────────────────────────────────
+// El panadero dibuja un recuadro sobre la imagen y la IA mira SOLO ahí (con un
+// margen): más píxeles sobre el frasco y ninguna duda de cuál es. El recuadro se
+// guarda en coordenadas de la foto de la cámara, no de la pantalla, así que
+// sobrevive al zoom, al giro y a cambiar de aparato. Tras cada detección buena
+// se reajusta solo al recipiente encontrado: si la cámara se mueve un poco, lo
+// sigue. Si un día no lo encuentra dentro, mira la foto entera y se recoloca.
+let visHint=null, frameMode=false, frameDrag=null;
+try{ visHint=JSON.parse(localStorage.getItem('pb-vis-hint')||'null'); }catch(e){}
+function saveHint(publish){
+  try{ localStorage.setItem('pb-vis-hint',JSON.stringify(visHint)); }catch(e){}
+  if(publish&&!SANDBOX&&mqttClient&&mqttClient.connected) mqttClient.publish(CAM_TOPIC+'/hint',JSON.stringify(visHint||{}),{retain:true});
+}
+function toggleFrameMode(){
+  frameMode=!frameMode;
+  ['btn-frame','btn-frame-full'].forEach(id=>{ const b=document.getElementById(id); if(b) b.classList.toggle('on',frameMode); });
+  const n=document.getElementById('vis-note');
+  if(frameMode&&n) n.textContent='Drag a box around the jar or glass on the picture.';
+  if(frameMode){ visShow=true; paintVisButtons(); }
+  drawVision();
+}
+function clearHint(){ visHint=null; saveHint(true); drawVision(); showToast('Frame removed — the AI looks at the whole picture'); }
+// De un punto de la pantalla a la foto de la cámara (0..1), deshaciendo el
+// transform de la imagen (giro, escala, desplazamiento) y el "contain".
+function screenToRaw(clientX,clientY,img){
+  const box=img.parentElement, r=box.getBoundingClientRect();
+  const cx=r.left+r.width/2, cy=r.top+r.height/2;
+  const tr=getComputedStyle(img).transform;
+  const m=(tr&&tr!=='none')?new DOMMatrix(tr):new DOMMatrix();
+  const p=m.inverse().transformPoint(new DOMPoint(clientX-cx,clientY-cy));
+  const lx=r.width/2+p.x, ly=r.height/2+p.y;
+  const iw=img.naturalWidth||4, ih=img.naturalHeight||3, k=Math.min(r.width/iw,r.height/ih);
+  const ox=(r.width-iw*k)/2, oy=(r.height-ih*k)/2;
+  return {x:Math.max(0,Math.min(1,(lx-ox)/(iw*k))), y:Math.max(0,Math.min(1,(ly-oy)/(ih*k)))};
+}
+function wireFrame(boxEl,imgId){
+  if(!boxEl) return;
+  boxEl.addEventListener('pointerdown',e=>{
+    if(!frameMode) return;
+    e.stopImmediatePropagation(); e.preventDefault();
+    try{ boxEl.setPointerCapture(e.pointerId); }catch(err){}
+    const img=document.getElementById(imgId);
+    frameDrag={img,a:screenToRaw(e.clientX,e.clientY,img)};
+    frameDrag.b=frameDrag.a;
+  },true);
+  boxEl.addEventListener('pointermove',e=>{
+    if(!frameMode||!frameDrag) return;
+    e.stopImmediatePropagation();
+    frameDrag.b=screenToRaw(e.clientX,e.clientY,frameDrag.img);
+    drawVision();
+  },true);
+  boxEl.addEventListener('pointerup',e=>{
+    if(!frameMode||!frameDrag) return;
+    e.stopImmediatePropagation();
+    const {a,b}=frameDrag; frameDrag=null;
+    const w=Math.abs(b.x-a.x), h=Math.abs(b.y-a.y);
+    if(w<0.03||h<0.03){ drawVision(); return; }        // un toque no es un recuadro
+    visHint={x1:Math.min(a.x,b.x),y1:Math.min(a.y,b.y),x2:Math.max(a.x,b.x),y2:Math.max(a.y,b.y),byHand:true};
+    saveHint(true);
+    toggleFrameMode();
+    showToast('Framed — the AI will look there');
+    if(visOn) runVision(true);
+  },true);
+  // En modo recuadro, el clic de la tarjeta no abre la pantalla completa.
+  boxEl.addEventListener('click',e=>{ if(frameMode){ e.stopImmediatePropagation(); e.preventDefault(); } },true);
+}
+// Recorte para mandar: el recuadro con un 25% de margen por lado, y ampliado
+// si es pequeño — un frasco de 150 px no se analiza igual que uno de 600.
+async function cropForVision(dataUrl,W,H){
+  if(!visHint) return null;
+  const mx=(visHint.x2-visHint.x1)*0.25, my=(visHint.y2-visHint.y1)*0.25;
+  const x1=Math.max(0,visHint.x1-mx), y1=Math.max(0,visHint.y1-my), x2=Math.min(1,visHint.x2+mx), y2=Math.min(1,visHint.y2+my);
+  if(x2-x1<0.05||y2-y1<0.05) return null;
+  const img=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=dataUrl;});
+  const sw=(x2-x1)*W, sh=(y2-y1)*H, up=Math.max(1,Math.min(3,640/Math.max(sw,sh)));
+  const cv=document.createElement('canvas'); cv.width=Math.round(sw*up); cv.height=Math.round(sh*up);
+  const g=cv.getContext('2d'); g.imageSmoothingQuality='high';
+  g.drawImage(img,x1*W,y1*H,sw,sh,0,0,cv.width,cv.height);
+  return {url:cv.toDataURL('image/jpeg',0.92), box:{x1,y1,x2,y2}};
+}
+// Coordenadas del recorte a coordenadas de la foto entera.
+function uncrop(o,box){
+  const X=v=>box.x1+v*(box.x2-box.x1), Y=v=>box.y1+v*(box.y2-box.y1);
+  const pt=p=>p?{x:X(p.x),y:Y(p.y)}:p;
+  o.base_center=pt(o.base_center); o.lid_center=pt(o.lid_center); o.dough_top=pt(o.dough_top);
+  if(o.marker_line) o.marker_line={x1:X(o.marker_line.x1),y1:Y(o.marker_line.y1),x2:X(o.marker_line.x2),y2:Y(o.marker_line.y2)};
+  // half_width va en fracciones del eje: cambia si el recorte no es cuadrado.
+  return o;
+}
+// Tras una detección buena, el recuadro se ajusta al recipiente encontrado.
+function followHint(o){
+  if(!o.found||!o.base_center||!o.lid_center||o.confidence<0.5) return;
+  const W=o.W||4, H=o.H||3;
+  const bx=o.base_center.x*W, by=o.base_center.y*H, lx=o.lid_center.x*W, ly=o.lid_center.y*H;
+  const len=Math.hypot(lx-bx,ly-by); if(len<5) return;
+  const nx=-(ly-by)/len, ny=(lx-bx)/len, hw=(o.half_width||0.35)*len;
+  const pts=[[bx+nx*hw,by+ny*hw],[bx-nx*hw,by-ny*hw],[lx+nx*hw,ly+ny*hw],[lx-nx*hw,ly-ny*hw]];
+  const xs=pts.map(p=>p[0]/W), ys=pts.map(p=>p[1]/H);
+  const pad=0.06;
+  const next={x1:Math.max(0,Math.min(...xs)-pad),y1:Math.max(0,Math.min(...ys)-pad),x2:Math.min(1,Math.max(...xs)+pad),y2:Math.min(1,Math.max(...ys)+pad)};
+  // El recuadro a mano manda: solo se reajusta si lo encontrado está dentro de
+  // lo que enmarcó el panadero (la cámara se movió un poco). Si la IA encuentra
+  // otra cosa fuera, se queda el del panadero, no el de la IA.
+  if(visHint&&visHint.byHand){
+    const cx=(next.x1+next.x2)/2, cy=(next.y1+next.y2)/2, m=0.1;
+    if(cx<visHint.x1-m||cx>visHint.x2+m||cy<visHint.y1-m||cy>visHint.y2+m) return;
+    next.byHand=true;
+  }else next.byHand=false;
+  visHint=next;
+  saveHint(true);
+}
+function hintSvg(W,H){
+  const h=frameDrag?{x1:Math.min(frameDrag.a.x,frameDrag.b.x),y1:Math.min(frameDrag.a.y,frameDrag.b.y),x2:Math.max(frameDrag.a.x,frameDrag.b.x),y2:Math.max(frameDrag.a.y,frameDrag.b.y)}:visHint;
+  if(!h||!(frameMode||frameDrag||h.byHand)) return '';
+  return `<rect x="${(h.x1*W).toFixed(1)}" y="${(h.y1*H).toFixed(1)}" width="${((h.x2-h.x1)*W).toFixed(1)}" height="${((h.y2-h.y1)*H).toFixed(1)}" fill="${frameDrag?'rgba(255,255,255,.08)':'none'}" stroke="#fff" stroke-width="3" stroke-dasharray="12 8" opacity=".85"/>`;
+}
 
 // Girar se pide a la placa y se aplica en el sensor, así que también sale
 // derecha en las fotos guardadas. La placa contesta con el estado retenido.
@@ -4840,6 +4977,8 @@ async function camToStep(){
 function startCam(){
   const si=document.getElementById('cam-subject'); if(si) si.value=camSubject;
   paintVisButtons();
+  wireFrame(document.getElementById('cam-img').parentElement,'cam-img');
+  wireFrame(document.getElementById('cam-full-stage'),'cam-full-img');
   paintRot();
   refreshCam(true);
   loadCamShots();
@@ -5292,6 +5431,7 @@ function connect(){
     mqttClient.subscribe(CAM_TOPIC+'/quality');
     mqttClient.subscribe(CAM_TOPIC+'/fw');
     mqttClient.subscribe(CAM_TOPIC+'/vision');
+    mqttClient.subscribe(CAM_TOPIC+'/hint');
     if(liveOn) mqttClient.subscribe(CAM_TOPIC+'/live');   // tras reconectar, el vivo sigue
     else autoLive();
     refreshHealth();});
@@ -5305,6 +5445,10 @@ function connect(){
           const si=document.getElementById('cam-subject'); if(si&&document.activeElement!==si) si.value=camSubject; }
         if(isFinite(+o.deg)&&+o.deg!==camRot) setRot(+o.deg,true);
       }catch(e){}
+      return;
+    }
+    if(t===CAM_TOPIC+'/hint'){
+      try{ const h=JSON.parse(msg.toString()); visHint=(h&&h.x2!=null)?h:null; try{localStorage.setItem('pb-vis-hint',JSON.stringify(visHint));}catch(e){} drawVision(); }catch(e){}
       return;
     }
     if(t===CAM_TOPIC+'/vision'){
