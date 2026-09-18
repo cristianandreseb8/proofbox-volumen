@@ -22,6 +22,7 @@
 #include <PubSubClient.h>
 #include <time.h>
 #include <Preferences.h>
+#include <HTTPUpdate.h>
 #include "esp_camera.h"
 
 // ── Destino ──────────────────────────────────────────────────────────────────
@@ -39,6 +40,16 @@ const char* TOPIC_STATE  = "proofboxcam/proofbox-cam01/state";
 const char* TOPIC_CMD    = "proofboxcam/proofbox-cam01/cmd";
 const char* TOPIC_FLIP   = "proofboxcam/proofbox-cam01/flip";
 const char* TOPIC_QUAL   = "proofboxcam/proofbox-cam01/quality";
+const char* TOPIC_FW     = "proofboxcam/proofbox-cam01/fw";
+
+// ── Actualización por el aire ────────────────────────────────────────────────
+// Sin cable: la placa mira un manifiesto en GitHub Pages y, si hay una versión
+// más nueva, se la descarga y se la instala. Solo de ESA dirección: quien puede
+// cambiar el firmware es quien puede hacer push al repositorio, no cualquiera
+// que escriba en el broker público. Subir FW_VERSION en cada publicación.
+const int   FW_VERSION  = 2;
+const char* FW_MANIFEST = "https://cristianandreseb8.github.io/proofbox-volumen/fw/cam.json";
+const unsigned long FW_CHECK_MS = 6UL * 3600UL * 1000UL;   // cada 6 h, y al arrancar
 
 const unsigned long SHOT_EVERY_MS  = 10UL * 60UL * 1000UL;  // archivo: cada 10 min
 const unsigned long VIEWER_TTL_MS  = 15000;                 // sin latido en 15 s, se corta el vivo
@@ -170,6 +181,47 @@ void applyFlip() {
   s->set_hmirror(s, hmirror ? 1 : 0);
 }
 
+// Lee el manifiesto ({"version":N,"url":"..."}) con un análisis mínimo: no
+// merece meter una librería de JSON para dos campos.
+int jsonInt(const String& j, const char* key) {
+  int i = j.indexOf(String("\"") + key + "\""); if (i < 0) return -1;
+  i = j.indexOf(':', i); if (i < 0) return -1;
+  return j.substring(i + 1).toInt();
+}
+String jsonStr(const String& j, const char* key) {
+  int i = j.indexOf(String("\"") + key + "\""); if (i < 0) return "";
+  i = j.indexOf(':', i); i = j.indexOf('"', i); if (i < 0) return "";
+  int e = j.indexOf('"', i + 1); return e < 0 ? "" : j.substring(i + 1, e);
+}
+void publishFw(const char* extra) {
+  char buf[48]; snprintf(buf, sizeof(buf), "%d%s", FW_VERSION, extra);
+  mqtt.publish(TOPIC_FW, buf, true);
+}
+void checkUpdate(bool verbose) {
+  WiFiClientSecure tls; tls.setInsecure();
+  HTTPClient http;
+  if (!http.begin(tls, String(FW_MANIFEST) + "?t=" + String(millis()))) return;
+  int code = http.GET();
+  if (code != 200) { if (verbose) Serial.printf("🔁 manifiesto HTTP %d\n", code); http.end(); return; }
+  String j = http.getString(); http.end();
+  int v = jsonInt(j, "version");
+  String url = jsonStr(j, "url");
+  Serial.printf("🔁 firmware %d, publicado %d\n", FW_VERSION, v);
+  if (v <= FW_VERSION || url.length() == 0) return;
+  if (!url.startsWith("http")) url = String("https://cristianandreseb8.github.io/proofbox-volumen/") + url;
+  // Cámara apagada y aviso a la app: durante un minuto no habrá vivo.
+  camStop();
+  publishFw(" updating");
+  mqtt.loop();
+  httpUpdate.rebootOnUpdate(true);
+  WiFiClientSecure tls2; tls2.setInsecure();
+  t_httpUpdate_return r = httpUpdate.update(tls2, url);
+  // Si llega aquí, no se instaló: la imagen se comprueba antes de arrancarla,
+  // así que un fichero roto deja el firmware de siempre funcionando.
+  Serial.printf("🔁 actualización fallida (%d): %s\n", (int)r, httpUpdate.getLastErrorString().c_str());
+  publishFw(" failed");
+}
+
 void publishQuality() {
   mqtt.publish(TOPIC_QUAL, LIVE_Q[liveQ].name, true);
 }
@@ -268,6 +320,8 @@ void publishState(const char* s) {
 }
 
 volatile bool shotAsked = false;
+volatile bool updateAsked = false;
+unsigned long lastFwCheck = 0;
 
 void onMqtt(char* topic, byte* payload, unsigned int len) {
   // Disparo a mano desde la app. Se apunta y se hace en el loop: sacar la foto
@@ -275,6 +329,7 @@ void onMqtt(char* topic, byte* payload, unsigned int len) {
   if (strcmp(topic, TOPIC_CMD) == 0) {
     String c; for (unsigned int i = 0; i < len; i++) c += (char)payload[i];
     if (c == "shot") { shotAsked = true; Serial.println("📸 foto pedida desde la app"); return; }
+    if (c == "update") { updateAsked = true; return; }   // mirar ya, sin esperar a las 6 h
     // "flip" / "mirror" alternan; "flip:1" / "mirror:0" fijan.
     bool changed = false;
     if (c == "flip")        { vflip = !vflip; changed = true; }
@@ -317,6 +372,7 @@ void mqttEnsure() {
     publishState("idle");
     publishFlip();
     publishQuality();
+    publishFw("");
     Serial.println("MQTT ✅");
   } else {
     Serial.printf("MQTT ❌ rc=%d\n", mqtt.state());
@@ -326,7 +382,7 @@ void mqttEnsure() {
 void setup() {
   Serial.begin(115200);
   delay(1500);
-  Serial.println("\n=== ProofBox Cam (vivo + archivo) ===");
+  Serial.printf("\n=== ProofBox Cam (vivo + archivo) · firmware %d ===\n", FW_VERSION);
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, HIGH);
 
@@ -380,6 +436,14 @@ void loop() {
   }
   mqttEnsure();
   mqtt.loop();
+
+  // Actualización: al arrancar (tras un minuto, con todo ya en marcha), cada
+  // 6 h, o cuando la app lo pide.
+  if (updateAsked || (lastFwCheck == 0 && millis() > 60000) || (lastFwCheck && millis() - lastFwCheck > FW_CHECK_MS)) {
+    updateAsked = false;
+    lastFwCheck = millis() | 1;
+    checkUpdate(true);
+  }
 
   // Foto a mano: manda la orden por delante del reloj de los 10 min.
   if (shotAsked) {

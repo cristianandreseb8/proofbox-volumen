@@ -154,6 +154,16 @@ Las capturas se borran desde la app, una a una o todas, con un solo `DELETE` y
 la lista en `prefixes` (por tandas de 100: una lista de cientos falla). Borrar
 una captura no toca la copia que se hubiera añadido a un paso.
 
+**Actualización por el aire (OTA).** Desde el firmware 2 la placa mira
+`fw/cam.json` en GitHub Pages al arrancar (pasado un minuto), cada 6 h y cuando
+la app manda `update`; si la versión publicada es mayor que su `FW_VERSION`, se
+descarga el `.bin` y se lo instala (`HTTPUpdate`). Solo de esa dirección: quien
+puede cambiar el firmware es quien hace push al repositorio, no quien escribe en
+el broker público. Una imagen rota no arranca: la placa sigue con la de antes.
+Publicar: subir `FW_VERSION`, `./fw/publish-cam.sh`, commit y push de `fw/`.
+La versión y el "updating" van retenidos en `.../fw` y la app los enseña. La
+primera instalación con OTA tuvo que ser por USB.
+
 **Todo es público**: el broker es público y el bucket también, y los nombres
 están en el HTML. Quien los lea puede ver el vivo y el archivo.
 

@@ -603,7 +603,7 @@ body.board .app{max-width:none;padding:16px 22px 80px}
         <input class="num-input" id="cam-subject" style="flex:1;font-size:11px;padding:4px 8px" placeholder="frasco de vidrio con tapa verde" onchange="setSubject(this.value)">
       </div>
     </div>
-    <div style="font-size:10px;color:var(--muted);margin-top:6px" id="cam-state"></div>
+    <div style="font-size:10px;color:var(--muted);margin-top:6px;display:flex;gap:8px"><span id="cam-state" style="flex:1"></span><span id="cam-fw" style="opacity:.7"></span></div>
     <div id="cam-shots-box" style="display:none">
       <div class="pa-sep" style="margin-top:10px">Saved every 10 minutes
         <span id="cam-del-all" style="float:right;text-transform:none;letter-spacing:0;color:var(--red);cursor:pointer;display:none" onclick="deleteAllShots()">✕ delete all</span>
@@ -5090,6 +5090,7 @@ function connect(){
     mqttClient.subscribe(CAM_TOPIC+'/flip');
     mqttClient.subscribe(CAM_TOPIC+'/rot');
     mqttClient.subscribe(CAM_TOPIC+'/quality');
+    mqttClient.subscribe(CAM_TOPIC+'/fw');
     if(liveOn) mqttClient.subscribe(CAM_TOPIC+'/live');   // tras reconectar, el vivo sigue
     else autoLive();
     refreshHealth();});
@@ -5103,6 +5104,14 @@ function connect(){
           const si=document.getElementById('cam-subject'); if(si&&document.activeElement!==si) si.value=camSubject; }
         if(isFinite(+o.deg)&&+o.deg!==camRot) setRot(+o.deg,true);
       }catch(e){}
+      return;
+    }
+    if(t===CAM_TOPIC+'/fw'){
+      // La placa dice su versión; "updating" mientras se instala una nueva por
+      // el aire — durante ese minuto no hay vivo, y es mejor decirlo.
+      const v=msg.toString(), el=document.getElementById('cam-fw');
+      if(el) el.textContent=/updating/.test(v)?'⟳ updating the camera…':(/failed/.test(v)?'camera update failed — still on v'+parseInt(v):'camera v'+parseInt(v));
+      if(/updating/.test(v)) showToast('📷 The camera is updating itself — back in about a minute',5000);
       return;
     }
     if(t===CAM_TOPIC+'/quality'){
