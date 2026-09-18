@@ -124,6 +124,16 @@ dedos amplían y desplazan; uno arrastra; doble toque 100 ↔ 200 %; los botones
 pantalla) al cerrar, reabrir y recargar. Al abrir, recuperarlos es lo PRIMERO:
 cualquier repintado previo recalculaba la fracción con la posición a cero.
 
+**Cuidado con los ajustes del sensor del OV3660.** El firmware 2 llevaba un
+`tuneSensor()` generoso —corrección de lente, gamma, escalado (`dcw`), nitidez,
+modo de poca luz (`aec2`)— y con eso el sensor dejó de bajar de tamaño para el
+vivo: fotogramas de 1024×768 y 75 KB en modo "fluido", `FB-OVF`, y el broker
+cortando la conexión en bucle (estado -3), una imagen cada diez segundos. El
+firmware 4 solo limita la ganancia. Medido después: Fluid 6,6 fps · 7 KB,
+Balanced 2,2 fps · 21 KB, Sharp 1,7 fps · 36 KB, sin un corte. El firmware
+imprime cada 50 fotogramas cuánto tarda la captura y el envío, y avisa si el
+vivo no bajó de tamaño: es el diagnóstico.
+
 **Calidad del vivo elegible** (Fluid / Balanced / Sharp): 480×320 a ~6 fps,
 800×600 a ~3 fps, 1024×768 a ~1-2 fps. La decide la placa (`cmd` `q:0|1|2`, en
 NVS) y contesta retenido en `.../quality`; si no contesta, lleva firmware

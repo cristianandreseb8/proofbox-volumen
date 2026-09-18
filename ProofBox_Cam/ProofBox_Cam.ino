@@ -47,7 +47,7 @@ const char* TOPIC_FW     = "proofboxcam/proofbox-cam01/fw";
 // más nueva, se la descarga y se la instala. Solo de ESA dirección: quien puede
 // cambiar el firmware es quien puede hacer push al repositorio, no cualquiera
 // que escriba en el broker público. Subir FW_VERSION en cada publicación.
-const int   FW_VERSION  = 2;
+const int   FW_VERSION  = 4;
 const char* FW_MANIFEST = "https://cristianandreseb8.github.io/proofbox-volumen/fw/cam.json";
 const unsigned long FW_CHECK_MS = 6UL * 3600UL * 1000UL;   // cada 6 h, y al arrancar
 
@@ -159,19 +159,12 @@ bool camStart() {
 void tuneSensor() {
   sensor_t* s = esp_camera_sensor_get();
   if (!s) return;
-  s->set_lenc(s, 1);
-  s->set_bpc(s, 1);
-  s->set_wpc(s, 1);
-  s->set_raw_gma(s, 1);
-  s->set_dcw(s, 1);
-  s->set_whitebal(s, 1);
-  s->set_awb_gain(s, 1);
-  s->set_exposure_ctrl(s, 1);
-  s->set_aec2(s, 1);
-  s->set_gain_ctrl(s, 1);
+  // Casi nada: el firmware 2 tocaba corrección de lente, gamma, escalado (dcw),
+  // nitidez y modo de poca luz, y con eso el OV3660 dejó de bajar de tamaño para
+  // el vivo — mandaba fotogramas de 1024x768 de 75 KB en modo "fluido" y el
+  // broker cortaba la conexión en bucle. Solo se limita la ganancia, que es lo
+  // que evita el grano sin tocar cómo escala el sensor.
   s->set_gainceiling(s, GAINCEILING_8X);
-  s->set_sharpness(s, 2);
-  s->set_denoise(s, 1);
 }
 
 void applyFlip() {
@@ -303,14 +296,31 @@ void archiveShot() {
 }
 
 // ── Vivo ─────────────────────────────────────────────────────────────────────
+unsigned long tGrab = 0, tPub = 0, nMeas = 0;
 void sendFrame() {
+  unsigned long t0 = millis();
   camera_fb_t* fb = esp_camera_fb_get();
+  tGrab += millis() - t0;
   if (!fb) return;
+  unsigned long t1 = millis();
   // beginPublish escribe el JPEG directamente al socket: no hace falta un
   // búfer de MQTT del tamaño del fotograma.
   if (mqtt.beginPublish(TOPIC_LIVE, fb->len, false)) {
     mqtt.write(fb->buf, fb->len);
     if (mqtt.endPublish()) framesSent++;
+  }
+  tPub += millis() - t1;
+  static bool warned = false;
+  if (!warned && fb->width > 1000 && liveQ < 2) {
+    Serial.printf("⚠️ el vivo sale a %ux%u: no bajó de tamaño\n", fb->width, fb->height);
+    warned = true;
+  }
+  // Cada 50 fotogramas, cuánto tarda sacar la foto y cuánto enviarla: es lo
+  // que dice si el cuello de botella es el sensor o la red.
+  if (++nMeas >= 50) {
+    Serial.printf("📊 %lu fotogramas · captura %lu ms · envío %lu ms · %u KB\n",
+                  framesSent, tGrab / nMeas, tPub / nMeas, (unsigned)(fb->len / 1024));
+    tGrab = tPub = nMeas = 0;
   }
   esp_camera_fb_return(fb);
 }
@@ -360,7 +370,9 @@ void onMqtt(char* topic, byte* payload, unsigned int len) {
 }
 
 void mqttEnsure() {
-  if (mqtt.connected()) return;
+  static bool wasUp = false;
+  if (mqtt.connected()) { wasUp = true; return; }
+  if (wasUp) { Serial.printf("MQTT cayó (estado %d)\n", mqtt.state()); wasUp = false; }
   static unsigned long lastTry = 0;
   if (millis() - lastTry < 3000) return;
   lastTry = millis();
