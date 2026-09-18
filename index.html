@@ -309,6 +309,7 @@ body.board .app{max-width:none;padding:16px 22px 80px}
     <button class="zp" id="cam-zoom-pct" onclick="setZoom(1)" title="Back to 100%">100%</button>
     <button class="zb" onclick="zoomStep(1)" title="Zoom in">+</button>
     <button id="btn-frame-full" onclick="toggleFrameMode()" title="Set up jar, dough and target">🎯</button>
+    <button onclick="clearHint()" title="Delete the marks">🗑</button>
     <button id="btn-vis-eye-full" onclick="toggleVisShow()" title="Show or hide what the AI sees">👁</button>
     <button onclick="openHudCfg()" title="What to show over the picture">⚙</button>
     <button onclick="closeCamFull()" title="Close">✕</button>
@@ -617,7 +618,7 @@ body.board .app{max-width:none;padding:16px 22px 80px}
       </div>
       <div class="cam-btns" style="margin-top:4px">
         <button id="btn-frame" onclick="toggleFrameMode()" title="Show the AI the jar, the dough and your target">🎯 Set up jar · dough · target</button>
-        <button onclick="clearHint()" title="Forget the setup">✕ Reset</button>
+        <button onclick="clearHint()" title="Delete the marks">🗑 Delete marks</button>
       </div>
       <div style="font-size:10px;color:var(--muted);margin-top:6px;line-height:1.45" id="vis-note">It frames the jar, finds the top of the dough and the line you drew with a marker, and warns you when the dough reaches the line. The sensor still leads: the camera sees at an angle. Each check is a call to Claude and costs a little.</div>
     </div>
@@ -4387,6 +4388,13 @@ function visAxis(o){
   const line=o.marker_line?{x:(o.marker_line.x1+o.marker_line.x2)/2,y:(o.marker_line.y1+o.marker_line.y2)/2}:null;
   return {top:h(o.dough_top), line:h(line)};
 }
+// La altura de la masa (0 base – 1 arriba del frasco) si la lectura es fiable.
+function visProgressRaw(o){
+  if(!o||!o.found) return null;
+  if(o.confidence!=null&&o.confidence<0.45) return null;
+  if(o.dough_fraction!=null&&isFinite(o.dough_fraction)) return {h:o.dough_fraction};
+  const ax=visAxis(o); return (ax&&ax.top!=null)?{h:ax.top}:null;
+}
 function visProgress(o){
   const ax=visAxis(o); if(!ax||ax.top==null) return null;
   // Con la configuración a mano manda ella: la masa empezó donde se enmarcó y el
@@ -4412,6 +4420,7 @@ function visProgress(o){
   return {pct:Math.max(0,Math.min(150,(ax.top-start)/(ax.line-start)*100)), gap:ax.line-ax.top};
 }
 function visText(o){
+  if(!visSetup) return visOn?'AI: mark the jar, the dough and the target with 🎯 to start':'';
   if(!o) return visOn?'AI: waiting for the first check':'';
   if(!o.found) return 'AI: jar not in view';
   const p=visProgress(o), when=new Date(o.at).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
@@ -4421,6 +4430,8 @@ function visText(o){
 }
 async function runVision(force){
   if(visBusy) return;
+  // Sin marcas no hay nada que medir: no se gasta una consulta.
+  if(!visSetup){ if(force) showToast('First mark the jar, the dough and the target with 🎯'); return; }
   if(!force&&(!visOn||!sess)) return;
   if(!force&&visLast&&Date.now()-visLast.at<visEvery*60000) return;   // ya lo hizo otro aparato
   // La foto: el vivo si llega (es lo de ahora); si no, la de archivo.
@@ -4487,8 +4498,41 @@ The baker set this up on Image 1: there the top of the dough was at ${Math.round
   }catch(e){ if(note) note.textContent='AI check failed: '+e.message; }
   finally{ visBusy=false; }
 }
+// Dónde vio la IA el frasco, como centro y tamaño en la foto.
+function detJar(o){
+  if(!o||!o.found||!o.base_center||!o.lid_center) return null;
+  const W=o.W||4, H=o.H||3;
+  const bx=o.base_center.x*W, by=o.base_center.y*H, lx=o.lid_center.x*W, ly=o.lid_center.y*H;
+  const len=Math.hypot(lx-bx,ly-by); if(len<5) return null;
+  return {cx:(bx+lx)/2/W, cy:(by+ly)/2/H, size:len/Math.hypot(W,H)};
+}
+// Lo marcado por el panadero se queda quieto. Solo se desplaza si la cámara se
+// movió DE VERDAD: dos lecturas seguidas y seguras coinciden en que el frasco
+// está en otro sitio (más de un 8% de la foto) o de otro tamaño (más de un 15%).
+// Se compara la IA consigo misma —su primera lectura tras configurar contra la
+// de ahora—, nunca su recuadro contra el del panadero, que siempre difieren un
+// poco; y el desplazamiento conserva las proporciones (traslación y escala).
+function trackCameraMove(o){
+  if(!visSetup) return;
+  // 0,4: con esta cámara la confianza ronda 0,4-0,7 aun viendo bien el frasco;
+  // la seguridad la dan las DOS lecturas seguidas que tienen que coincidir.
+  const d=detJar(o); if(!d||(o.confidence||0)<0.4) return;
+  if(!visSetup.detBase){ visSetup.detBase=d; saveSetup(true); return; }
+  const b=visSetup.detBase;
+  const moved=Math.hypot(d.cx-b.cx,d.cy-b.cy)>0.08||Math.abs(Math.log(d.size/b.size))>Math.log(1.15);
+  if(!moved){ if(visSetup.moveVotes){ visSetup.moveVotes=0; saveSetup(false); } return; }
+  visSetup.moveVotes=(visSetup.moveVotes||0)+1;
+  if(visSetup.moveVotes<2){ saveSetup(false); return; }
+  const k=d.size/b.size;
+  const mv=p=>({x:Math.max(0,Math.min(1,d.cx+(p.x-b.cx)*k)), y:Math.max(0,Math.min(1,d.cy+(p.y-b.cy)*k))});
+  visSetup.jar=visSetup.jar.map(mv); visSetup.dough=visSetup.dough.map(mv); visSetup.target=visSetup.target.map(mv);
+  visSetup.detBase=d; visSetup.moveVotes=0;
+  saveSetup(true);
+  showToast('📷 The camera moved — your marks followed the jar');
+}
 function onVision(o,mine){
   visLast=o;
+
   const st=activeStage();
   // Primer resultado válido del paso: ahí empieza a contar su progreso.
   if(mine&&st&&o.found&&o.stage===st.id&&st.visionStartH==null){
@@ -4551,19 +4595,20 @@ function visSvg(o){
 function drawVision(){
   for(const [svgId,imgId] of [['vis-card','cam-img'],['vis-full','cam-full-img']]){
     const svg=document.getElementById(svgId), img=document.getElementById(imgId); if(!svg||!img) continue;
-    let r=(visShow&&visOn&&visLast)?visSvg(visLast):null;
-    // Mientras se enmarca, o con un recuadro puesto a mano, se ve aunque la IA
-    // aún no haya mirado.
-    if(!r&&(setupStep||setupDrag||(visSetup&&visShow&&visOn))){
+    // Sin configurar no se pinta NADA: antes aparecían recuadros de análisis
+    // viejos antes de que el panadero hubiera marcado nada. Con configuración se
+    // pinta lo que ÉL marcó, donde lo marcó; la IA solo sube el borde de la masa.
+    let r=null;
+    if(setupStep||setupDrag||(visSetup&&visShow)){
       const iw=img.naturalWidth||4, ih=img.naturalHeight||3;
       r={svg:'',W:1000,H:Math.round(1000*ih/iw)};
+      r.svg=setupStep?setupSvg(r.W,r.H):setupDrawn(r.W,r.H,iw/ih);
     }
     if(!r){ svg.innerHTML=''; continue; }
-    r.svg+=hintSvg(r.W,r.H);
     // La capa ocupa exactamente la parte de la caja que pinta la foto (contain)…
     const box=img.parentElement, bw=box.clientWidth, bh=box.clientHeight;
     if(!bw||!bh){ svg.innerHTML=''; continue; }
-    const iw=img.naturalWidth||visLast.W||4, ih=img.naturalHeight||visLast.H||3;
+    const iw=img.naturalWidth||4, ih=img.naturalHeight||3;
     const k=Math.min(bw/iw,bh/ih), w=iw*k, h=ih*k;
     svg.style.left=((bw-w)/2)+'px'; svg.style.top=((bh-h)/2)+'px';
     svg.style.width=w+'px'; svg.style.height=h+'px';
@@ -4585,6 +4630,15 @@ addEventListener('resize',drawVision);
 // se reajusta solo al recipiente encontrado: si la cámara se mueve un poco, lo
 // sigue. Si un día no lo encuentra dentro, mira la foto entera y se recoloca.
 let visHint=null;
+// El vivo Fluid sale en 3:2 y el Sharp y las fotos de archivo en 4:3; el 3:2 es
+// la franja central del 4:3. Marcar sobre una y pintar sobre otra desplazaba las
+// marcas y les cambiaba las proporciones. Todo lo que se guarda va en el 4:3 del
+// sensor ("canónico") y se traduce al formato de la imagen que se pinta o analiza.
+const CANON_Y0=1/18, CANON_SPAN=8/9;
+function isWide(a){ return Math.abs(a-1.5)<0.06; }
+function toCanon(p,a){ return isWide(a)?{x:p.x,y:CANON_Y0+p.y*CANON_SPAN}:{x:p.x,y:p.y}; }
+function fromCanon(p,a){ return isWide(a)?{x:p.x,y:(p.y-CANON_Y0)/CANON_SPAN}:{x:p.x,y:p.y}; }
+function boxConv(b,a,fn){ const p1=fn({x:b.x1,y:b.y1},a), p2=fn({x:b.x2,y:b.y2},a); return {...b,x1:p1.x,y1:p1.y,x2:p2.x,y2:p2.y}; }
 try{ visHint=JSON.parse(localStorage.getItem('pb-vis-hint')||'null'); }catch(e){}
 function saveHint(publish){
   try{ localStorage.setItem('pb-vis-hint',JSON.stringify(visHint)); }catch(e){}
@@ -4594,8 +4648,9 @@ function saveHint(publish){
 // si es pequeño — un frasco de 150 px no se analiza igual que uno de 600.
 async function cropForVision(dataUrl,W,H){
   if(!visHint) return null;
-  const mx=(visHint.x2-visHint.x1)*0.25, my=(visHint.y2-visHint.y1)*0.25;
-  const x1=Math.max(0,visHint.x1-mx), y1=Math.max(0,visHint.y1-my), x2=Math.min(1,visHint.x2+mx), y2=Math.min(1,visHint.y2+my);
+  const hb=boxConv(visHint,W/H,fromCanon);
+  const mx=(hb.x2-hb.x1)*0.25, my=(hb.y2-hb.y1)*0.25;
+  const x1=Math.max(0,hb.x1-mx), y1=Math.max(0,hb.y1-my), x2=Math.min(1,hb.x2+mx), y2=Math.min(1,hb.y2+my);
   if(x2-x1<0.05||y2-y1<0.05) return null;
   const img=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=dataUrl;});
   const sw=(x2-x1)*W, sh=(y2-y1)*H, up=Math.max(1,Math.min(3,640/Math.max(sw,sh)));
@@ -4615,6 +4670,7 @@ function uncrop(o,box){
 }
 // Tras una detección buena, el recuadro se ajusta al recipiente encontrado.
 function followHint(o){
+  if(visSetup&&visSetup.tpl) return;   // con plantilla, la zona la mueve el seguimiento por píxeles
   if(!o.found||!o.base_center||!o.lid_center||o.confidence<0.5) return;
   const W=o.W||4, H=o.H||3;
   const bx=o.base_center.x*W, by=o.base_center.y*H, lx=o.lid_center.x*W, ly=o.lid_center.y*H;
@@ -4623,7 +4679,7 @@ function followHint(o){
   const pts=[[bx+nx*hw,by+ny*hw],[bx-nx*hw,by-ny*hw],[lx+nx*hw,ly+ny*hw],[lx-nx*hw,ly-ny*hw]];
   const xs=pts.map(p=>p[0]/W), ys=pts.map(p=>p[1]/H);
   const pad=0.06;
-  const next={x1:Math.max(0,Math.min(...xs)-pad),y1:Math.max(0,Math.min(...ys)-pad),x2:Math.min(1,Math.max(...xs)+pad),y2:Math.min(1,Math.max(...ys)+pad)};
+  const next=boxConv({x1:Math.max(0,Math.min(...xs)-pad),y1:Math.max(0,Math.min(...ys)-pad),x2:Math.min(1,Math.max(...xs)+pad),y2:Math.min(1,Math.max(...ys)+pad)},W/H,toCanon);
   // El recuadro a mano manda: solo se reajusta si lo encontrado está dentro de
   // lo que enmarcó el panadero (la cámara se movió un poco). Si la IA encuentra
   // otra cosa fuera, se queda el del panadero, no el de la IA.
@@ -4635,6 +4691,130 @@ function followHint(o){
   visHint=next;
   saveHint(true);
 }
+// ─── Seguir al frasco cuando la cámara se mueve ───────────────────────────
+// La IA sirve para juzgar la masa, NO para ubicar el frasco: de una lectura a
+// otra, sin tocar nada, su frasco cambiaba de tamaño hasta un 18% — y por eso
+// las marcas del panadero se desplazaban solas. Aquí se hace con los píxeles:
+// al configurar se guarda el frasco como plantilla en grises, y cada pocos
+// segundos se busca en la imagen nueva (correlación normalizada, a varios
+// tamaños). Es exacto, estable, gratis y no depende de la red. Las marcas se
+// mueven solo si la plantilla aparece claramente en otro sitio o de otro tamaño
+// en dos búsquedas seguidas; y se mueven enteras, sin cambiar sus proporciones.
+const TRK_W=160;                 // ancho de trabajo: de sobra para ubicar un frasco
+let trkBusy=false, trkLastSrc=null, trkVotes=0, trkPending=null;
+function grayFrom(img,W){
+  // naturalWidth/Height: en una <img> de la página, width/height son el tamaño
+  // con que se PINTA (la capa a pantalla completa es alta y estrecha) y la
+  // plantilla salía deformada — se parecía un 41% a sí misma.
+  const iw=img.naturalWidth||img.width, ih=img.naturalHeight||img.height;
+  const H=Math.round(W*ih/iw);
+  const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
+  const g=cv.getContext('2d',{willReadFrequently:true}); g.drawImage(img,0,0,W,H);
+  const d=g.getImageData(0,0,W,H).data, out=new Float32Array(W*H);
+  for(let i=0;i<W*H;i++) out[i]=0.299*d[i*4]+0.587*d[i*4+1]+0.114*d[i*4+2];
+  return {px:out,W,H};
+}
+function cropGray(G,box){
+  const x0=Math.max(0,Math.round(box.x1*G.W)), y0=Math.max(0,Math.round(box.y1*G.H));
+  const w=Math.max(4,Math.round((box.x2-box.x1)*G.W)), h=Math.max(4,Math.round((box.y2-box.y1)*G.H));
+  const out=new Float32Array(w*h);
+  for(let y=0;y<h;y++) for(let x=0;x<w;x++) out[y*w+x]=G.px[Math.min(G.H-1,y0+y)*G.W+Math.min(G.W-1,x0+x)];
+  return {px:out,w,h};
+}
+function scaleGray(T,s){
+  const w=Math.max(4,Math.round(T.w*s)), h=Math.max(4,Math.round(T.h*s)), out=new Float32Array(w*h);
+  for(let y=0;y<h;y++) for(let x=0;x<w;x++) out[y*w+x]=T.px[Math.min(T.h-1,Math.floor(y/s))*T.w+Math.min(T.w-1,Math.floor(x/s))];
+  return {px:out,w,h};
+}
+// Correlación normalizada de la plantilla en (x,y): 1 = idéntico, 0 = nada que ver.
+function ncc(G,T,x,y,tm,ts){
+  let s=0,s2=0,sx=0;
+  for(let j=0;j<T.h;j++){ const row=(y+j)*G.W+x, tr=j*T.w;
+    for(let i=0;i<T.w;i++){ const v=G.px[row+i]; s+=v; s2+=v*v; sx+=v*T.px[tr+i]; } }
+  const n=T.w*T.h, m=s/n, sd=Math.sqrt(Math.max(1e-6,s2/n-m*m));
+  return (sx/n-m*tm)/(sd*ts);
+}
+function tplStats(T){ let s=0,s2=0; for(const v of T.px){ s+=v; s2+=v*v; } const n=T.px.length, m=s/n; return {m,sd:Math.sqrt(Math.max(1e-6,s2/n-m*m))}; }
+function findTemplate(G,T0,curSc){
+  // Cada tamaño se busca y se afina por separado; comparar el mejor grueso de
+  // cada uno sin afinar hacía ganar a veces un tamaño equivocado por medio
+  // píxel, y las marcas se movían con la cámara quieta.
+  const per=[];
+  for(const sc of [0.75,0.85,0.92,1,1.08,1.17,1.3]){
+    const T=scaleGray(T0,sc), st=tplStats(T);
+    if(T.w>=G.W||T.h>=G.H) continue;
+    let b={score:-1};
+    for(let y=0;y<=G.H-T.h;y+=2) for(let x=0;x<=G.W-T.w;x+=2){
+      const c=ncc(G,T,x,y,st.m,st.sd); if(c>b.score) b={score:c,x,y};
+    }
+    for(let y=Math.max(0,b.y-2);y<=Math.min(G.H-T.h,b.y+2);y++) for(let x=Math.max(0,b.x-2);x<=Math.min(G.W-T.w,b.x+2);x++){
+      const c=ncc(G,T,x,y,st.m,st.sd); if(c>b.score) b={score:c,x,y};
+    }
+    per.push({...b,w:T.w,h:T.h,sc});
+  }
+  if(!per.length) return null;
+  let best=per.reduce((a,b)=>b.score>a.score?b:a);
+  // A igualdad casi exacta, se queda el tamaño que ya tenía: cambiar de tamaño
+  // tiene que ganarse.
+  const keep=per.reduce((a,b)=>Math.abs(b.sc*1-(curSc||1))<Math.abs(a.sc-(curSc||1))?b:a);
+  if(keep!==best&&best.score-keep.score<0.03) best=keep;
+  return {score:best.score, cx:(best.x+best.w/2)/G.W, cy:(best.y+best.h/2)/G.H, sc:best.sc};
+}
+// La plantilla se saca al configurar, de la imagen sobre la que se marcó.
+// Su centro se guarda en canónico (4:3) como todo lo demás.
+function makeTemplate(img,rawBox,A){
+  const G=grayFrom(img,TRK_W);
+  const T=cropGray(G,rawBox);
+  // Se guarda compacta: 8 bits por píxel, en base64.
+  const u8=new Uint8Array(T.px.length); T.px.forEach((v,i)=>u8[i]=Math.max(0,Math.min(255,Math.round(v))));
+  let bin=''; u8.forEach(b=>bin+=String.fromCharCode(b));
+  const c=toCanon({x:(rawBox.x1+rawBox.x2)/2,y:(rawBox.y1+rawBox.y2)/2},A);
+  return {w:T.w,h:T.h,data:btoa(bin),cx:c.x,cy:c.y};
+}
+function tplFromSetup(){
+  const t=visSetup&&visSetup.tpl; if(!t) return null;
+  const bin=atob(t.data), px=new Float32Array(bin.length);
+  for(let i=0;i<bin.length;i++) px[i]=bin.charCodeAt(i);
+  return {px,w:t.w,h:t.h};
+}
+async function trackJar(){
+  if(trkBusy||!visSetup||!visSetup.tpl||!camBlob||setupStep) return;
+  if(camBlob===trkLastSrc) return;                     // misma imagen: nada nuevo que mirar
+  trkBusy=true; trkLastSrc=camBlob;
+  try{
+    const img=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=URL.createObjectURL(camBlob);});
+    const G=grayFrom(img,TRK_W); URL.revokeObjectURL(img.src);
+    const T0=tplFromSetup(); if(!T0) return;
+    const cur0=visSetup.trk||{sc:1};
+    const f0=findTemplate(G,T0,cur0.sc);
+    // Lo encontrado, en canónico: la imagen de ahora puede ser 3:2 o 4:3.
+    const f=f0&&{...f0,...toCanon({x:f0.cx,y:f0.cy},G.W/G.H)};
+    if(f){ f.cx=f.x; f.cy=f.y; }
+    const t=visSetup.tpl, cur=visSetup.trk||{cx:t.cx,cy:t.cy,sc:1};
+    visSetup.trkScore=f?+f.score.toFixed(2):null;
+    // Poco parecido: no se toca nada (el frasco se tapó, luz distinta, etc.).
+    if(!f||f.score<0.55){ trkVotes=0; return; }
+    const moved=Math.hypot(f.cx-cur.cx,f.cy-cur.cy)>0.03||Math.abs(Math.log(f.sc/cur.sc))>Math.log(1.08);
+    if(!moved){ trkVotes=0; return; }
+    // Dos búsquedas seguidas que coinciden: la cámara se movió de verdad.
+    if(trkPending&&Math.hypot(f.cx-trkPending.cx,f.cy-trkPending.cy)<0.02&&f.sc===trkPending.sc) trkVotes++;
+    else{ trkVotes=1; trkPending=f; }
+    if(trkVotes<2) return;
+    const k=f.sc/cur.sc;
+    const mv=p=>({x:Math.max(0,Math.min(1,f.cx+(p.x-cur.cx)*k)), y:Math.max(0,Math.min(1,f.cy+(p.y-cur.cy)*k))});
+    visSetup.jar=visSetup.jar.map(mv); visSetup.dough=visSetup.dough.map(mv); visSetup.target=visSetup.target.map(mv);
+    visSetup.trk={cx:f.cx,cy:f.cy,sc:f.sc};
+    trkVotes=0; trkPending=null;
+    // La zona donde la IA busca, también.
+    if(visHint){ const hw=(visHint.x2-visHint.x1)*k/2, hh=(visHint.y2-visHint.y1)*k/2;
+      visHint={x1:Math.max(0,f.cx-hw),y1:Math.max(0,f.cy-hh),x2:Math.min(1,f.cx+hw),y2:Math.min(1,f.cy+hh),byHand:false}; saveHint(true); }
+    saveSetup(true); drawVision();
+    showToast('📷 The camera moved — your marks followed the jar');
+  }catch(e){}
+  finally{ trkBusy=false; }
+}
+setInterval(trackJar,4000);
+
 // ─── Configurar lo que mira la IA: frasco, masa y objetivo ────────────────
 // Tres gestos sobre la imagen: un recuadro al frasco, otro a la masa y una
 // línea donde está el objetivo. De ahí salen dos PROPORCIONES a lo largo del
@@ -4647,6 +4827,7 @@ function followHint(o){
 // de la cámara para pintarlo encima, siga como siga el zoom o el giro.
 let visSetup=null, setupStep=0, setupShapes={}, setupDrag=null;
 try{ visSetup=JSON.parse(localStorage.getItem('pb-vis-setup')||'null'); }catch(e){}
+if(visSetup&&!visSetup.canon) visSetup=null;   // de antes del arreglo de formatos: se vuelve a marcar
 function saveSetup(publish){
   try{ localStorage.setItem('pb-vis-setup',JSON.stringify(visSetup)); }catch(e){}
   if(publish&&!SANDBOX&&mqttClient&&mqttClient.connected){
@@ -4674,9 +4855,17 @@ function startSetup(){
 function cancelSetup(){ setupStep=0; setupShapes={}; setupDrag=null; setupBanner(); drawVision(); }
 function toggleFrameMode(){ setupStep?cancelSetup():startSetup(); }
 function clearHint(){
-  visHint=null; visSetup=null; saveHint(true); saveSetup(true);
+  if(visSetup&&!confirm('Delete the jar, dough and target you marked?'))return;
+  visHint=null; visSetup=null; visLast=null; setupStep=0; setupShapes={};
+  saveHint(true); saveSetup(true);
   try{ localStorage.removeItem('pb-vis-ref'); }catch(e){}
-  drawVision(); showToast('Setup cleared — the AI looks at the whole picture');
+  // También el último análisis retenido: si no, al abrir en otro aparato
+  // volvería a aparecer lo de antes.
+  if(!SANDBOX&&mqttClient&&mqttClient.connected) mqttClient.publish(CAM_TOPIC+'/vision','',{retain:true});
+  const st=activeStage(); if(st){ delete st.visionStartH; delete st.visionHits; delete st.visionAlerted; saveSessions(); }
+  setupBanner(); drawVision();
+  const n=document.getElementById('cam-vis-line'); if(n) n.textContent='';
+  showToast('Cleared');
 }
 // De la pantalla a la foto de la cámara (0..1), deshaciendo el transform de la
 // imagen (giro, escala, desplazamiento) y el "contain".
@@ -4741,20 +4930,26 @@ async function finishSetup(img){
     setupStep=3; setupBanner(); drawVision(); return;
   }
   setupStep=0; setupBanner();
-  // Foto de referencia: el frasco recortado de la imagen de la cámara, pequeña.
+  // La imagen sobre la que se marcó es la que manda: de ella salen la foto de
+  // referencia y la plantilla, y su formato dice cómo pasar a canónico.
+  const A=(img.naturalWidth||4)/(img.naturalHeight||3);
   const xs=setupShapes.jar.raw.map(p=>p.x), ys=setupShapes.jar.raw.map(p=>p.y);
   const box={x1:Math.max(0,Math.min(...xs)-0.04),y1:Math.max(0,Math.min(...ys)-0.04),x2:Math.min(1,Math.max(...xs)+0.04),y2:Math.min(1,Math.max(...ys)+0.04)};
-  let ref=null;
+  let ref=null, tpl=null;
   try{
-    const src=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=URL.createObjectURL(camBlob);});
-    const W=src.width,H=src.height, sw=(box.x2-box.x1)*W, sh=(box.y2-box.y1)*H, k=Math.min(1.5,384/Math.max(sw,sh));
+    const W=img.naturalWidth,H=img.naturalHeight, sw=(box.x2-box.x1)*W, sh=(box.y2-box.y1)*H, k=Math.min(1.5,384/Math.max(sw,sh));
     const cv=document.createElement('canvas'); cv.width=Math.round(sw*k); cv.height=Math.round(sh*k);
-    cv.getContext('2d').drawImage(src,box.x1*W,box.y1*H,sw,sh,0,0,cv.width,cv.height);
+    cv.getContext('2d').drawImage(img,box.x1*W,box.y1*H,sw,sh,0,0,cv.width,cv.height);
     ref=cv.toDataURL('image/jpeg',0.85);
+    // La plantilla es el frasco justo (sin el margen): lo que se buscará después.
+    const jb={x1:Math.min(...xs),y1:Math.min(...ys),x2:Math.max(...xs),y2:Math.max(...ys)};
+    tpl=makeTemplate(img,jb,A);
   }catch(e){}
   visSetup={at:Date.now(),stage:activeStage()?activeStage().id:null,rot:camRot,
     hDough:+hDough.toFixed(3), hTarget:+hTarget.toFixed(3),
-    jar:setupShapes.jar.raw, dough:setupShapes.dough.raw, target:setupShapes.target.raw};
+    hDoughBottom:+Math.max(0,(J.y2-D.y2)/span).toFixed(3), canon:true, tpl,
+    trk:tpl?{cx:tpl.cx,cy:tpl.cy,sc:1}:null,
+    jar:setupShapes.jar.raw.map(p=>toCanon(p,A)), dough:setupShapes.dough.raw.map(p=>toCanon(p,A)), target:setupShapes.target.raw.map(p=>toCanon(p,A))};
   try{ if(ref) localStorage.setItem('pb-vis-ref',ref); }catch(e){}
   if(ref&&!SANDBOX){
     // A Storage, para que el otro aparato también la tenga al analizar.
@@ -4764,7 +4959,7 @@ async function finishSetup(img){
   }
   saveSetup(true);
   // El recuadro de búsqueda arranca en el frasco y luego lo sigue solo.
-  visHint={...box,byHand:false}; saveHint(true);
+  visHint={...boxConv(box,A,toCanon),byHand:false}; saveHint(true);
   const st=activeStage(); if(st){ st.visionStartH=visSetup.hDough; st.visionAlerted=false; st.visionHits=0; saveSessions(); }
   setupShapes={};
   showToast(`🎯 Set: dough at ${Math.round(hDough*100)}% of the jar, target at ${Math.round(hTarget*100)}%`,4000);
@@ -4801,8 +4996,27 @@ function setupSvg(W,H){
   }
   return out;
 }
-// Compatibilidad con lo anterior: ya no hay un recuadro suelto que pintar.
-function hintSvg(W,H){ return setupSvg(W,H); }
+// Lo configurado, tal cual lo marcó el panadero. El frasco y la línea del
+// objetivo no se mueven; la masa sube: su borde de arriba se coloca a la altura
+// que la IA midió, a lo largo del eje del frasco dibujado.
+function setupDrawn(W,H,A){
+  if(!visSetup) return '';
+  const P=p=>{ const q=fromCanon(p,A||4/3); return [q.x*W,q.y*H]; };
+  const J=visSetup.jar.map(P), D=visSetup.dough.map(P), T=visSetup.target.map(P);
+  const pts=a=>a.map(q=>q[0].toFixed(1)+','+q[1].toFixed(1)).join(' ');
+  // Eje del frasco: de la esquina de abajo a la de arriba (los recuadros se
+  // guardan como arriba-izq, arriba-der, abajo-der, abajo-izq).
+  const ax=[J[0][0]-J[3][0], J[0][1]-J[3][1]];
+  const v=visLast&&visLast.stage!=null&&visProgressRaw(visLast);
+  const f=(v&&v.h!=null)?v.h:visSetup.hDough;
+  const b0=visSetup.hDoughBottom||0;
+  const top=[[D[3][0]+ax[0]*(f-b0), D[3][1]+ax[1]*(f-b0)],[D[2][0]+ax[0]*(f-b0), D[2][1]+ax[1]*(f-b0)]];
+  const doughPoly=[top[0],top[1],D[2],D[3]];
+  const reached=v&&v.h!=null&&v.h>=visSetup.hTarget;
+  return `<polygon points="${pts(J)}" fill="none" stroke="#9be15d" stroke-width="4" stroke-linejoin="round"/>`
+    +`<polygon points="${pts(doughPoly)}" fill="rgba(79,211,255,.10)" stroke="#4fd3ff" stroke-width="4" stroke-linejoin="round"/>`
+    +`<line x1="${T[0][0]}" y1="${T[0][1]}" x2="${T[1][0]}" y2="${T[1][1]}" stroke="${reached?'#ff5c5c':'#a36bff'}" stroke-width="5" stroke-linecap="round"/>`;
+}
 
 
 // Girar se pide a la placa y se aplica en el sensor, así que también sale
@@ -5615,8 +5829,8 @@ function connect(){
     }
     if(t===CAM_TOPIC+'/setup'){
       try{ const o=JSON.parse(msg.toString());
-        if(o&&o.hTarget){ if(!visSetup||o.at>visSetup.at){ visSetup=o; try{localStorage.setItem('pb-vis-setup',JSON.stringify(o)); localStorage.removeItem('pb-vis-ref');}catch(e){} drawVision(); } }
-        else if(visSetup&&!o.hTarget){ visSetup=null; try{localStorage.removeItem('pb-vis-setup');}catch(e){} drawVision(); }
+        if(o&&o.hTarget&&o.canon){ if(!visSetup||o.at>visSetup.at){ visSetup=o; try{localStorage.setItem('pb-vis-setup',JSON.stringify(o)); localStorage.removeItem('pb-vis-ref');}catch(e){} drawVision(); } }
+        else if(visSetup&&!(o&&o.hTarget)){ visSetup=null; try{localStorage.removeItem('pb-vis-setup');}catch(e){} drawVision(); }
       }catch(e){}
       return;
     }
@@ -5625,7 +5839,9 @@ function connect(){
       return;
     }
     if(t===CAM_TOPIC+'/vision'){
-      try{ const o=JSON.parse(msg.toString()); if(!visLast||o.at>visLast.at) onVision(o,false); }catch(e){}
+      const txt=msg.toString();
+      if(!txt){ visLast=null; drawVision(); return; }        // borrado desde otro aparato
+      try{ const o=JSON.parse(txt); if(!visLast||o.at>visLast.at) onVision(o,false); }catch(e){}
       return;
     }
     if(t===CAM_TOPIC+'/fw'){

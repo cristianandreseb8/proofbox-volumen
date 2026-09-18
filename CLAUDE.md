@@ -180,6 +180,32 @@ arrastre. Un solo análisis para todos los aparatos: el resultado va retenido a
 intervalo (2/5/10/15 min). Cada análisis es una llamada a Claude: cuesta.
 Solo corre con la app abierta en algún aparato.
 
+**Las marcas del panadero no las mueve la IA.** Se pintan donde él las puso; la
+IA solo sube el borde de arriba de la masa a la altura que mide. Sin marcas no se
+pinta NADA ni se analiza (no se gasta una consulta). 🗑 borra todo, también el
+análisis retenido en el broker.
+
+**Seguir al frasco es cosa de píxeles, no de la IA.** Se probó con la IA: de una
+lectura a otra, sin tocar nada, su frasco cambiaba de tamaño hasta un 18%, y las
+marcas se desplazaban solas. Ahora, al configurar, el frasco se guarda como
+plantilla en grises (160 px de ancho de trabajo) y cada 4 s se busca en la
+imagen nueva por correlación normalizada, a 7 tamaños, afinando cada uno. Las
+marcas se mueven solo si la plantilla aparece con parecido ≥ 0,55 en otro sitio
+(>3%) o de otro tamaño (>8%) en DOS búsquedas seguidas, y se mueven enteras
+(traslación y escala: proporciones intactas). A igualdad casi exacta se queda el
+tamaño que tenía — si no, un tamaño vecino ganaba por medio píxel y las marcas
+se movían con la cámara quieta. Medido: quieta, parecido 1,00 y nada se mueve;
+movida (desplazada y al 85%), centro con <1% de error, tamaño 0,85 exacto,
+~23 ms por búsqueda. Ojo: `grayFrom` usa `naturalWidth`; con `width` de una
+<img> de la página la plantilla salía deformada.
+
+**Coordenadas canónicas (4:3 del sensor).** El vivo Fluid es 3:2 y el Sharp y el
+archivo 4:3; el 3:2 es la franja central (y = 1/18 + y·8/9). Marcar en uno y
+pintar en otro desplazaba las marcas y les cambiaba las proporciones. Todo lo
+guardado (marcas, zona de búsqueda, plantilla) va en canónico y se traduce al
+formato de la imagen que se pinta o analiza (`toCanon`/`fromCanon`).
+Configuraciones anteriores a esto (sin `canon`) se descartan.
+
 **Configurar lo que mira la IA: 🎯 frasco · masa · objetivo.** Tres gestos sobre
 la imagen: recuadro al frasco, recuadro a la masa, línea del objetivo. De ahí
 salen dos PROPORCIONES de la altura del frasco (`hDough`, `hTarget`), medidas en
