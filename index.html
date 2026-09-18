@@ -173,7 +173,21 @@ body.board .app{max-width:none;padding:16px 22px 80px}
 .cam-btns button.on{background:var(--amber-d);border-color:var(--amber);color:#fff}
 .cam-full{position:fixed;inset:0;background:#000;z-index:1400;display:none;flex-direction:column}
 .cam-full.show{display:flex}
-.cam-full img{flex:1;min-height:0;width:100%;object-fit:contain;background:#000}
+.cam-full-stage{flex:1;min-height:0;position:relative;overflow:hidden;background:#000}
+.cam-full-stage img{width:100%;height:100%;object-fit:contain;display:block}
+/* La X flota encima de todo: con la imagen girada y ampliada, en el móvil la
+   barra de abajo quedaba tapada y no había manera de salir. */
+.cam-full-x{position:absolute;top:max(10px,env(safe-area-inset-top));right:max(10px,env(safe-area-inset-right));z-index:5;
+  width:40px;height:40px;border-radius:50%;border:1px solid rgba(255,255,255,.35);background:rgba(0,0,0,.55);color:#fff;font-size:18px;cursor:pointer}
+.cam-full-bar{position:relative;z-index:4}
+.cam-hud{position:absolute;top:10px;bottom:10px;display:flex;flex-direction:column;gap:6px;z-index:3;pointer-events:none;max-width:42%}
+.cam-hud.left{left:10px}
+.cam-hud.right{right:10px;align-items:flex-end;top:60px}
+.hud-item{background:rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.15);border-radius:8px;padding:5px 8px;color:#fff;
+  font-family:'DM Mono',monospace;font-size:11px;line-height:1.3;backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
+.hud-item b{font-size:15px;color:var(--amber-l);font-weight:600}
+.hud-item .l{font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.6)}
+.hud-item svg{display:block;margin-top:3px}
 .cam-full-bar{display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--surface);flex-wrap:wrap}
 .cam-full-bar button{background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--text);font-family:'DM Mono',monospace;font-size:14px;padding:6px 12px;cursor:pointer}
 .cam-full-bar .who{flex:1;font-size:11px;color:var(--muted)}
@@ -257,13 +271,27 @@ body.board .app{max-width:none;padding:16px 22px 80px}
   </div>
 </div>
 <div class="cam-full" id="cam-full">
-  <img id="cam-full-img" alt="">
+  <div class="cam-full-stage" id="cam-full-stage">
+    <img id="cam-full-img" alt="">
+    <div class="cam-hud left" id="hud-left"></div>
+    <div class="cam-hud right" id="hud-right"></div>
+  </div>
+  <button class="cam-full-x" onclick="closeCamFull()" title="Close">✕</button>
   <div class="cam-full-bar">
     <span class="who" id="cam-full-txt"></span>
+    <button onclick="openHudCfg()" title="What to show over the picture">⚙</button>
     <button onclick="askShot()">📸 Picture</button>
     <button onclick="straightenWithClaude()" title="Claude levels the image">✨ Straighten</button>
     <button id="btn-live-full" onclick="toggleLive()">▶ Live</button>
     <button onclick="closeCamFull()">✕ Close</button>
+  </div>
+</div>
+<div class="modal" id="hud-modal" onclick="if(event.target===this)closeHudCfg()" style="z-index:1600">
+  <div class="modal-box" style="max-width:420px">
+    <div class="card-label" style="margin-bottom:4px">Over the picture</div>
+    <div style="font-size:10px;color:var(--muted);margin-bottom:12px;line-height:1.45">Pick what you want to see in full screen, and on which side.</div>
+    <div id="hud-rows"></div>
+    <div class="log-btns" style="margin-top:14px"><button class="cal-btn" onclick="closeHudCfg()" style="flex:1;margin:0">Done</button></div>
   </div>
 </div>
 <div class="modal" id="cam-modal" onclick="if(event.target===this)closeShot()">
@@ -545,6 +573,10 @@ body.board .app{max-width:none;padding:16px 22px 80px}
         <button onclick="setRot(0)">Reset</button>
         <button id="btn-straighten" onclick="straightenWithClaude()" title="Claude looks at the picture and levels it">✨ Straighten it for me</button>
         <span class="who" id="cam-rot-note" style="flex:1;font-size:10px;color:var(--muted)"></span>
+      </div>
+      <div class="cam-btns" style="margin-top:4px">
+        <span style="font-size:10px;color:var(--muted)">What to level</span>
+        <input class="num-input" id="cam-subject" style="flex:1;font-size:11px;padding:4px 8px" placeholder="frasco de vidrio con tapa verde" onchange="setSubject(this.value)">
       </div>
     </div>
     <div style="font-size:10px;color:var(--muted);margin-top:6px" id="cam-state"></div>
@@ -2107,7 +2139,9 @@ function saveBoard(){ try{localStorage.setItem(BOARD_KEY,JSON.stringify(board));
 // la caja no se mueve: escribir en un campo o tocar una casilla no puede
 // arrastrar la tarjeta entera.
 function isInteractive(t){
-  return !!(t.closest&&t.closest('input,button,select,textarea,label,a,summary,option,svg,.gtab,.resize-grip,.track,.sheet,img[data-photo]'));
+  // [onclick]: cualquier cosa con un clic propio. Listar etiquetas a mano ya
+  // falló dos veces — las miniaturas de las fotos y las de la cámara.
+  return !!(t.closest&&t.closest('input,button,select,textarea,label,a,summary,option,svg,.gtab,.resize-grip,.track,.sheet,img[data-photo],[onclick]'));
 }
 // En escritorio se arrastra desde CUALQUIER hueco de la caja, no solo del asa.
 function makeDraggable(el,stack){
@@ -3693,7 +3727,7 @@ function onLiveFrame(bytes){
   if(img.src.startsWith('blob:')&&img.dataset.live==='1') URL.revokeObjectURL(img.src);
   const url=URL.createObjectURL(b);
   img.src=url; img.dataset.live='1';
-  if(camFullOpen()&&!camFullSrc) document.getElementById('cam-full-img').src=url;
+  if(camFullOpen()&&!camFullSrc){ const fi=document.getElementById('cam-full-img'); fi.src=url; if(camRot&&!fi.dataset.fitted){ fi.onload=()=>{ rotFit(fi); fi.dataset.fitted='1'; }; } }
   camBlob=b; camShotAt=Date.now(); liveLastFrame=Date.now();
   if(camRot&&!img.style.transform) paintRot();
   document.getElementById('cam-empty').style.display='none';
@@ -3738,12 +3772,27 @@ function askShot(){
 // queda recta. Se hace aquí y no en la cámara porque el sensor solo sabe
 // voltear; y se aplica al pintar Y al guardar, así lo que va al informe sale
 // derecho. Es del aparato, no de la hoja: depende de cómo esté puesta la cámara.
-let camRot=0;
+let camRot=0, camSubject='frasco de vidrio con tapa verde';
 try{ camRot=parseFloat(localStorage.getItem('pb-cam-rot')||'0')||0; }catch(e){}
-function setRot(v){
+try{ camSubject=localStorage.getItem('pb-cam-subject')||camSubject; }catch(e){}
+// El giro es de la cámara, no de la pantalla: girarla en el ordenador y verla
+// torcida en el móvil no tiene sentido. Va como mensaje RETENIDO en el broker —
+// cualquier aparato que se conecte lo recibe al momento, sin tocar la base de
+// datos compartida. Localmente se guarda también, para arrancar ya girado.
+function publishRot(){
+  if(SANDBOX||!mqttClient||!mqttClient.connected) return;
+  mqttClient.publish(CAM_TOPIC+'/rot',JSON.stringify({deg:camRot,subject:camSubject}),{retain:true});
+}
+function setRot(v,fromRemote){
   camRot=((+v%360)+540)%360-180;   // se queda entre -180 y 180
   try{ localStorage.setItem('pb-cam-rot',String(camRot)); }catch(e){}
   paintRot();
+  if(!fromRemote){ clearTimeout(setRot._t); setRot._t=setTimeout(publishRot,400); }   // el deslizador no inunda el broker
+}
+function setSubject(v){
+  camSubject=(v||'').trim()||'frasco de vidrio con tapa verde';
+  try{ localStorage.setItem('pb-cam-subject',camSubject); }catch(e){}
+  publishRot();
 }
 function nudgeRot(d){ setRot(camRot+d); }
 function toggleRot(){
@@ -3765,12 +3814,25 @@ function rotCss(el){
   const w=box?box.clientWidth:el.clientWidth, h=box?box.clientHeight:el.clientHeight;
   el.style.transform=camRot?`rotate(${camRot}deg) scale(${rotCover(w,h,camRot).toFixed(3)})`:'';
 }
+// En pantalla completa, al revés que en la tarjeta: la imagen girada se ve
+// ENTERA, reducida lo justo para que quepa. Ampliar para tapar esquinas en una
+// pantalla alta de móvil cortaba medio frasco.
+function rotFit(img){
+  if(!img) return;
+  const box=img.parentElement; if(!box) return;
+  const bw=box.clientWidth, bh=box.clientHeight;
+  const iw=img.naturalWidth||4, ih=img.naturalHeight||3;
+  const k=Math.min(bw/iw,bh/ih), w=iw*k, h=ih*k;       // tamaño que ocupa con contain
+  const r=Math.abs(camRot*Math.PI/180), c=Math.abs(Math.cos(r)), si=Math.abs(Math.sin(r));
+  const fit=Math.min(bw/(w*c+h*si), bh/(w*si+h*c));
+  img.style.transform=camRot?`rotate(${camRot}deg) scale(${fit.toFixed(3)})`:'';
+}
 function paintRot(){
   const n=document.getElementById('cam-rot-n'); if(n) n.textContent=Math.round(camRot)+'°';
   const r=document.getElementById('cam-rot-range'); if(r&&+r.value!==Math.round(camRot)) r.value=Math.round(camRot);
   const b=document.getElementById('btn-rot'); if(b) b.classList.toggle('on',!!camRot);
   rotCss(document.getElementById('cam-img'));
-  rotCss(document.getElementById('cam-full-img'));
+  rotFit(document.getElementById('cam-full-img'));
   document.querySelectorAll('#cam-shots img, #cs-img').forEach(i=>{
     i.style.transform=camRot?`rotate(${camRot}deg) scale(${rotCover(i.clientWidth,i.clientHeight,camRot).toFixed(3)})`:'';
   });
@@ -3800,49 +3862,95 @@ async function bakeRot(blob){
 // veces no basta para ver dónde está la vertical.
 async function straightenWithClaude(){
   const btn=document.getElementById('btn-straighten'), note=document.getElementById('cam-rot-note');
-  let blob=camBlob;
-  try{
-    const r=await fetch(CAM_URL+'?t='+Date.now(),{cache:'no-store'});
-    if(r.ok){ const b=await r.blob(); if(b.size>2000) blob=b; }
-  }catch(e){}
+  // Qué foto mirar. El vivo es lo de AHORA: si la cámara se movió, la foto de
+  // archivo puede ser de hace 10 minutos y enseñar otra cosa — y con el firmware
+  // anterior salían rotas. Se usa el vivo si está llegando; la de archivo solo
+  // si es grande de verdad (las rotas eran de 480x320) y reciente.
+  let blob=null;
+  if(liveOn&&liveLastFrame&&Date.now()-liveLastFrame<15000&&camBlob) blob=camBlob;
+  if(!blob){
+    try{
+      const r=await fetch(CAM_URL+'?t='+Date.now(),{cache:'no-store'});
+      const lm=Date.parse(r.headers.get('last-modified')||'');
+      if(r.ok&&(!isFinite(lm)||Date.now()-lm<15*60000)){
+        const b=await r.blob();
+        const w=await new Promise(res=>{const i=new Image();i.onload=()=>res(i.width);i.onerror=()=>res(0);i.src=URL.createObjectURL(b);});
+        if(w>=1000) blob=b;
+      }
+    }catch(e){}
+  }
+  if(!blob) blob=camBlob;
   if(!blob){ showToast('No picture to look at yet'); return; }
-  btn.disabled=true; note.style.color='var(--muted)'; note.textContent='Claude is looking…';
+  if(btn) btn.disabled=true; note.style.color='var(--muted)'; note.textContent='Claude is looking…';
   try{
     const d=await new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.onerror=rej;fr.readAsDataURL(blob);});
-    const sys=`You look at one photo from a camera watching bread dough rise, and say how much the photo has to be turned so it looks level.
+    const dim=await new Promise(res=>{const i=new Image();i.onload=()=>res([i.width,i.height]);i.onerror=()=>res([4,3]);i.src=d;});
+    // Pedir grados a ojo salió mal: dijo -8° con un 22% y el frasco quedó torcido.
+    // Los modelos marcan dónde está algo mucho mejor que estiman un ángulo, así
+    // que se le piden PUNTOS —centro de la tapa, centro de la base, extremos del
+    // borde— y el ángulo se calcula aquí con geometría. Y se le dice qué buscar.
+    const sys=`You locate a container in a photo so the app can rotate the photo until the container stands upright.
 
-The camera is usually clamped or propped up, so the photo comes out tilted. In the photo there is normally a jar or container of dough on a table or shelf.
+The container is: ${camSubject}. It holds bread dough. The photo comes from a small camera, so it may be dim, soft or tilted — even upside down or sideways. That is expected: find the container anyway. Its lid, its colour and its outline are enough; you do not need sharp detail.
 
-- degrees: how much to rotate the photo CLOCKWISE, from -180 to 180, so that the container's sides are vertical, the dough's surface and the rim are horizontal, and the table is level. 0 if it already looks level. A photo that is upside down needs 180.
-- Judge it from the straight lines you can actually see — the container's sides, its rim, the table edge, a wall. Do not guess from the dough's shape alone, which is round.
-- confidence: 0 to 1. Low if the photo is dark, blurry, too close, or has no straight edge to go by.
-- sees: a few words on what you used, in the baker's language (Spanish). Example: "el borde del frasco y la mesa".`;
+Give coordinates normalised to the image: x from 0 (left edge) to 1 (right edge), y from 0 (top edge) to 1 (bottom edge), as the image is shown to you — not as the scene would be upright.
+
+- found: false only if the container is really not in the picture.
+- lid_center: the middle of the lid or top opening.
+- base_center: the middle of the container's bottom. If the bottom is out of frame, the middle of the lowest visible part of the container along its own axis.
+- rim_left, rim_right: the two ends of the lid or rim as seen across the container. Null if you cannot see both.
+- confidence: 0 to 1, how sure you are of lid_center and base_center.
+- sees: a few words in Spanish on what you found.`;
+    const pt={type:['object','null'],additionalProperties:false,required:['x','y'],properties:{x:{type:'number'},y:{type:'number'}}};
     const rr=await fetch(`${SUPA_URL}/functions/v1/claude-proxy`,{
       method:'POST',headers:{Authorization:'Bearer '+SUPA_JWT,'Content-Type':'application/json'},
-      body:JSON.stringify({model:'claude-opus-5',max_tokens:800,system:sys,
+      body:JSON.stringify({model:'claude-opus-5',max_tokens:4000,thinking:{type:'adaptive'},system:sys,
         messages:[{role:'user',content:[
           {type:'image',source:{type:'base64',media_type:'image/jpeg',data:d.split(',')[1]}},
-          {type:'text',text:'How many degrees clockwise should this photo be turned to look level?'}]}],
+          {type:'text',text:`Find the ${camSubject} and mark its points.`}]}],
         output_config:{format:{type:'json_schema',schema:{
           type:'object',additionalProperties:false,
-          required:['degrees','confidence','sees'],
-          properties:{degrees:{type:'number'},confidence:{type:'number'},sees:{type:'string'}}}}}})});
+          required:['found','lid_center','base_center','rim_left','rim_right','confidence','sees'],
+          properties:{found:{type:'boolean'},lid_center:pt,base_center:pt,rim_left:pt,rim_right:pt,
+                      confidence:{type:'number'},sees:{type:'string'}}}}}})});
     const res=await rr.json();
     if(res.error==='no_key') throw new Error('The server has no Claude credential yet');
     if(!rr.ok||res.error) throw new Error((res.error&&(res.error.message||res.error))||('HTTP '+rr.status));
     const o=JSON.parse(res.content.filter(b=>b.type==='text').map(b=>b.text).join(''));
-    const deg=Math.max(-180,Math.min(180,+o.degrees||0));
-    // Poca confianza no se aplica a la callada: se dice y se deja el ángulo a mano.
-    if(o.confidence<0.4){
-      note.style.color='var(--red)';
-      note.textContent=`Not sure (${Math.round(o.confidence*100)}%): ${o.sees}. Suggested ${deg.toFixed(0)}° — use the slider.`;
+    if(!o.found||!o.lid_center||!o.base_center){
+      note.style.color='var(--red)'; note.textContent='Could not find it: '+(o.sees||'')+' — try describing it differently below.';
     }else{
-      setRot(deg);
-      note.style.color='var(--green)';
-      note.textContent=`✓ ${deg.toFixed(0)}° · ${o.sees}`;
+      const [W,H]=dim;
+      // Eje del frasco en píxeles de verdad: la foto no es cuadrada.
+      const dx=(o.lid_center.x-o.base_center.x)*W, dy=(o.lid_center.y-o.base_center.y)*H;
+      let deg=-Math.atan2(dx,-dy)*180/Math.PI;        // cuánto girar para que la tapa quede arriba
+      // El borde, si lo hay, confirma: tiene que quedar horizontal.
+      let byRim=null;
+      if(o.rim_left&&o.rim_right){
+        let rx=(o.rim_right.x-o.rim_left.x)*W, ry=(o.rim_right.y-o.rim_left.y)*H;
+        if(Math.hypot(rx,ry)>W*0.05){
+          byRim=-Math.atan2(ry,rx)*180/Math.PI;
+          // "izquierda" y "derecha" pueden venir cambiadas en una foto al revés:
+          // se toma la lectura del borde más cercana a la del eje.
+          const diff=a=>Math.abs(((a-deg)%360+540)%360-180);
+          if(diff(byRim+180)<diff(byRim)) byRim+=180;
+          byRim=((byRim%360)+540)%360-180;
+        }
+      }
+      const agree=byRim==null||Math.abs(((byRim-deg)%360+540)%360-180)<12;
+      if(agree&&byRim!=null){ const m=Math.atan2((Math.sin(deg*Math.PI/180)+Math.sin(byRim*Math.PI/180))/2,(Math.cos(deg*Math.PI/180)+Math.cos(byRim*Math.PI/180))/2)*180/Math.PI; deg=m; }
+      deg=Math.round(deg);
+      if(o.confidence<0.3){
+        note.style.color='var(--red)';
+        note.textContent=`Not sure (${Math.round(o.confidence*100)}%): ${o.sees}. It would be ${deg}° — use the slider.`;
+      }else{
+        setRot(deg);
+        note.style.color='var(--green)';
+        note.textContent=`✓ ${deg}° · ${o.sees}${agree?'':' (axis and rim disagree — check it)'}`;
+      }
     }
   }catch(e){ note.style.color='var(--red)'; note.textContent='Could not do it: '+e.message; }
-  btn.disabled=false;
+  if(btn) btn.disabled=false;
 }
 
 // Girar se pide a la placa y se aplica en el sensor, así que también sale
@@ -3929,21 +4037,98 @@ function renderCamShots(){
     : 'No pictures saved yet. The camera keeps one every 10 minutes.';
 }
 
+// ─── Métricas sobre la imagen ─────────────────────────────────────────────
+// En pantalla completa se sigue viendo lo importante sin salir: pequeño, a un
+// lado, y solo lo que se elija. Cada cosa es independiente — nombre de la hoja
+// y del paso incluidos — y elige su lado.
+const HUD_ITEMS=[
+  ['name','Sheet name','L'],['step','Step','L'],
+  ['progress','Progress','R'],['growth','Growth chart','R'],
+  ['temp','Temperature','R'],['tempchart','Temperature chart','R'],
+  ['timer','Timer','R'],['cond','Conductivity','R']];
+let hudCfg={};
+try{ hudCfg=JSON.parse(localStorage.getItem('pb-hud')||'null')||null; }catch(e){ hudCfg=null; }
+if(!hudCfg){ hudCfg={}; ['name','step','progress','temp','tempchart','timer'].forEach(k=>hudCfg[k]=HUD_ITEMS.find(x=>x[0]===k)[2]); }
+function saveHud(){ try{ localStorage.setItem('pb-hud',JSON.stringify(hudCfg)); }catch(e){} }
+function openHudCfg(){
+  document.getElementById('hud-rows').innerHTML=HUD_ITEMS.map(([k,label,def])=>{
+    const on=!!hudCfg[k], side=hudCfg[k]||def;
+    return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+      <label style="flex:1;display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer">
+        <input type="checkbox" ${on?'checked':''} onchange="hudSet('${k}',this.checked?'${side}':null)"> ${label}</label>
+      <div class="cam-btns" style="margin:0">
+        <button class="${on&&side==='L'?'on':''}" onclick="hudSet('${k}','L')">◧ Left</button>
+        <button class="${on&&side==='R'?'on':''}" onclick="hudSet('${k}','R')">Right ◨</button>
+      </div></div>`;
+  }).join('');
+  document.getElementById('hud-modal').classList.add('show');
+}
+function closeHudCfg(){ document.getElementById('hud-modal').classList.remove('show'); }
+function hudSet(k,side){
+  if(side) hudCfg[k]=side; else delete hudCfg[k];
+  saveHud(); renderHud(true);
+  if(document.getElementById('hud-modal').classList.contains('show')) openHudCfg();
+}
+// Minigráfico: las últimas 3 h de la serie, sin ejes. Se recalcula cada 20 s,
+// no en cada segundo — el histórico cambia una vez por minuto.
+let hudSpark={}, hudSparkAt=0;
+function sparkSvg(key,color){
+  const now=Date.now();
+  if(now-hudSparkAt>20000){ hudSpark={}; hudSparkAt=now; }
+  if(hudSpark[key]) return hudSpark[key];
+  const rows=chartRows().filter(r=>new Date(r.logged_at).getTime()>now-3*3600000);
+  const pts=rows.map(r=>[new Date(r.logged_at).getTime(),r[key]==null?null:+r[key]]).filter(p=>p[1]!=null&&isFinite(p[1]));
+  if(pts.length<3) return hudSpark[key]='';
+  const W=120,H=32, t0=pts[0][0], t1=pts[pts.length-1][0]||t0+1;
+  let mn=Math.min(...pts.map(p=>p[1])), mx=Math.max(...pts.map(p=>p[1]));
+  if(mx-mn<0.5){ const m=(mx+mn)/2; mn=m-0.25; mx=m+0.25; }
+  const d=pts.map((p,i)=>(i?'L':'M')+((p[0]-t0)/(t1-t0||1)*W).toFixed(1)+' '+(H-2-(p[1]-mn)/(mx-mn)*(H-4)).toFixed(1)).join(' ');
+  return hudSpark[key]=`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><path d="${d}" fill="none" stroke="${color}" stroke-width="1.5"/></svg>`;
+}
+function hudHtml(k){
+  const t=id=>{const e=document.getElementById(id); return e?e.textContent.trim():'--';};
+  const a=activeStage();
+  switch(k){
+    case 'name': return sess?`<div class="l">Sheet</div><b style="font-size:13px;color:#fff">${sess.name}</b>`:'';
+    case 'step': return a?`<div class="l">Step</div><b style="font-size:13px;color:#fff">${a.name}</b>`:'';
+    case 'progress': return `<div class="l">Progress</div><b>${t('meta-pct')}</b> <span style="opacity:.75">${t('meta-ratio-now')} / ${t('meta-ratio-goal')}</span>`;
+    case 'growth': return `<div class="l">Growth · 3 h</div>${sparkSvg('rise','#f0a832')||'<span style="opacity:.6">no data yet</span>'}`;
+    case 'temp': return `<div class="l">Temperature</div><b>${t('temp-big')}°C</b>`;
+    case 'tempchart': return `<div class="l">Temp · 3 h</div>${sparkSvg('temp_c','#6fb1e0')||'<span style="opacity:.6">no data yet</span>'}`;
+    case 'timer': return `<div class="l">Timer</div><b>${t('timer-big')}</b>`;
+    case 'cond': return `<div class="l">Conductivity</div><b>${t('cond-rel')}%</b>`;
+  }
+  return '';
+}
+let hudTimer=null;
+function renderHud(force){
+  const L=document.getElementById('hud-left'), R=document.getElementById('hud-right');
+  if(!L||!R) return;
+  const side=sd=>HUD_ITEMS.filter(([k])=>hudCfg[k]===sd).map(([k])=>{const h=hudHtml(k); return h?`<div class="hud-item">${h}</div>`:'';}).join('');
+  L.innerHTML=side('L'); R.innerHTML=side('R');
+}
+
 // A pantalla completa. Mientras está abierta, los fotogramas del vivo van
 // también a esta imagen: es la misma emisión, no una segunda suscripción.
 let camFullSrc=null;   // null = sigue el vivo; si no, una captura concreta
 function openCamFull(src){
   const box=document.getElementById('cam-full'), img=document.getElementById('cam-full-img');
   camFullSrc=src||null;
+  img.dataset.fitted='';
+  img.onload=()=>{ rotFit(img); img.dataset.fitted='1'; };
   img.src=src||document.getElementById('cam-img').src;
   box.classList.add('show');
   paintCamFullTxt();
   setTimeout(paintRot,30);
+  renderHud(true);
+  if(hudTimer) clearInterval(hudTimer);
+  hudTimer=setInterval(()=>{ if(camFullOpen()) renderHud(); },1000);
   try{ if(box.requestFullscreen) box.requestFullscreen({navigationUI:'hide'}); }catch(e){}
   if(!src) autoLive();
 }
 function closeCamFull(){
   document.getElementById('cam-full').classList.remove('show');
+  if(hudTimer){ clearInterval(hudTimer); hudTimer=null; }
   camFullSrc=null;
   try{ if(document.fullscreenElement&&document.exitFullscreen) document.exitFullscreen(); }catch(e){}
 }
@@ -3974,6 +4159,7 @@ async function camToStep(){
   await addPhoto(st.id,new File([b],'camera.jpg',{type:'image/jpeg'}));
 }
 function startCam(){
+  const si=document.getElementById('cam-subject'); if(si) si.value=camSubject;
   paintRot();
   refreshCam(true);
   loadCamShots();
@@ -4422,12 +4608,22 @@ function connect(){
   mqttClient.on('connect',()=>{brokerUp=true;mqttClient.subscribe(TOPIC_STATUS);mqttClient.subscribe(TOPIC_NOTIFY);
     mqttClient.subscribe(CAM_TOPIC+'/state');
     mqttClient.subscribe(CAM_TOPIC+'/flip');
+    mqttClient.subscribe(CAM_TOPIC+'/rot');
     if(liveOn) mqttClient.subscribe(CAM_TOPIC+'/live');   // tras reconectar, el vivo sigue
     else autoLive();
     refreshHealth();});
   mqttClient.on('message',(t,msg)=>{
     // Los fotogramas son JPEG binario: nunca deben llegar al JSON.parse de abajo.
     if(t===CAM_TOPIC+'/live'){ onLiveFrame(msg); return; }
+    if(t===CAM_TOPIC+'/rot'){
+      try{
+        const o=JSON.parse(msg.toString());
+        if(o.subject){ camSubject=o.subject; try{localStorage.setItem('pb-cam-subject',camSubject);}catch(e){}
+          const si=document.getElementById('cam-subject'); if(si&&document.activeElement!==si) si.value=camSubject; }
+        if(isFinite(+o.deg)&&+o.deg!==camRot) setRot(+o.deg,true);
+      }catch(e){}
+      return;
+    }
     if(t===CAM_TOPIC+'/flip'){
       const [v,h]=msg.toString().split(',');
       camVflip=v==='1'; camHmirror=h==='1'; paintFlip();

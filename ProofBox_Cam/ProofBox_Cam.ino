@@ -148,8 +148,9 @@ void camMode(framesize_t size, int quality) {
   if (!s) return;
   s->set_framesize(s, size);
   s->set_quality(s, quality);
-  // Tras cambiar de tamaño el primer fotograma sale a medias.
-  camera_fb_t* fb = esp_camera_fb_get(); if (fb) esp_camera_fb_return(fb);
+  // Tras cambiar de tamaño los fotogramas ya en cola son del tamaño viejo: con
+  // dos búferes hay que tirar al menos dos.
+  for (int i = 0; i < 3; i++) { camera_fb_t* fb = esp_camera_fb_get(); if (fb) esp_camera_fb_return(fb); }
 }
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -177,9 +178,17 @@ bool uploadJpeg(const String& path, const uint8_t* buf, size_t len, bool upsert)
 // marcha, se vuelve a él al terminar.
 void archiveShot() {
   bool wasLive = camOn;
-  if (!camStart()) return;
-  camMode(SIZE_SHOT, QUAL_SHOT);
+  // Reinicio limpio a tamaño grande. Cambiar de 480x320 a 1024x768 en caliente
+  // con el vivo corriendo daba fotos de 480x320 llenas de bandas: el sensor
+  // entregaba un fotograma a medio cambiar. Todas las de archivo salían rotas y
+  // Claude no encontraba el frasco en ellas. Reiniciar cuesta ~1 s cada 10 min.
+  camStop();
+  if (!camStart()) return;   // camStart arranca en SIZE_SHOT y tira 3 fotogramas
   camera_fb_t* fb = esp_camera_fb_get();
+  if (fb && fb->width < 1000) {
+    Serial.printf("⚠️ foto de archivo de %ux%u, se descarta\n", fb->width, fb->height);
+    esp_camera_fb_return(fb); fb = nullptr;
+  }
   if (fb) {
     digitalWrite(LED_PIN, LOW);
     time_t now = time(nullptr);

@@ -73,11 +73,31 @@ el JPEG al guardar** (`bakeRot`): lo que va a un paso y al informe sale derecho
 aunque se mire desde otro sitio. Los ficheros del archivo se quedan en crudo y
 se pintan girados.
 
-**Enderezar con Claude** (`straightenWithClaude`): le manda la foto grande de
-archivo —no el fotograma de 480×320, que a veces no da para ver la vertical— y
-pide grados, confianza y en qué se fijó. Por debajo de 0,4 de confianza no
-aplica nada: lo propone y lo dice. En la primera prueba real dio -8° con 22% con
-la cámara borrosa y pegada al frasco, y no tocó nada.
+**Enderezar con Claude** (`straightenWithClaude`). Pedirle grados a ojo salió
+mal (-8° con un 22%, el frasco torcido). Ahora se le pide que MARQUE puntos —
+centro de la tapa, centro de la base, extremos del borde— y el ángulo se calcula
+en la app con geometría; el borde confirma el eje. Se le dice qué buscar con el
+texto "What to level" (por defecto "frasco de vidrio con tapa verde"). Usa el
+fotograma del VIVO: la foto de archivo puede ser de hace 10 min, de antes de
+mover la cámara. Primera prueba con esto: encontró el frasco tumbado y lo giró
+128°, derecho. Por debajo de 0,3 de confianza propone y no aplica.
+
+**El giro se comparte entre aparatos** como mensaje retenido en
+`proofboxcam/proofbox-cam01/rot` (`{deg, subject}`), no en `proofbox_state`: no
+toca la fila compartida y llega al instante a cualquiera que se conecte. En
+sandbox no se publica.
+
+**Pantalla completa: la imagen girada se ve ENTERA** (`rotFit`), no ampliada
+para tapar esquinas como en la tarjeta: en un móvil alto eso cortaba medio
+frasco. La X flota arriba a la derecha sobre todo — antes, con la imagen girada,
+la barra quedaba tapada y no había forma de salir. Métricas pequeñas a izquierda
+o derecha, elegidas con ⚙: nombre de la hoja, paso, progreso, gráfico de
+crecimiento, temperatura, gráfico de temperatura, temporizador, conductividad.
+
+**Las fotos de archivo salían ROTAS con el vivo siempre encendido**: cambiar de
+480×320 a 1024×768 en caliente daba un fotograma de 480×320 lleno de bandas.
+`archiveShot()` ahora reinicia la cámara a tamaño grande (~1 s cada 10 min) y
+descarta cualquier foto de archivo de menos de 1000 px de ancho.
 
 **Girar la imagen se hace en el SENSOR** (`set_vflip` / `set_hmirror`), no con
 CSS: así sale derecha también en las fotos que se guardan, no solo en el vivo.
