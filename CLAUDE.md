@@ -64,6 +64,21 @@ La cámara se inicia al tamaño MAYOR (XGA) y baja a 480×320 para el vivo:
 agrandar en caliente corta las fotos. No hay servidor web en la placa: la app va
 por https y el navegador bloquearía un `http://` de la red local.
 
+**El giro por grados es de la app, el volteo del sensor.** El sensor solo sabe
+voltear (arriba-abajo, izquierda-derecha); cualquier ángulo —12°, 90°, lo que
+haga falta con la cámara sujeta a mano— se hace en la app con `transform`, más
+un `scale` calculado para tapar las esquinas vacías. El ángulo vive en
+`localStorage` (`pb-cam-rot`), es del aparato y no de la hoja, y **se cuece en
+el JPEG al guardar** (`bakeRot`): lo que va a un paso y al informe sale derecho
+aunque se mire desde otro sitio. Los ficheros del archivo se quedan en crudo y
+se pintan girados.
+
+**Enderezar con Claude** (`straightenWithClaude`): le manda la foto grande de
+archivo —no el fotograma de 480×320, que a veces no da para ver la vertical— y
+pide grados, confianza y en qué se fijó. Por debajo de 0,4 de confianza no
+aplica nada: lo propone y lo dice. En la primera prueba real dio -8° con 22% con
+la cámara borrosa y pegada al frasco, y no tocó nada.
+
 **Girar la imagen se hace en el SENSOR** (`set_vflip` / `set_hmirror`), no con
 CSS: así sale derecha también en las fotos que se guardan, no solo en el vivo.
 Se pide con `cmd` `flip` / `mirror` (o `flip:0|1`), se guarda en NVS —una cámara

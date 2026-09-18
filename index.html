@@ -261,6 +261,7 @@ body.board .app{max-width:none;padding:16px 22px 80px}
   <div class="cam-full-bar">
     <span class="who" id="cam-full-txt"></span>
     <button onclick="askShot()">📸 Picture</button>
+    <button onclick="straightenWithClaude()" title="Claude levels the image">✨ Straighten</button>
     <button id="btn-live-full" onclick="toggleLive()">▶ Live</button>
     <button onclick="closeCamFull()">✕ Close</button>
   </div>
@@ -528,8 +529,23 @@ body.board .app{max-width:none;padding:16px 22px 80px}
       <button onclick="openCamFull()" title="Full screen">⛶</button>
       <button id="btn-vflip" onclick="camFlip('flip')" title="Upside down — for a camera hanging above">⇅</button>
       <button id="btn-hmirror" onclick="camFlip('mirror')" title="Mirror left to right">⇄</button>
+      <button id="btn-rot" onclick="toggleRot()" title="Turn the image by any angle">⟳ <span id="cam-rot-n">0°</span></button>
       <span style="flex:1"></span>
       <button id="btn-shots" onclick="toggleShots()" title="Pictures saved every 10 minutes">🗂️ <span id="cam-shots-n">0</span></button>
+    </div>
+    <div id="cam-rot-box" style="display:none;margin-top:8px">
+      <div class="cam-btns" style="margin:0">
+        <button onclick="nudgeRot(-90)" title="A quarter turn left">⟲ 90</button>
+        <button onclick="nudgeRot(-1)">−1</button>
+        <input type="range" id="cam-rot-range" min="-180" max="180" step="1" value="0" oninput="setRot(this.value)" style="flex:1;min-width:110px;accent-color:var(--amber)">
+        <button onclick="nudgeRot(1)">+1</button>
+        <button onclick="nudgeRot(90)" title="A quarter turn right">90 ⟳</button>
+      </div>
+      <div class="cam-btns" style="margin-top:4px">
+        <button onclick="setRot(0)">Reset</button>
+        <button id="btn-straighten" onclick="straightenWithClaude()" title="Claude looks at the picture and levels it">✨ Straighten it for me</button>
+        <span class="who" id="cam-rot-note" style="flex:1;font-size:10px;color:var(--muted)"></span>
+      </div>
     </div>
     <div style="font-size:10px;color:var(--muted);margin-top:6px" id="cam-state"></div>
     <div id="cam-shots-box" style="display:none">
@@ -3606,7 +3622,7 @@ async function refreshCam(force){
       const u2=URL.createObjectURL(b);
       img.src=u2; img.dataset.live='0';
       if(camFullOpen()&&!camFullSrc) document.getElementById('cam-full-img').src=u2;
-      camBlob=b;
+      camBlob=b; paintRot();
       loadCamShots();   // una foto nueva de archivo: la tira también cambia
     }
     camShotAt=isFinite(lm)?lm:Date.now();
@@ -3679,6 +3695,7 @@ function onLiveFrame(bytes){
   img.src=url; img.dataset.live='1';
   if(camFullOpen()&&!camFullSrc) document.getElementById('cam-full-img').src=url;
   camBlob=b; camShotAt=Date.now(); liveLastFrame=Date.now();
+  if(camRot&&!img.style.transform) paintRot();
   document.getElementById('cam-empty').style.display='none';
   document.getElementById('cam-live-badge').style.display='inline';
   liveFrames++;
@@ -3716,6 +3733,118 @@ function askShot(){
   // La subida tarda un par de segundos; se mira dos veces sin marear al servidor.
   setTimeout(loadCamShots,4000); setTimeout(loadCamShots,9000);
 }
+// ─── Girar en la app ───────────────────────────────────────────────────────
+// Cualquier ángulo, no solo cuartos de vuelta: una cámara sujeta a mano nunca
+// queda recta. Se hace aquí y no en la cámara porque el sensor solo sabe
+// voltear; y se aplica al pintar Y al guardar, así lo que va al informe sale
+// derecho. Es del aparato, no de la hoja: depende de cómo esté puesta la cámara.
+let camRot=0;
+try{ camRot=parseFloat(localStorage.getItem('pb-cam-rot')||'0')||0; }catch(e){}
+function setRot(v){
+  camRot=((+v%360)+540)%360-180;   // se queda entre -180 y 180
+  try{ localStorage.setItem('pb-cam-rot',String(camRot)); }catch(e){}
+  paintRot();
+}
+function nudgeRot(d){ setRot(camRot+d); }
+function toggleRot(){
+  const b=document.getElementById('cam-rot-box');
+  const open=b.style.display!=='none';
+  b.style.display=open?'none':'block';
+  document.getElementById('btn-rot').classList.toggle('on',!open);
+}
+// Al girar, la imagen deja esquinas vacías: se amplía lo justo para tapar el
+// hueco, que es lo que hace cualquier editor al enderezar.
+function rotCover(w,h,deg){
+  const r=Math.abs(deg*Math.PI/180), c=Math.abs(Math.cos(r)), si=Math.abs(Math.sin(r));
+  if(!w||!h) return 1;
+  return Math.max((w*c+h*si)/w,(w*si+h*c)/h);
+}
+function rotCss(el){
+  if(!el) return;
+  const box=el.parentElement;
+  const w=box?box.clientWidth:el.clientWidth, h=box?box.clientHeight:el.clientHeight;
+  el.style.transform=camRot?`rotate(${camRot}deg) scale(${rotCover(w,h,camRot).toFixed(3)})`:'';
+}
+function paintRot(){
+  const n=document.getElementById('cam-rot-n'); if(n) n.textContent=Math.round(camRot)+'°';
+  const r=document.getElementById('cam-rot-range'); if(r&&+r.value!==Math.round(camRot)) r.value=Math.round(camRot);
+  const b=document.getElementById('btn-rot'); if(b) b.classList.toggle('on',!!camRot);
+  rotCss(document.getElementById('cam-img'));
+  rotCss(document.getElementById('cam-full-img'));
+  document.querySelectorAll('#cam-shots img, #cs-img').forEach(i=>{
+    i.style.transform=camRot?`rotate(${camRot}deg) scale(${rotCover(i.clientWidth,i.clientHeight,camRot).toFixed(3)})`:'';
+  });
+}
+addEventListener('resize',paintRot);
+// Guardar ya girado: un lienzo con la rotación aplicada. Lo que se añade a un
+// paso y va al informe tiene que estar derecho, no depender de esta pantalla.
+async function bakeRot(blob){
+  if(!camRot) return blob;
+  try{
+    const img=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=URL.createObjectURL(blob);});
+    const r=camRot*Math.PI/180, c=Math.abs(Math.cos(r)), si=Math.abs(Math.sin(r));
+    const w=img.width, h=img.height;
+    const cw=Math.round(w*c+h*si), ch=Math.round(w*si+h*c);
+    const cv=document.createElement('canvas'); cv.width=cw; cv.height=ch;
+    const g=cv.getContext('2d');
+    g.fillStyle='#000'; g.fillRect(0,0,cw,ch);
+    g.translate(cw/2,ch/2); g.rotate(r); g.drawImage(img,-w/2,-h/2);
+    URL.revokeObjectURL(img.src);
+    return await new Promise(res=>cv.toBlob(b=>res(b||blob),'image/jpeg',0.9));
+  }catch(e){ return blob; }
+}
+
+// Enderezar con Claude: mira la foto, reconoce qué hay —un bote, la masa, la
+// mesa— y dice cuántos grados hay que girarla. Se le manda la foto de archivo
+// si la hay, que es grande y nítida; el fotograma del vivo es de 480×320 y a
+// veces no basta para ver dónde está la vertical.
+async function straightenWithClaude(){
+  const btn=document.getElementById('btn-straighten'), note=document.getElementById('cam-rot-note');
+  let blob=camBlob;
+  try{
+    const r=await fetch(CAM_URL+'?t='+Date.now(),{cache:'no-store'});
+    if(r.ok){ const b=await r.blob(); if(b.size>2000) blob=b; }
+  }catch(e){}
+  if(!blob){ showToast('No picture to look at yet'); return; }
+  btn.disabled=true; note.style.color='var(--muted)'; note.textContent='Claude is looking…';
+  try{
+    const d=await new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.onerror=rej;fr.readAsDataURL(blob);});
+    const sys=`You look at one photo from a camera watching bread dough rise, and say how much the photo has to be turned so it looks level.
+
+The camera is usually clamped or propped up, so the photo comes out tilted. In the photo there is normally a jar or container of dough on a table or shelf.
+
+- degrees: how much to rotate the photo CLOCKWISE, from -180 to 180, so that the container's sides are vertical, the dough's surface and the rim are horizontal, and the table is level. 0 if it already looks level. A photo that is upside down needs 180.
+- Judge it from the straight lines you can actually see — the container's sides, its rim, the table edge, a wall. Do not guess from the dough's shape alone, which is round.
+- confidence: 0 to 1. Low if the photo is dark, blurry, too close, or has no straight edge to go by.
+- sees: a few words on what you used, in the baker's language (Spanish). Example: "el borde del frasco y la mesa".`;
+    const rr=await fetch(`${SUPA_URL}/functions/v1/claude-proxy`,{
+      method:'POST',headers:{Authorization:'Bearer '+SUPA_JWT,'Content-Type':'application/json'},
+      body:JSON.stringify({model:'claude-opus-5',max_tokens:800,system:sys,
+        messages:[{role:'user',content:[
+          {type:'image',source:{type:'base64',media_type:'image/jpeg',data:d.split(',')[1]}},
+          {type:'text',text:'How many degrees clockwise should this photo be turned to look level?'}]}],
+        output_config:{format:{type:'json_schema',schema:{
+          type:'object',additionalProperties:false,
+          required:['degrees','confidence','sees'],
+          properties:{degrees:{type:'number'},confidence:{type:'number'},sees:{type:'string'}}}}}})});
+    const res=await rr.json();
+    if(res.error==='no_key') throw new Error('The server has no Claude credential yet');
+    if(!rr.ok||res.error) throw new Error((res.error&&(res.error.message||res.error))||('HTTP '+rr.status));
+    const o=JSON.parse(res.content.filter(b=>b.type==='text').map(b=>b.text).join(''));
+    const deg=Math.max(-180,Math.min(180,+o.degrees||0));
+    // Poca confianza no se aplica a la callada: se dice y se deja el ángulo a mano.
+    if(o.confidence<0.4){
+      note.style.color='var(--red)';
+      note.textContent=`Not sure (${Math.round(o.confidence*100)}%): ${o.sees}. Suggested ${deg.toFixed(0)}° — use the slider.`;
+    }else{
+      setRot(deg);
+      note.style.color='var(--green)';
+      note.textContent=`✓ ${deg.toFixed(0)}° · ${o.sees}`;
+    }
+  }catch(e){ note.style.color='var(--red)'; note.textContent='Could not do it: '+e.message; }
+  btn.disabled=false;
+}
+
 // Girar se pide a la placa y se aplica en el sensor, así que también sale
 // derecha en las fotos guardadas. La placa contesta con el estado retenido.
 let camVflip=false, camHmirror=false;
@@ -3740,6 +3869,7 @@ function openShot(name){
   const o=camShots.find(x=>x.name===name); if(!o)return;
   shotOpen=o;
   document.getElementById('cs-img').src=shotUrl(o);
+  setTimeout(paintRot,50);
   document.getElementById('cs-cap').textContent=new Date(o.t).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
   document.getElementById('cam-modal').classList.add('show');
 }
@@ -3749,7 +3879,7 @@ async function shotToStep(){
   const st=activeStage();
   if(!st){showToast('Start a step first');return;}
   try{
-    const b=await (await fetch(shotUrl(shotOpen))).blob();
+    const b=await bakeRot(await (await fetch(shotUrl(shotOpen))).blob());
     await addPhoto(st.id,new File([b],'camera.jpg',{type:'image/jpeg'}));
     closeShot();
   }catch(e){ showToast('Could not add that picture'); }
@@ -3793,6 +3923,7 @@ function renderCamShots(){
   if(da) da.style.display=camShots.length?'inline':'none';
   const n=document.getElementById('cam-shots-n');
   if(n) n.textContent=camShots.length;
+  setTimeout(paintRot,50);   // las miniaturas acaban de nacer
   note.textContent=camShots.length
     ? `${camShots.length} saved · last ${f(camShots[0].t)}`
     : 'No pictures saved yet. The camera keeps one every 10 minutes.';
@@ -3807,6 +3938,7 @@ function openCamFull(src){
   img.src=src||document.getElementById('cam-img').src;
   box.classList.add('show');
   paintCamFullTxt();
+  setTimeout(paintRot,30);
   try{ if(box.requestFullscreen) box.requestFullscreen({navigationUI:'hide'}); }catch(e){}
   if(!src) autoLive();
 }
@@ -3838,9 +3970,11 @@ async function camToStep(){
   if(!camBlob){showToast('No camera picture yet');return;}
   const st=activeStage();
   if(!st){showToast('Start a step first');return;}
-  await addPhoto(st.id,new File([camBlob],'camera.jpg',{type:'image/jpeg'}));
+  const b=await bakeRot(camBlob);
+  await addPhoto(st.id,new File([b],'camera.jpg',{type:'image/jpeg'}));
 }
 function startCam(){
+  paintRot();
   refreshCam(true);
   loadCamShots();
   if(camTimer) clearInterval(camTimer);
