@@ -112,6 +112,27 @@ la barra quedaba tapada y no había forma de salir. Métricas pequeñas a izquie
 o derecha, elegidas con ⚙: nombre de la hoja, paso, progreso, gráfico de
 crecimiento, temperatura, gráfico de temperatura, temporizador, conductividad.
 
+**Zoom en pantalla completa**, como el de Chrome: − y + con pasos fijos (100,
+110, 125, 150, 175, 200, 250, 300, 400, 500 %), el % a la vista (tocarlo vuelve a
+100 %), teclas + − 0 y pellizco de trackpad (llega como rueda con Ctrl).
+Deslizar dos dedos por el trackpad o la rueda sola MUEVEN la imagen — al
+principio también ampliaban y no había forma de recentrar. En el móvil, dos
+dedos amplían y desplazan; uno arrastra; doble toque 100 ↔ 200 %; los botones
++ − se ocultan con `(hover:none)`. El desplazamiento va antes del giro en el
+`transform`, así arrastrar a la derecha mueve a la derecha aunque esté girada.
+**Zoom y posición se recuerdan** (`pb-cam-zoom`, la posición en fracciones de la
+pantalla) al cerrar, reabrir y recargar. Al abrir, recuperarlos es lo PRIMERO:
+cualquier repintado previo recalculaba la fracción con la posición a cero.
+
+**Calidad del vivo elegible** (Fluid / Balanced / Sharp): 480×320 a ~6 fps,
+800×600 a ~3 fps, 1024×768 a ~1-2 fps. La decide la placa (`cmd` `q:0|1|2`, en
+NVS) y contesta retenido en `.../quality`; si no contesta, lleva firmware
+anterior y la app lo dice. Lo que limita es subir cada JPEG por WiFi al broker,
+no el sensor. `tuneSensor()`: corrección de lente y de píxeles muertos, gamma,
+exposición automática con modo de poca luz, ganancia limitada a 8× (más ganancia
+= más grano; la masa no se mueve y es mejor exponer más), nitidez y reducción de
+ruido.
+
 **Las fotos de archivo salían ROTAS con el vivo siempre encendido**: cambiar de
 480×320 a 1024×768 en caliente daba un fotograma de 480×320 lleno de bandas.
 `archiveShot()` ahora reinicia la cámara a tamaño grande (~1 s cada 10 min) y
