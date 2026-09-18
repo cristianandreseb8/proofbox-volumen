@@ -3897,8 +3897,13 @@ function zoomStep(dir){
     el.addEventListener('wheel',e=>{
       if(!camFullOpen()) return;
       e.preventDefault();
-      // Ctrl+rueda (y el pellizco del trackpad) hacen zoom; la rueda sola también.
-      setZoom(camZoom*Math.exp(-e.deltaY*(e.ctrlKey?0.01:0.002)));
+      // Como en Chrome y en los mapas: pellizcar (llega con Ctrl) amplía;
+      // deslizar dos dedos por el trackpad, o la rueda sola, MUEVE la imagen.
+      // Antes deslizar también ampliaba y no había forma de recentrar el frasco.
+      if(e.ctrlKey||e.metaKey){ setZoom(camZoom*Math.exp(-e.deltaY*0.01)); return; }
+      const k=e.deltaMode===1?16:1;                   // ratones que cuentan en líneas
+      panX-=e.deltaX*k; panY-=e.deltaY*k;
+      rotFit(document.getElementById('cam-full-img'));
     },{passive:false});
     // Doble toque o doble clic: 100% ↔ 200%.
     el.addEventListener('dblclick',()=>setZoom(camZoom>1.05?1:2));
@@ -3944,12 +3949,91 @@ async function bakeRot(blob){
 // mesa— y dice cuántos grados hay que girarla. Se le manda la foto de archivo
 // si la hay, que es grande y nítida; el fotograma del vivo es de 480×320 y a
 // veces no basta para ver dónde está la vertical.
+// ─── Enderezar con Claude ─────────────────────────────────────────────────
+// Lo que manda es que la TAPA quede paralela al suelo, no un punto a ojo. Se le
+// piden SEGMENTOS rectos —el borde de la tapa, el del suelo o la mesa, los dos
+// lados del frasco— y el ángulo sale de ellos con geometría: los horizontales a
+// 0°, los verticales a 90°, con más peso la tapa y el suelo. Qué lado es arriba
+// (la tapa) lo decide el eje base→tapa, que es lo único que hace falta de él.
+// Después, una segunda pasada sobre la imagen YA girada mide lo que queda
+// torcido y lo corrige: un segmento marcado sobre 480×320 se desvía un par de
+// grados, y esa segunda mirada los recoge.
+const SEG={type:['object','null'],additionalProperties:false,required:['x1','y1','x2','y2'],
+  properties:{x1:{type:'number'},y1:{type:'number'},x2:{type:'number'},y2:{type:'number'}}};
+const PT={type:['object','null'],additionalProperties:false,required:['x','y'],properties:{x:{type:'number'},y:{type:'number'}}};
+async function askLines(dataUrl,W,H,refine){
+  const sys=`You mark straight edges in a photo so an app can rotate it until a container stands upright with its lid parallel to the floor.
+
+The container is: ${camSubject}. It holds bread dough. The photo is from a small camera: it may be dim or soft, and ${refine?'it has already been roughly straightened, so the lid should be close to horizontal':'it may be tilted, sideways or upside down'}. Find the container anyway — its lid, colour and outline are enough.
+
+Coordinates are normalised to the image AS SHOWN: x from 0 (left) to 1 (right), y from 0 (top) to 1 (bottom). Each segment is two points on the SAME straight edge, as far apart along it as you can place them — long segments give a precise angle, short ones do not.
+
+- found: false only if the container is really not there.
+- lid_edge: the straight edge across the lid or rim of the opening — in side view the line where the lid meets the jar, or the lid's flat top edge. This is the most important one.
+- base_edge: the straight line where the container's bottom sits, if visible. Null otherwise.
+- floor_edge: a straight edge of the floor, table or shelf the container stands on — a table edge, a tile line, the shelf front. Null if there is none.
+- left_side, right_side: the container's two straight vertical sides, top to bottom. Null for a side you cannot see as a straight line.
+- lid_center, base_center: middle of the lid, middle of the bottom (or lowest visible part along the container's axis). Used only to know which way is up.
+- confidence: 0 to 1, how sure you are of lid_edge.
+- sees: a few words in Spanish on what you used.`;
+  const rr=await fetch(`${SUPA_URL}/functions/v1/claude-proxy`,{
+    method:'POST',headers:{Authorization:'Bearer '+SUPA_JWT,'Content-Type':'application/json'},
+    body:JSON.stringify({model:'claude-opus-5',max_tokens:6000,thinking:{type:'adaptive'},system:sys,
+      messages:[{role:'user',content:[
+        {type:'image',source:{type:'base64',media_type:'image/jpeg',data:dataUrl.split(',')[1]}},
+        {type:'text',text:`Mark the straight edges of the ${camSubject} and of the surface it stands on.`}]}],
+      output_config:{format:{type:'json_schema',schema:{
+        type:'object',additionalProperties:false,
+        required:['found','lid_edge','base_edge','floor_edge','left_side','right_side','lid_center','base_center','confidence','sees'],
+        properties:{found:{type:'boolean'},lid_edge:SEG,base_edge:SEG,floor_edge:SEG,left_side:SEG,right_side:SEG,
+                    lid_center:PT,base_center:PT,confidence:{type:'number'},sees:{type:'string'}}}}}})});
+  const res=await rr.json();
+  if(res.error==='no_key') throw new Error('The server has no Claude credential yet');
+  if(!rr.ok||res.error) throw new Error((res.error&&(res.error.message||res.error))||('HTTP '+rr.status));
+  return JSON.parse(res.content.filter(b=>b.type==='text').map(b=>b.text).join(''));
+}
+// Con los segmentos, el giro que los deja en su sitio (entre -90 y 90; el
+// medio giro lo decide después el eje). Media circular con el ángulo doble:
+// una línea a 89° y otra a -89° son casi la misma, no se promedian a 0.
+function angleFromLines(o,W,H){
+  const want=[['lid_edge',0,3],['base_edge',0,2],['floor_edge',0,2],['left_side',90,1],['right_side',90,1]];
+  let sx=0,sy=0,n=0; const used=[];
+  for(const [k,target,wt] of want){
+    const g=o[k]; if(!g) continue;
+    const dx=(g.x2-g.x1)*W, dy=(g.y2-g.y1)*H, len=Math.hypot(dx,dy);
+    if(len<Math.min(W,H)*0.06) continue;            // muy corto: el ángulo no vale
+    const th=Math.atan2(dy,dx)*180/Math.PI;          // ángulo de la línea en pantalla
+    let r=target-th;                                  // girar para llevarla a su sitio
+    const w=wt*len;
+    sx+=w*Math.cos(2*r*Math.PI/180); sy+=w*Math.sin(2*r*Math.PI/180); n+=w; used.push(k);
+  }
+  if(!n) return null;
+  return {deg:Math.atan2(sy,sx)*90/Math.PI, used};
+}
+function upsideFix(rot,o,W,H){
+  // Con el giro aplicado, la tapa tiene que quedar ARRIBA de la base.
+  if(!o.lid_center||!o.base_center) return rot;
+  const dx=(o.lid_center.x-o.base_center.x)*W, dy=(o.lid_center.y-o.base_center.y)*H;
+  const r=rot*Math.PI/180, ry=dx*Math.sin(r)+dy*Math.cos(r);
+  return ry>0 ? rot+180 : rot;                        // y>0 = hacia abajo en pantalla
+}
+function norm180(d){ return ((d%360)+540)%360-180; }
+async function rotatedDataUrl(blob,deg){
+  const img=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=URL.createObjectURL(blob);});
+  const r=deg*Math.PI/180, c=Math.abs(Math.cos(r)), si=Math.abs(Math.sin(r));
+  const w=img.width,h=img.height, cw=Math.round(w*c+h*si), ch=Math.round(w*si+h*c);
+  const cv=document.createElement('canvas'); cv.width=cw; cv.height=ch;
+  const g=cv.getContext('2d'); g.fillStyle='#000'; g.fillRect(0,0,cw,ch);
+  g.translate(cw/2,ch/2); g.rotate(r); g.drawImage(img,-w/2,-h/2);
+  URL.revokeObjectURL(img.src);
+  return {url:cv.toDataURL('image/jpeg',0.92), W:cw, H:ch};
+}
 async function straightenWithClaude(){
   const btn=document.getElementById('btn-straighten'), note=document.getElementById('cam-rot-note');
-  // Qué foto mirar. El vivo es lo de AHORA: si la cámara se movió, la foto de
-  // archivo puede ser de hace 10 minutos y enseñar otra cosa — y con el firmware
-  // anterior salían rotas. Se usa el vivo si está llegando; la de archivo solo
-  // si es grande de verdad (las rotas eran de 480x320) y reciente.
+  const say=(t,col)=>{ note.style.color=col||'var(--muted)'; note.textContent=t;
+    const f=document.getElementById('cam-full-txt'); if(f&&camFullOpen()) f.textContent=t; };
+  // Qué foto mirar: el vivo es lo de AHORA; la de archivo solo si es grande de
+  // verdad (con el firmware viejo salían rotas, de 480x320) y reciente.
   let blob=null;
   if(liveOn&&liveLastFrame&&Date.now()-liveLastFrame<15000&&camBlob) blob=camBlob;
   if(!blob){
@@ -3965,76 +4049,33 @@ async function straightenWithClaude(){
   }
   if(!blob) blob=camBlob;
   if(!blob){ showToast('No picture to look at yet'); return; }
-  if(btn) btn.disabled=true; note.style.color='var(--muted)'; note.textContent='Claude is looking…';
+  if(btn) btn.disabled=true;
   try{
-    const d=await new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.onerror=rej;fr.readAsDataURL(blob);});
-    const dim=await new Promise(res=>{const i=new Image();i.onload=()=>res([i.width,i.height]);i.onerror=()=>res([4,3]);i.src=d;});
-    // Pedir grados a ojo salió mal: dijo -8° con un 22% y el frasco quedó torcido.
-    // Los modelos marcan dónde está algo mucho mejor que estiman un ángulo, así
-    // que se le piden PUNTOS —centro de la tapa, centro de la base, extremos del
-    // borde— y el ángulo se calcula aquí con geometría. Y se le dice qué buscar.
-    const sys=`You locate a container in a photo so the app can rotate the photo until the container stands upright.
-
-The container is: ${camSubject}. It holds bread dough. The photo comes from a small camera, so it may be dim, soft or tilted — even upside down or sideways. That is expected: find the container anyway. Its lid, its colour and its outline are enough; you do not need sharp detail.
-
-Give coordinates normalised to the image: x from 0 (left edge) to 1 (right edge), y from 0 (top edge) to 1 (bottom edge), as the image is shown to you — not as the scene would be upright.
-
-- found: false only if the container is really not in the picture.
-- lid_center: the middle of the lid or top opening.
-- base_center: the middle of the container's bottom. If the bottom is out of frame, the middle of the lowest visible part of the container along its own axis.
-- rim_left, rim_right: the two ends of the lid or rim as seen across the container. Null if you cannot see both.
-- confidence: 0 to 1, how sure you are of lid_center and base_center.
-- sees: a few words in Spanish on what you found.`;
-    const pt={type:['object','null'],additionalProperties:false,required:['x','y'],properties:{x:{type:'number'},y:{type:'number'}}};
-    const rr=await fetch(`${SUPA_URL}/functions/v1/claude-proxy`,{
-      method:'POST',headers:{Authorization:'Bearer '+SUPA_JWT,'Content-Type':'application/json'},
-      body:JSON.stringify({model:'claude-opus-5',max_tokens:4000,thinking:{type:'adaptive'},system:sys,
-        messages:[{role:'user',content:[
-          {type:'image',source:{type:'base64',media_type:'image/jpeg',data:d.split(',')[1]}},
-          {type:'text',text:`Find the ${camSubject} and mark its points.`}]}],
-        output_config:{format:{type:'json_schema',schema:{
-          type:'object',additionalProperties:false,
-          required:['found','lid_center','base_center','rim_left','rim_right','confidence','sees'],
-          properties:{found:{type:'boolean'},lid_center:pt,base_center:pt,rim_left:pt,rim_right:pt,
-                      confidence:{type:'number'},sees:{type:'string'}}}}}})});
-    const res=await rr.json();
-    if(res.error==='no_key') throw new Error('The server has no Claude credential yet');
-    if(!rr.ok||res.error) throw new Error((res.error&&(res.error.message||res.error))||('HTTP '+rr.status));
-    const o=JSON.parse(res.content.filter(b=>b.type==='text').map(b=>b.text).join(''));
-    if(!o.found||!o.lid_center||!o.base_center){
-      note.style.color='var(--red)'; note.textContent='Could not find it: '+(o.sees||'')+' — try describing it differently below.';
-    }else{
-      const [W,H]=dim;
-      // Eje del frasco en píxeles de verdad: la foto no es cuadrada.
-      const dx=(o.lid_center.x-o.base_center.x)*W, dy=(o.lid_center.y-o.base_center.y)*H;
-      let deg=-Math.atan2(dx,-dy)*180/Math.PI;        // cuánto girar para que la tapa quede arriba
-      // El borde, si lo hay, confirma: tiene que quedar horizontal.
-      let byRim=null;
-      if(o.rim_left&&o.rim_right){
-        let rx=(o.rim_right.x-o.rim_left.x)*W, ry=(o.rim_right.y-o.rim_left.y)*H;
-        if(Math.hypot(rx,ry)>W*0.05){
-          byRim=-Math.atan2(ry,rx)*180/Math.PI;
-          // "izquierda" y "derecha" pueden venir cambiadas en una foto al revés:
-          // se toma la lectura del borde más cercana a la del eje.
-          const diff=a=>Math.abs(((a-deg)%360+540)%360-180);
-          if(diff(byRim+180)<diff(byRim)) byRim+=180;
-          byRim=((byRim%360)+540)%360-180;
-        }
-      }
-      const agree=byRim==null||Math.abs(((byRim-deg)%360+540)%360-180)<12;
-      if(agree&&byRim!=null){ const m=Math.atan2((Math.sin(deg*Math.PI/180)+Math.sin(byRim*Math.PI/180))/2,(Math.cos(deg*Math.PI/180)+Math.cos(byRim*Math.PI/180))/2)*180/Math.PI; deg=m; }
-      deg=Math.round(deg);
-      if(o.confidence<0.3){
-        note.style.color='var(--red)';
-        note.textContent=`Not sure (${Math.round(o.confidence*100)}%): ${o.sees}. It would be ${deg}° — use the slider.`;
-      }else{
-        setRot(deg);
-        note.style.color='var(--green)';
-        note.textContent=`✓ ${deg}° · ${o.sees}${agree?'':' (axis and rim disagree — check it)'}`;
-      }
+    say('Claude is looking for the straight edges…');
+    const first=await rotatedDataUrl(blob,0);
+    const o=await askLines(first.url,first.W,first.H,false);
+    if(!o.found){ say('Could not find it: '+(o.sees||'')+' — describe it differently in "What to level".','var(--red)'); return; }
+    const a=angleFromLines(o,first.W,first.H);
+    if(!a){ say('It found the jar but no straight edge to go by: '+o.sees,'var(--red)'); return; }
+    let deg=norm180(upsideFix(a.deg,o,first.W,first.H));
+    if(o.confidence<0.3){ say(`Not sure (${Math.round(o.confidence*100)}%): ${o.sees}. It would be ${Math.round(deg)}° — use the slider.`,'var(--red)'); return; }
+    setRot(Math.round(deg));
+    // Segunda pasada: ya casi recto, se mide lo que falta.
+    say(`${Math.round(deg)}° · checking it again…`);
+    const second=await rotatedDataUrl(blob,deg);
+    const o2=await askLines(second.url,second.W,second.H,true);
+    let fix=0;
+    if(o2.found){
+      const a2=angleFromLines(o2,second.W,second.H);
+      // Solo retoques pequeños: si la segunda mirada propone un giro grande es
+      // que se ha liado, no que falten 40°.
+      if(a2&&Math.abs(a2.deg)<=15&&o2.confidence>=0.3) fix=a2.deg;
     }
-  }catch(e){ note.style.color='var(--red)'; note.textContent='Could not do it: '+e.message; }
-  if(btn) btn.disabled=false;
+    deg=norm180(deg+fix);
+    setRot(Math.round(deg));
+    say(`✓ ${Math.round(deg)}°${fix?` (fine-tuned ${fix>0?'+':''}${fix.toFixed(1)}°)`:''} · ${o.sees} · lines: ${a.used.map(k=>({lid_edge:'lid',base_edge:'base',floor_edge:'floor',left_side:'left side',right_side:'right side'})[k]).join(', ')}`,'var(--green)');
+  }catch(e){ say('Could not do it: '+e.message,'var(--red)'); }
+  finally{ if(btn) btn.disabled=false; }
 }
 
 // Girar se pide a la placa y se aplica en el sensor, así que también sale

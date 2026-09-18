@@ -73,23 +73,17 @@ el JPEG al guardar** (`bakeRot`): lo que va a un paso y al informe sale derecho
 aunque se mire desde otro sitio. Los ficheros del archivo se quedan en crudo y
 se pintan girados.
 
-**Enderezar con Claude** (`straightenWithClaude`). Pedirle grados a ojo salió
-mal (-8° con un 22%, el frasco torcido). Ahora se le pide que MARQUE puntos —
-centro de la tapa, centro de la base, extremos del borde— y el ángulo se calcula
-en la app con geometría; el borde confirma el eje. Se le dice qué buscar con el
-texto "What to level" (por defecto "frasco de vidrio con tapa verde"). Usa el
-fotograma del VIVO: la foto de archivo puede ser de hace 10 min, de antes de
-mover la cámara. Primera prueba con esto: encontró el frasco tumbado y lo giró
-128°, derecho. Por debajo de 0,3 de confianza propone y no aplica.
-
-**Zoom en pantalla completa**, como el de Chrome: − y + con pasos fijos
-(100, 110, 125, 150, 175, 200, 250, 300, 400, 500 %), el % a la vista y un toque
-en él vuelve a 100 %; teclas + − 0; rueda y pellizco de trackpad. En el móvil,
-con dos dedos (continuo) y un dedo para moverse ampliado; los botones + − se
-ocultan con `(hover:none)`. Doble toque: 100 ↔ 200 %. El desplazamiento va antes
-del giro en el `transform`, así arrastrar a la derecha mueve a la derecha aunque
-la imagen esté girada, y se limita para no sacar la imagen de la pantalla.
-Zoom, ⚙ y ✕ van juntos arriba a la derecha.
+**Enderezar con Claude** (`straightenWithClaude`). Lo que manda es que la TAPA
+quede paralela al suelo. Primero se le pidieron grados a ojo (-8° con un 22%,
+torcido); luego puntos —centro de tapa y base— (mejor, pero impreciso). Ahora
+marca SEGMENTOS rectos: borde de la tapa, línea de la base, borde del suelo o la
+mesa, los dos lados del frasco. El ángulo sale de ellos con geometría
+(`angleFromLines`): horizontales a 0°, verticales a 90°, pesando tapa 3, suelo y
+base 2, lados 1, por longitud, con media circular del ángulo doble. Qué lado es
+arriba lo decide solo el eje base→tapa (`upsideFix`). Después una **segunda
+pasada** sobre la imagen ya girada mide lo que falta y lo corrige si son ≤15°. En
+la prueba: 115°, con -7,3° de retoque, y la tapa quedó horizontal. Usa el
+fotograma del vivo; "What to level" le dice qué buscar.
 
 **El giro se comparte entre aparatos** como mensaje retenido en
 `proofboxcam/proofbox-cam01/rot` (`{deg, subject}`), no en `proofbox_state`: no
