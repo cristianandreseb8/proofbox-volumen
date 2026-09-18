@@ -177,6 +177,16 @@ body.board .app{max-width:none;padding:16px 22px 80px}
 /* El dibujo de la IA va encima de la imagen, del tamaño de la parte que ocupa
    la foto y con su MISMO transform: así acompaña al giro, al zoom y al arrastre. */
 .vis-layer{position:absolute;pointer-events:none;overflow:visible;z-index:2}
+/* Las imágenes no se arrastran como fichero: en el ordenador ese gesto nativo
+   se comía el arrastre de la configuración y no se podía dibujar nada. */
+#cam-img,#cam-full-img{-webkit-user-drag:none;user-drag:none;user-select:none;-webkit-user-select:none}
+/* Mientras se configura, el dedo dibuja en vez de desplazar la página. */
+.setup-on{touch-action:none;cursor:crosshair!important}
+.setup-on img{cursor:crosshair!important}
+.setup-banner{position:absolute;left:8px;right:8px;top:8px;z-index:4;display:none;align-items:center;gap:8px;
+  background:rgba(0,0,0,.75);border:1px solid var(--amber);border-radius:8px;padding:6px 8px;color:#fff;font-size:11px;line-height:1.35}
+.setup-banner .st{flex:1}
+.setup-banner button{background:transparent;border:1px solid rgba(255,255,255,.4);border-radius:6px;color:#fff;font-size:11px;padding:3px 8px;cursor:pointer}
 .cam-full-stage img{width:100%;height:100%;object-fit:contain;display:block}
 /* Zoom, tuerca y X flotan arriba a la derecha, encima de todo: con la imagen
    girada y ampliada, en el móvil la barra de abajo quedaba tapada y no había
@@ -289,15 +299,16 @@ body.board .app{max-width:none;padding:16px 22px 80px}
 </div>
 <div class="cam-full" id="cam-full">
   <div class="cam-full-stage" id="cam-full-stage">
-    <img id="cam-full-img" alt="">
+    <img id="cam-full-img" draggable="false" alt="">
     <svg class="vis-layer" id="vis-full"></svg>
+    <div class="setup-banner" id="setup-banner-full" style="top:64px"><span class="st"></span><button onclick="cancelSetup()">Cancel</button></div>
     <div id="hud-free"></div>
   </div>
   <div class="cam-full-top">
     <button class="zb" onclick="zoomStep(-1)" title="Zoom out">−</button>
     <button class="zp" id="cam-zoom-pct" onclick="setZoom(1)" title="Back to 100%">100%</button>
     <button class="zb" onclick="zoomStep(1)" title="Zoom in">+</button>
-    <button id="btn-frame-full" onclick="toggleFrameMode()" title="Draw a box around the jar">⬚</button>
+    <button id="btn-frame-full" onclick="toggleFrameMode()" title="Set up jar, dough and target">🎯</button>
     <button id="btn-vis-eye-full" onclick="toggleVisShow()" title="Show or hide what the AI sees">👁</button>
     <button onclick="openHudCfg()" title="What to show over the picture">⚙</button>
     <button onclick="closeCamFull()" title="Close">✕</button>
@@ -572,8 +583,9 @@ body.board .app{max-width:none;padding:16px 22px 80px}
       <div style="font-size:11px;color:var(--muted)" id="cam-age">--</div>
     </div>
     <div style="margin-top:8px;position:relative;background:#000;border-radius:8px;overflow:hidden;aspect-ratio:16/10">
-      <img id="cam-img" alt="" style="width:100%;height:100%;object-fit:contain;display:block;cursor:zoom-in" onclick="openCamFull()">
+      <img id="cam-img" draggable="false" alt="" style="width:100%;height:100%;object-fit:contain;display:block;cursor:zoom-in" onclick="openCamFull()">
       <svg class="vis-layer" id="vis-card"></svg>
+      <div class="setup-banner" id="setup-banner-card"><span class="st"></span><button onclick="cancelSetup()">Cancel</button></div>
       <div id="cam-empty" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:11px;text-align:center;padding:12px">Waiting for the camera…</div>
     </div>
     <div class="warn" id="warn-cam" style="margin:10px 0 0">📷 No new picture for a while — is the camera plugged in and on WiFi?</div>
@@ -604,8 +616,8 @@ body.board .app{max-width:none;padding:16px 22px 80px}
         <button id="btn-vis-now" onclick="runVision(true)">Check now</button>
       </div>
       <div class="cam-btns" style="margin-top:4px">
-        <button id="btn-frame" onclick="toggleFrameMode()" title="Draw a box around the jar so the AI knows where it is">⬚ Frame the jar</button>
-        <button onclick="clearHint()" title="Let the AI look at the whole picture">✕ Clear frame</button>
+        <button id="btn-frame" onclick="toggleFrameMode()" title="Show the AI the jar, the dough and your target">🎯 Set up jar · dough · target</button>
+        <button onclick="clearHint()" title="Forget the setup">✕ Reset</button>
       </div>
       <div style="font-size:10px;color:var(--muted);margin-top:6px;line-height:1.45" id="vis-note">It frames the jar, finds the top of the dough and the line you drew with a marker, and warns you when the dough reaches the line. The sensor still leads: the camera sees at an angle. Each check is a call to Claude and costs a little.</div>
     </div>
@@ -4376,7 +4388,22 @@ function visAxis(o){
   return {top:h(o.dough_top), line:h(line)};
 }
 function visProgress(o){
-  const ax=visAxis(o); if(!ax||ax.top==null||ax.line==null) return null;
+  const ax=visAxis(o); if(!ax||ax.top==null) return null;
+  // Con la configuración a mano manda ella: la masa empezó donde se enmarcó y el
+  // objetivo está donde se trazó la línea, en proporción al frasco.
+  if(visSetup){
+    // Sin seguridad no se da número: un 94% inventado con el frasco medio fuera
+    // de cuadro es peor que un "no lo tengo claro".
+    if(o.confidence!=null&&o.confidence<0.45) return null;
+    const s0=visSetup.hDough, tg=visSetup.hTarget;
+    // La altura de la masa comparada con la foto de referencia es lo más fiable:
+    // marcar la base con precisión cuesta (se colaba el táper de debajo), pero
+    // "más alta o más baja que en la referencia" se juzga bien. Los puntos
+    // quedan para dibujar y de reserva.
+    const h=(o.dough_fraction!=null&&isFinite(o.dough_fraction))?o.dough_fraction:ax.top;
+    return {pct:Math.max(0,Math.min(150,(h-s0)/(tg-s0)*100)), gap:tg-h};
+  }
+  if(ax.line==null) return null;
   const st=activeStage();
   // El punto de partida es la primera medida del paso: sin él, "72%" no
   // diría de qué.
@@ -4388,7 +4415,8 @@ function visText(o){
   if(!o) return visOn?'AI: waiting for the first check':'';
   if(!o.found) return 'AI: jar not in view';
   const p=visProgress(o), when=new Date(o.at).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
-  if(!o.marker_line) return `AI ${when}: jar and dough found, no marker line seen`;
+  if(!o.marker_line&&!visSetup) return `AI ${when}: jar and dough found, no marker line seen — set up the target with 🎯`;
+  if(visSetup&&!p) return `AI ${when}: not sure this time (${Math.round((o.confidence||0)*100)}%) — the ToF still leads`;
   return `AI ${when}: ${p?Math.round(p.pct)+'% to your line':'measuring from here'}${o.reached?' · reached ✓':''}`;
 }
 async function runVision(force){
@@ -4418,19 +4446,31 @@ Coordinates are normalised to the image AS SHOWN: x 0 (left) to 1 (right), y 0 (
 - dough_top: the highest point of the dough's dome along the container's axis (towards the lid) — the very top of the dome, not where the dough touches the glass.
 - marker_line: the two ends of the line drawn with the marker. Null if you cannot see one.
 - reached: true only if the top of the dough is at or past the marker line.
-- confidence: 0 to 1.
+- dough_fraction: how high the top of the dough is now, as a fraction of the container's own height from its bottom (0) to its top (1). Null if you cannot judge it.${visSetup?`
+
+The baker set this up on Image 1: there the top of the dough was at ${Math.round(visSetup.hDough*100)}% of the container's height and the target is at ${Math.round(visSetup.hTarget*100)}%. Use the SAME container as in Image 1 — not a tub, plate or cloth next to it or under it — and judge dough_fraction against how it looked there. The container's bottom and top are the same physical places as in Image 1, even if the camera has moved.`:''}
+- confidence: 0 to 1 — low if the container is partly out of frame, blurry, or you are unsure it is the same one.
 - note: a few words in Spanish on what you see.`;
     const PT2={type:['object','null'],additionalProperties:false,required:['x','y'],properties:{x:{type:'number'},y:{type:'number'}}};
     const SEG2={type:['object','null'],additionalProperties:false,required:['x1','y1','x2','y2'],properties:{x1:{type:'number'},y1:{type:'number'},x2:{type:'number'},y2:{type:'number'}}};
+    const ref=visSetup?await visRef():null;
+    // Con configuración, se le enseña primero cómo era el frasco: así lo vuelve
+    // a encontrar aunque la cámara se haya movido o haya otros recipientes.
+    const content=img=>ref
+      ? [{type:'text',text:'Image 1 is the container the baker framed when setting up — this is the one to find.'},
+         {type:'image',source:{type:'base64',media_type:'image/jpeg',data:ref.split(',')[1]}},
+         {type:'text',text:'Image 2 is the camera now. Give every coordinate in Image 2. Where are the container, the top of the dough and the marker line?'},
+         {type:'image',source:{type:'base64',media_type:'image/jpeg',data:img.split(',')[1]}}]
+      : [{type:'image',source:{type:'base64',media_type:'image/jpeg',data:img.split(',')[1]}},
+         {type:'text',text:'Where are the container, the top of the dough and the marker line?'}];
     const ask=img=>fetch(`${SUPA_URL}/functions/v1/claude-proxy`,{method:'POST',
       headers:{Authorization:'Bearer '+SUPA_JWT,'Content-Type':'application/json'},
       body:JSON.stringify({model:'claude-opus-5',max_tokens:5000,thinking:{type:'adaptive'},system:sys,
-        messages:[{role:'user',content:[{type:'image',source:{type:'base64',media_type:'image/jpeg',data:img.split(',')[1]}},
-          {type:'text',text:'Where are the container, the top of the dough and the marker line?'}]}],
+        messages:[{role:'user',content:content(img)}],
         output_config:{format:{type:'json_schema',schema:{type:'object',additionalProperties:false,
-          required:['found','base_center','lid_center','half_width','dough_top','marker_line','reached','confidence','note'],
+          required:['found','base_center','lid_center','half_width','dough_top','marker_line','reached','dough_fraction','confidence','note'],
           properties:{found:{type:'boolean'},base_center:PT2,lid_center:PT2,half_width:{type:['number','null']},
-            dough_top:PT2,marker_line:SEG2,reached:{type:'boolean'},confidence:{type:'number'},note:{type:'string'}}}}}})});
+            dough_top:PT2,marker_line:SEG2,reached:{type:'boolean'},dough_fraction:{type:['number','null']},confidence:{type:'number'},note:{type:'string'}}}}}})});
     const parse=async rr=>{ const res=await rr.json();
       if(!rr.ok||res.error) throw new Error((res.error&&(res.error.message||res.error))||('HTTP '+rr.status));
       return JSON.parse(res.content.filter(b=>b.type==='text').map(b=>b.text).join('')); };
@@ -4438,7 +4478,8 @@ Coordinates are normalised to the image AS SHOWN: x 0 (left) to 1 (right), y 0 (
     if(crop){
       o=uncrop(await parse(await ask(crop.url)),crop.box);
       // No estaba dentro del recuadro (la cámara se movió): foto entera.
-      if(!o.found&&!(visHint&&visHint.byHand)) o=await parse(await ask(d));
+      // No estaba en el recuadro de búsqueda: la cámara se movió. Foto entera.
+      if(!o.found&&(visSetup||!(visHint&&visHint.byHand))) o=await parse(await ask(d));
     }else o=await parse(await ask(d));
     o.at=Date.now(); o.W=dim[0]; o.H=dim[1]; o.stage=activeStage()?activeStage().id:null;
     followHint(o);
@@ -4457,7 +4498,8 @@ function onVision(o,mine){
   // un reflejo en el cristal.
   if(st&&o.found&&o.stage===st.id){
     const p=visProgress(o);
-    const hit=o.reached||(p&&p.pct>=100);
+    const sure=o.confidence==null||o.confidence>=0.45;
+    const hit=sure&&(o.reached||(p&&p.pct>=100));
     st.visionHits=hit?(st.visionHits||0)+1:0;
     if(hit&&st.visionHits>=2&&!st.visionAlerted){
       st.visionAlerted=true; saveSessions();
@@ -4465,6 +4507,7 @@ function onVision(o,mine){
     }
   }
   if(mine&&!SANDBOX&&mqttClient&&mqttClient.connected) mqttClient.publish(CAM_TOPIC+'/vision',JSON.stringify(o),{retain:true});
+  if(!visSetup&&o.found&&!o.marker_line&&mine){ const n2=document.getElementById('cam-vis-line'); if(n2) n2.textContent=visText(o); }
   const n=document.getElementById('vis-note'); if(n) n.textContent=visText(o)+(o.note?' · '+o.note:'');
   const cs=document.getElementById('cam-vis-line'); if(cs) cs.textContent=visOn?visText(o):'';
   drawVision();
@@ -4484,11 +4527,22 @@ function visSvg(o){
     return `<polygon points="${c}" fill="none" stroke="${col}" stroke-width="4" stroke-linejoin="round"/>`;
   };
   let out=rect(-len*0.02,len*1.04,hw*1.08,'#9be15d');                  // frasco
-  if(o.dough_top){
-    const [tx,ty]=P(o.dough_top), top=(tx-bx)*ux+(ty-by)*uy;
+  if(o.dough_top||o.dough_fraction!=null){
+    // Con configuración, la masa se dibuja a la altura juzgada contra la
+    // referencia — la misma que da el porcentaje, para que no digan cosas distintas.
+    const top=(visSetup&&o.dough_fraction!=null)?o.dough_fraction*len
+      :(o.dough_top?((P(o.dough_top)[0]-bx)*ux+(P(o.dough_top)[1]-by)*uy):o.dough_fraction*len);
     out+=rect(len*0.02,top,hw*0.92,'#4fd3ff');                          // masa
   }
-  if(o.marker_line){
+  // La línea del objetivo configurada, proyectada sobre el frasco donde esté
+  // AHORA: así vuelve a su sitio aunque la cámara se haya movido.
+  if(visSetup){
+    const h=visSetup.hTarget*len, px=bx+ux*h, py=by+uy*h, w=hw*1.2;
+    const topH=(o.dough_fraction!=null?o.dough_fraction*len:(o.dough_top?((o.dough_top.x*W-bx)*ux+(o.dough_top.y*H-by)*uy):0));
+    const hit=topH>=h&&(o.confidence==null||o.confidence>=0.45);
+    out+=`<line x1="${(px+nx*w).toFixed(1)}" y1="${(py+ny*w).toFixed(1)}" x2="${(px-nx*w).toFixed(1)}" y2="${(py-ny*w).toFixed(1)}" stroke="${hit?'#ff5c5c':'#a36bff'}" stroke-width="5" stroke-linecap="round" stroke-dasharray="${hit?'':'14 8'}"/>`;
+  }
+  if(o.marker_line&&!visSetup){
     const a=P({x:o.marker_line.x1,y:o.marker_line.y1}), b=P({x:o.marker_line.x2,y:o.marker_line.y2});
     out+=`<line x1="${a[0].toFixed(1)}" y1="${a[1].toFixed(1)}" x2="${b[0].toFixed(1)}" y2="${b[1].toFixed(1)}" stroke="${o.reached?'#ff5c5c':'#a36bff'}" stroke-width="5" stroke-linecap="round"/>`;
   }
@@ -4500,7 +4554,7 @@ function drawVision(){
     let r=(visShow&&visOn&&visLast)?visSvg(visLast):null;
     // Mientras se enmarca, o con un recuadro puesto a mano, se ve aunque la IA
     // aún no haya mirado.
-    if(!r&&(frameMode||frameDrag||(visHint&&visHint.byHand&&visShow))){
+    if(!r&&(setupStep||setupDrag||(visSetup&&visShow&&visOn))){
       const iw=img.naturalWidth||4, ih=img.naturalHeight||3;
       r={svg:'',W:1000,H:Math.round(1000*ih/iw)};
     }
@@ -4530,64 +4584,11 @@ addEventListener('resize',drawVision);
 // sobrevive al zoom, al giro y a cambiar de aparato. Tras cada detección buena
 // se reajusta solo al recipiente encontrado: si la cámara se mueve un poco, lo
 // sigue. Si un día no lo encuentra dentro, mira la foto entera y se recoloca.
-let visHint=null, frameMode=false, frameDrag=null;
+let visHint=null;
 try{ visHint=JSON.parse(localStorage.getItem('pb-vis-hint')||'null'); }catch(e){}
 function saveHint(publish){
   try{ localStorage.setItem('pb-vis-hint',JSON.stringify(visHint)); }catch(e){}
   if(publish&&!SANDBOX&&mqttClient&&mqttClient.connected) mqttClient.publish(CAM_TOPIC+'/hint',JSON.stringify(visHint||{}),{retain:true});
-}
-function toggleFrameMode(){
-  frameMode=!frameMode;
-  ['btn-frame','btn-frame-full'].forEach(id=>{ const b=document.getElementById(id); if(b) b.classList.toggle('on',frameMode); });
-  const n=document.getElementById('vis-note');
-  if(frameMode&&n) n.textContent='Drag a box around the jar or glass on the picture.';
-  if(frameMode){ visShow=true; paintVisButtons(); }
-  drawVision();
-}
-function clearHint(){ visHint=null; saveHint(true); drawVision(); showToast('Frame removed — the AI looks at the whole picture'); }
-// De un punto de la pantalla a la foto de la cámara (0..1), deshaciendo el
-// transform de la imagen (giro, escala, desplazamiento) y el "contain".
-function screenToRaw(clientX,clientY,img){
-  const box=img.parentElement, r=box.getBoundingClientRect();
-  const cx=r.left+r.width/2, cy=r.top+r.height/2;
-  const tr=getComputedStyle(img).transform;
-  const m=(tr&&tr!=='none')?new DOMMatrix(tr):new DOMMatrix();
-  const p=m.inverse().transformPoint(new DOMPoint(clientX-cx,clientY-cy));
-  const lx=r.width/2+p.x, ly=r.height/2+p.y;
-  const iw=img.naturalWidth||4, ih=img.naturalHeight||3, k=Math.min(r.width/iw,r.height/ih);
-  const ox=(r.width-iw*k)/2, oy=(r.height-ih*k)/2;
-  return {x:Math.max(0,Math.min(1,(lx-ox)/(iw*k))), y:Math.max(0,Math.min(1,(ly-oy)/(ih*k)))};
-}
-function wireFrame(boxEl,imgId){
-  if(!boxEl) return;
-  boxEl.addEventListener('pointerdown',e=>{
-    if(!frameMode) return;
-    e.stopImmediatePropagation(); e.preventDefault();
-    try{ boxEl.setPointerCapture(e.pointerId); }catch(err){}
-    const img=document.getElementById(imgId);
-    frameDrag={img,a:screenToRaw(e.clientX,e.clientY,img)};
-    frameDrag.b=frameDrag.a;
-  },true);
-  boxEl.addEventListener('pointermove',e=>{
-    if(!frameMode||!frameDrag) return;
-    e.stopImmediatePropagation();
-    frameDrag.b=screenToRaw(e.clientX,e.clientY,frameDrag.img);
-    drawVision();
-  },true);
-  boxEl.addEventListener('pointerup',e=>{
-    if(!frameMode||!frameDrag) return;
-    e.stopImmediatePropagation();
-    const {a,b}=frameDrag; frameDrag=null;
-    const w=Math.abs(b.x-a.x), h=Math.abs(b.y-a.y);
-    if(w<0.03||h<0.03){ drawVision(); return; }        // un toque no es un recuadro
-    visHint={x1:Math.min(a.x,b.x),y1:Math.min(a.y,b.y),x2:Math.max(a.x,b.x),y2:Math.max(a.y,b.y),byHand:true};
-    saveHint(true);
-    toggleFrameMode();
-    showToast('Framed — the AI will look there');
-    if(visOn) runVision(true);
-  },true);
-  // En modo recuadro, el clic de la tarjeta no abre la pantalla completa.
-  boxEl.addEventListener('click',e=>{ if(frameMode){ e.stopImmediatePropagation(); e.preventDefault(); } },true);
 }
 // Recorte para mandar: el recuadro con un 25% de margen por lado, y ampliado
 // si es pequeño — un frasco de 150 px no se analiza igual que uno de 600.
@@ -4634,11 +4635,175 @@ function followHint(o){
   visHint=next;
   saveHint(true);
 }
-function hintSvg(W,H){
-  const h=frameDrag?{x1:Math.min(frameDrag.a.x,frameDrag.b.x),y1:Math.min(frameDrag.a.y,frameDrag.b.y),x2:Math.max(frameDrag.a.x,frameDrag.b.x),y2:Math.max(frameDrag.a.y,frameDrag.b.y)}:visHint;
-  if(!h||!(frameMode||frameDrag||h.byHand)) return '';
-  return `<rect x="${(h.x1*W).toFixed(1)}" y="${(h.y1*H).toFixed(1)}" width="${((h.x2-h.x1)*W).toFixed(1)}" height="${((h.y2-h.y1)*H).toFixed(1)}" fill="${frameDrag?'rgba(255,255,255,.08)':'none'}" stroke="#fff" stroke-width="3" stroke-dasharray="12 8" opacity=".85"/>`;
+// ─── Configurar lo que mira la IA: frasco, masa y objetivo ────────────────
+// Tres gestos sobre la imagen: un recuadro al frasco, otro a la masa y una
+// línea donde está el objetivo. De ahí salen dos PROPORCIONES a lo largo del
+// frasco (dónde empieza la masa y dónde está el objetivo, de 0 en la base a 1
+// arriba), que no dependen de dónde esté la cámara: si se mueve, la IA vuelve a
+// encontrar el frasco —se le enseña una foto de referencia de cómo era— y la
+// línea del objetivo se vuelve a proyectar sobre él en su nueva posición.
+// Las proporciones se miden en la pantalla tal como se ve (ya girada para que el
+// frasco esté derecho); lo dibujado se guarda además en coordenadas de la foto
+// de la cámara para pintarlo encima, siga como siga el zoom o el giro.
+let visSetup=null, setupStep=0, setupShapes={}, setupDrag=null;
+try{ visSetup=JSON.parse(localStorage.getItem('pb-vis-setup')||'null'); }catch(e){}
+function saveSetup(publish){
+  try{ localStorage.setItem('pb-vis-setup',JSON.stringify(visSetup)); }catch(e){}
+  if(publish&&!SANDBOX&&mqttClient&&mqttClient.connected){
+    const {ref,...light}=visSetup||{};   // la foto va aparte, a Storage
+    mqttClient.publish(CAM_TOPIC+'/setup',JSON.stringify(visSetup?light:{}),{retain:true});
+  }
 }
+const SETUP_TEXT={
+  1:'1 of 3 · Drag a box around the JAR (or glass), from its bottom to its top.',
+  2:'2 of 3 · Drag a box around the DOUGH as it is now, up to the top of its dome.',
+  3:'3 of 3 · Drag a line across the jar at the TARGET height — your marker line.'};
+function setupBanner(){
+  for(const id of ['setup-banner-card','setup-banner-full']){
+    const b=document.getElementById(id); if(!b) continue;
+    b.style.display=setupStep?'flex':'none';
+    const t=b.querySelector('.st'); if(t) t.textContent=SETUP_TEXT[setupStep]||'';
+  }
+  document.getElementById('cam-img').parentElement.classList.toggle('setup-on',!!setupStep);
+  ['btn-frame','btn-frame-full'].forEach(id=>{ const e=document.getElementById(id); if(e) e.classList.toggle('on',!!setupStep); });
+}
+function startSetup(){
+  if(!camBlob){ showToast('Wait for the camera picture first'); return; }
+  setupStep=1; setupShapes={}; visShow=true; paintVisButtons(); setupBanner(); drawVision();
+}
+function cancelSetup(){ setupStep=0; setupShapes={}; setupDrag=null; setupBanner(); drawVision(); }
+function toggleFrameMode(){ setupStep?cancelSetup():startSetup(); }
+function clearHint(){
+  visHint=null; visSetup=null; saveHint(true); saveSetup(true);
+  try{ localStorage.removeItem('pb-vis-ref'); }catch(e){}
+  drawVision(); showToast('Setup cleared — the AI looks at the whole picture');
+}
+// De la pantalla a la foto de la cámara (0..1), deshaciendo el transform de la
+// imagen (giro, escala, desplazamiento) y el "contain".
+function screenToRaw(clientX,clientY,img){
+  const box=img.parentElement, r=box.getBoundingClientRect();
+  const cx=r.left+r.width/2, cy=r.top+r.height/2;
+  const tr=getComputedStyle(img).transform;
+  const m=(tr&&tr!=='none')?new DOMMatrix(tr):new DOMMatrix();
+  const p=m.inverse().transformPoint(new DOMPoint(clientX-cx,clientY-cy));
+  const lx=r.width/2+p.x, ly=r.height/2+p.y;
+  const iw=img.naturalWidth||4, ih=img.naturalHeight||3, k=Math.min(r.width/iw,r.height/ih);
+  const ox=(r.width-iw*k)/2, oy=(r.height-ih*k)/2;
+  return {x:Math.max(0,Math.min(1,(lx-ox)/(iw*k))), y:Math.max(0,Math.min(1,(ly-oy)/(ih*k)))};
+}
+function rectShape(a,b,img){
+  const x1=Math.min(a.x,b.x), x2=Math.max(a.x,b.x), y1=Math.min(a.y,b.y), y2=Math.max(a.y,b.y);
+  return {scr:{x1,y1,x2,y2}, raw:[[x1,y1],[x2,y1],[x2,y2],[x1,y2]].map(([x,y])=>screenToRaw(x,y,img))};
+}
+function wireFrame(boxEl,imgId){
+  if(!boxEl) return;
+  boxEl.addEventListener('pointerdown',e=>{
+    if(!setupStep) return;
+    e.stopImmediatePropagation(); e.preventDefault();
+    try{ boxEl.setPointerCapture(e.pointerId); }catch(err){}
+    setupDrag={img:document.getElementById(imgId),a:{x:e.clientX,y:e.clientY},b:{x:e.clientX,y:e.clientY}};
+  },true);
+  boxEl.addEventListener('pointermove',e=>{
+    if(!setupStep||!setupDrag) return;
+    e.stopImmediatePropagation(); e.preventDefault();
+    setupDrag.b={x:e.clientX,y:e.clientY};
+    drawVision();
+  },true);
+  const end=e=>{
+    if(!setupStep||!setupDrag) return;
+    e.stopImmediatePropagation();
+    const {a,b,img}=setupDrag; setupDrag=null;
+    const dx=Math.abs(b.x-a.x), dy=Math.abs(b.y-a.y);
+    if(setupStep<3){
+      if(dx<12||dy<12){ drawVision(); return; }       // un toque no es un recuadro
+      setupShapes[setupStep===1?'jar':'dough']=rectShape(a,b,img);
+      setupStep++;
+    }else{
+      if(dx<12&&dy<12){ drawVision(); return; }
+      setupShapes.target={scr:{y:(a.y+b.y)/2,x1:Math.min(a.x,b.x),x2:Math.max(a.x,b.x)},
+        raw:[screenToRaw(a.x,a.y,img),screenToRaw(b.x,b.y,img)]};
+      finishSetup(img);
+      return;
+    }
+    setupBanner(); drawVision();
+  };
+  boxEl.addEventListener('pointerup',end,true);
+  boxEl.addEventListener('pointercancel',()=>{ setupDrag=null; drawVision(); },true);
+  // Mientras se configura, tocar la imagen no abre la pantalla completa.
+  boxEl.addEventListener('click',e=>{ if(setupStep){ e.stopImmediatePropagation(); e.preventDefault(); } },true);
+}
+async function finishSetup(img){
+  const J=setupShapes.jar.scr, D=setupShapes.dough.scr, T=setupShapes.target.scr;
+  const span=J.y2-J.y1;
+  const hDough=(J.y2-D.y1)/span, hTarget=(J.y2-T.y)/span;
+  if(hTarget<=hDough+0.02){
+    showToast('The target has to be above the dough — draw the line again',4000);
+    setupStep=3; setupBanner(); drawVision(); return;
+  }
+  setupStep=0; setupBanner();
+  // Foto de referencia: el frasco recortado de la imagen de la cámara, pequeña.
+  const xs=setupShapes.jar.raw.map(p=>p.x), ys=setupShapes.jar.raw.map(p=>p.y);
+  const box={x1:Math.max(0,Math.min(...xs)-0.04),y1:Math.max(0,Math.min(...ys)-0.04),x2:Math.min(1,Math.max(...xs)+0.04),y2:Math.min(1,Math.max(...ys)+0.04)};
+  let ref=null;
+  try{
+    const src=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=URL.createObjectURL(camBlob);});
+    const W=src.width,H=src.height, sw=(box.x2-box.x1)*W, sh=(box.y2-box.y1)*H, k=Math.min(1.5,384/Math.max(sw,sh));
+    const cv=document.createElement('canvas'); cv.width=Math.round(sw*k); cv.height=Math.round(sh*k);
+    cv.getContext('2d').drawImage(src,box.x1*W,box.y1*H,sw,sh,0,0,cv.width,cv.height);
+    ref=cv.toDataURL('image/jpeg',0.85);
+  }catch(e){}
+  visSetup={at:Date.now(),stage:activeStage()?activeStage().id:null,rot:camRot,
+    hDough:+hDough.toFixed(3), hTarget:+hTarget.toFixed(3),
+    jar:setupShapes.jar.raw, dough:setupShapes.dough.raw, target:setupShapes.target.raw};
+  try{ if(ref) localStorage.setItem('pb-vis-ref',ref); }catch(e){}
+  if(ref&&!SANDBOX){
+    // A Storage, para que el otro aparato también la tenga al analizar.
+    const blob=await (await fetch(ref)).blob();
+    fetch(`${SUPA_URL}/storage/v1/object/proofbox-photos/cam/proofbox-cam01/ref.jpg`,{method:'POST',
+      headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY,'Content-Type':'image/jpeg','x-upsert':'true'},body:blob}).catch(()=>{});
+  }
+  saveSetup(true);
+  // El recuadro de búsqueda arranca en el frasco y luego lo sigue solo.
+  visHint={...box,byHand:false}; saveHint(true);
+  const st=activeStage(); if(st){ st.visionStartH=visSetup.hDough; st.visionAlerted=false; st.visionHits=0; saveSessions(); }
+  setupShapes={};
+  showToast(`🎯 Set: dough at ${Math.round(hDough*100)}% of the jar, target at ${Math.round(hTarget*100)}%`,4000);
+  if(!visOn){ visOn=true; saveVis2(); paintVisButtons(); }
+  drawVision();
+  runVision(true);
+}
+async function visRef(){
+  try{ const r=localStorage.getItem('pb-vis-ref'); if(r) return r; }catch(e){}
+  try{
+    const r=await fetch(`${SUPA_URL}/storage/v1/object/public/proofbox-photos/cam/proofbox-cam01/ref.jpg?t=${visSetup&&visSetup.at||0}`);
+    if(!r.ok) return null;
+    const b=await r.blob();
+    const d=await new Promise(res=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.readAsDataURL(b);});
+    try{ localStorage.setItem('pb-vis-ref',d); }catch(e){}
+    return d;
+  }catch(e){ return null; }
+}
+// Lo que se está dibujando, y lo configurado mientras la IA no ha mirado aún.
+function setupSvg(W,H){
+  let out='';
+  const poly=(pts,col,dash)=>`<polygon points="${pts.map(p=>`${(p.x*W).toFixed(1)},${(p.y*H).toFixed(1)}`).join(' ')}" fill="none" stroke="${col}" stroke-width="4" ${dash?'stroke-dasharray="12 8"':''}/>`;
+  const line=(pts,col)=>`<line x1="${pts[0].x*W}" y1="${pts[0].y*H}" x2="${pts[1].x*W}" y2="${pts[1].y*H}" stroke="${col}" stroke-width="5" stroke-linecap="round"/>`;
+  if(setupStep){
+    if(setupShapes.jar) out+=poly(setupShapes.jar.raw,'#9be15d',true);
+    if(setupShapes.dough) out+=poly(setupShapes.dough.raw,'#4fd3ff',true);
+    if(setupDrag){
+      const img=setupDrag.img, a=setupDrag.a, b=setupDrag.b;
+      if(setupStep<3) out+=poly(rectShape(a,b,img).raw,setupStep===1?'#9be15d':'#4fd3ff',true);
+      else out+=line([screenToRaw(a.x,a.y,img),screenToRaw(b.x,b.y,img)],'#a36bff');
+    }
+  }else if(visSetup&&!(visLast&&visLast.found)){
+    out+=poly(visSetup.jar,'#9be15d',true)+poly(visSetup.dough,'#4fd3ff',true)+line(visSetup.target,'#a36bff');
+  }
+  return out;
+}
+// Compatibilidad con lo anterior: ya no hay un recuadro suelto que pintar.
+function hintSvg(W,H){ return setupSvg(W,H); }
+
 
 // Girar se pide a la placa y se aplica en el sensor, así que también sale
 // derecha en las fotos guardadas. La placa contesta con el estado retenido.
@@ -5432,6 +5597,7 @@ function connect(){
     mqttClient.subscribe(CAM_TOPIC+'/fw');
     mqttClient.subscribe(CAM_TOPIC+'/vision');
     mqttClient.subscribe(CAM_TOPIC+'/hint');
+    mqttClient.subscribe(CAM_TOPIC+'/setup');
     if(liveOn) mqttClient.subscribe(CAM_TOPIC+'/live');   // tras reconectar, el vivo sigue
     else autoLive();
     refreshHealth();});
@@ -5444,6 +5610,13 @@ function connect(){
         if(o.subject){ camSubject=o.subject; try{localStorage.setItem('pb-cam-subject',camSubject);}catch(e){}
           const si=document.getElementById('cam-subject'); if(si&&document.activeElement!==si) si.value=camSubject; }
         if(isFinite(+o.deg)&&+o.deg!==camRot) setRot(+o.deg,true);
+      }catch(e){}
+      return;
+    }
+    if(t===CAM_TOPIC+'/setup'){
+      try{ const o=JSON.parse(msg.toString());
+        if(o&&o.hTarget){ if(!visSetup||o.at>visSetup.at){ visSetup=o; try{localStorage.setItem('pb-vis-setup',JSON.stringify(o)); localStorage.removeItem('pb-vis-ref');}catch(e){} drawVision(); } }
+        else if(visSetup&&!o.hTarget){ visSetup=null; try{localStorage.removeItem('pb-vis-setup');}catch(e){} drawVision(); }
       }catch(e){}
       return;
     }

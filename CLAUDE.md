@@ -180,6 +180,27 @@ arrastre. Un solo análisis para todos los aparatos: el resultado va retenido a
 intervalo (2/5/10/15 min). Cada análisis es una llamada a Claude: cuesta.
 Solo corre con la app abierta en algún aparato.
 
+**Configurar lo que mira la IA: 🎯 frasco · masa · objetivo.** Tres gestos sobre
+la imagen: recuadro al frasco, recuadro a la masa, línea del objetivo. De ahí
+salen dos PROPORCIONES de la altura del frasco (`hDough`, `hTarget`), medidas en
+la pantalla tal como se ve, que no dependen de dónde esté la cámara. Se guarda
+además una foto de referencia del frasco (`ref.jpg` en Storage, 384 px) que se le
+enseña a la IA como "Image 1" en cada análisis: así vuelve a encontrar ESE
+recipiente aunque la cámara se mueva o haya otros al lado, y juzga la altura de
+la masa comparando con cómo estaba (`dough_fraction`) — marcar la base con
+precisión falla (se colaba el táper de debajo y salió un 94% falso), comparar
+alturas no. La línea del objetivo se vuelve a proyectar sobre el frasco donde
+esté ahora. Si no lo encuentra en la zona de búsqueda, mira la foto entera.
+Por debajo de 0,45 de confianza no se da porcentaje ni suena el aviso: "not sure
+this time — the ToF still leads". Cada análisis tarda ~50 s (dos imágenes y, si
+se movió, una segunda consulta). La configuración viaja retenida en `.../setup`.
+
+**Arrastrar sobre una `<img>` inicia el arrastre nativo de ficheros** y se come
+el gesto: por eso "no dejaba hacer el recuadro" en el ordenador. Las imágenes
+de la cámara llevan `draggable=false` y `-webkit-user-drag:none`, y en el móvil
+la zona pasa a `touch-action:none` mientras se configura, o el dedo desplazaba
+la página.
+
 **Cualquier recipiente, y el panadero puede enmarcarlo.** La descripción ("What
 to level", por defecto "frasco o vaso con masa") es una pista, no una regla: el
 prompt acepta frasco con o sin tapa, vaso, taza, bol o tarrina, y "tapa" es la
