@@ -216,9 +216,13 @@ del frasco, y el corte a medio camino. Un Otsu de toda la imagen daba 95 con la
 masa a ~58 y medía 3% en vez de 30%. Mediana de 7 medidas; aviso con 5 seguidas
 en la línea. ◐ enseña la vista de alto contraste (masa ámbar, resto azul) y se
 vuelve a la normal con el mismo botón; la IA la recibe como "Image 3".
-La IA de visión va con **Sonnet 5 y cada 30 min como mínimo** (decisión del
-usuario por el gasto: a Opus cada 5 min eran ~15-25 USD al día con la app
-abierta). Un aparato con un intervalo guardado más corto se sube solo a 30.
+**La IA ya no mira sola: solo "✨ Calibrate with AI".** Decisión del usuario por
+el gasto (a Opus cada 5 min eran ~15-25 USD al día con la app abierta). Una
+consulta a Sonnet 5 por pulsación; su `dough_fraction` corrige la medida de
+píxeles con un desplazamiento (`visSetup.pixCal`, fracción del frasco) que se
+queda hasta la próxima calibración. Solo si está segura (≥0,45) y como mucho
+±15%: más que eso es que las marcas están mal y se pide volver a marcar.
+Marcar con 🎯 ya no lanza una consulta.
 
 **Configurar lo que mira la IA: 🎯 frasco · masa · objetivo.** Tres gestos sobre
 la imagen: recuadro al frasco, recuadro a la masa, línea del objetivo. De ahí

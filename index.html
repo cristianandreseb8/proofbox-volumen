@@ -599,7 +599,7 @@ body.board .app{max-width:none;padding:16px 22px 80px}
       <button id="btn-vflip" onclick="camFlip('flip')" title="Upside down — for a camera hanging above">⇅</button>
       <button id="btn-hmirror" onclick="camFlip('mirror')" title="Mirror left to right">⇄</button>
       <button id="btn-rot" onclick="toggleRot()" title="Turn the image by any angle">⟳ <span id="cam-rot-n">0°</span></button>
-      <button id="btn-vis" onclick="toggleVisBox()" title="AI watches the jar, the dough and your marker line">🤖</button>
+      <button id="btn-vis" onclick="toggleVisBox()" title="Camera measurement: mark the jar, the dough and your target">🤖</button>
       <button id="btn-vis-eye" onclick="toggleVisShow()" title="Show or hide what the AI sees — it keeps watching either way">👁</button>
       <button id="btn-contrast" onclick="toggleContrast()" title="High-contrast view: the dough in amber, as the measurement sees it">◐</button>
       <select id="cam-quality" onchange="setCamQuality(this.value)" title="Live picture quality — sharper means fewer frames per second"
@@ -611,18 +611,13 @@ body.board .app{max-width:none;padding:16px 22px 80px}
     </div>
     <div id="cam-vis-box" style="display:none;margin-top:8px">
       <div class="cam-btns" style="margin:0">
-        <label style="font-size:11px;display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="vis-on" onchange="setVisOn(this.checked)"> AI watches the jar</label>
-        <span style="flex:1"></span>
-        <select id="vis-every" onchange="setVisEvery(this.value)" style="background:transparent;border:1px solid var(--border);border-radius:7px;color:var(--text);font-family:'DM Mono',monospace;font-size:11px;padding:3px 4px">
-          <option value="30">every 30 min</option><option value="60">every hour</option>
-        </select>
-        <button id="btn-vis-now" onclick="runVision(true)">Check now</button>
+        <button id="btn-vis-now" onclick="calibrateAI()" title="One call to Claude to check the camera's reading and correct it">✨ Calibrate with AI</button>
       </div>
       <div class="cam-btns" style="margin-top:4px">
         <button id="btn-frame" onclick="toggleFrameMode()" title="Show the AI the jar, the dough and your target">🎯 Set up jar · dough · target</button>
         <button onclick="clearHint()" title="Delete the marks">🗑 Delete marks</button>
       </div>
-      <div style="font-size:10px;color:var(--muted);margin-top:6px;line-height:1.45" id="vis-note">It frames the jar, finds the top of the dough and the line you drew with a marker, and warns you when the dough reaches the line. The sensor still leads: the camera sees at an angle. Each check is a call to Claude and costs a little.</div>
+      <div style="font-size:10px;color:var(--muted);margin-top:6px;line-height:1.45" id="vis-note">The camera measures the dough by itself every 2 seconds, for free, inside the jar you marked, and warns you when it reaches your line. The sensor still leads: the camera sees at an angle. If the camera reading looks off, Calibrate with AI makes one call to Claude (a few cents) and corrects it.</div>
     </div>
     <div id="cam-rot-box" style="display:none;margin-top:8px">
       <div class="cam-btns" style="margin:0">
@@ -4392,23 +4387,15 @@ async function straightenWithClaude(){
 // Un solo análisis para todos: el resultado va RETENIDO al broker, y un aparato
 // solo analiza si el último resultado es más viejo que el intervalo. Dos
 // pantallas abiertas no pagan dos veces.
-// Cada análisis es una consulta de pago; la cima la mide ya `measureDough` cada
-// 2 s gratis, así que la IA es solo apoyo: 30 min como mínimo. Un aparato con
-// un intervalo antiguo más corto se sube solo — si no, él solo seguiría
-// pagando cada 5 min por todos.
-const VIS_MIN_EVERY=30;
-let visOn=false, visEvery=VIS_MIN_EVERY, visShow=true, visLast=null, visBusy=false;
-try{ const v=JSON.parse(localStorage.getItem('pb-vis')||'null'); if(v){ visOn=!!v.on; visEvery=Math.max(VIS_MIN_EVERY,+v.every||0); visShow=v.show!==false; } }catch(e){}
+// Ya no hay análisis automático (ver calibrateAI): visEvery queda sin uso.
+let visOn=false, visEvery=30, visShow=true, visLast=null, visBusy=false;
+try{ const v=JSON.parse(localStorage.getItem('pb-vis')||'null'); if(v){ visOn=!!v.on; visEvery=+v.every||30; visShow=v.show!==false; } }catch(e){}
 function saveVis2(){ try{ localStorage.setItem('pb-vis',JSON.stringify({on:visOn,every:visEvery,show:visShow})); }catch(e){} }
 function toggleVisBox(){
   const b=document.getElementById('cam-vis-box'), open=b.style.display!=='none';
   b.style.display=open?'none':'block';
-  document.getElementById('vis-on').checked=visOn;
-  document.getElementById('vis-every').value=String(visEvery);
   paintVisButtons();
 }
-function setVisOn(v){ visOn=!!v; saveVis2(); paintVisButtons(); drawVision(); if(visOn) runVision(false); }
-function setVisEvery(v){ visEvery=Math.max(VIS_MIN_EVERY,+v||0); saveVis2(); }
 function toggleVisShow(){ visShow=!visShow; saveVis2(); paintVisButtons(); drawVision(); }
 function paintVisButtons(){
   const a=document.getElementById('btn-vis'); if(a) a.classList.toggle('on',visOn);
@@ -4460,7 +4447,7 @@ function visProgress(o){
 }
 function visText(o){
   if(!visSetup) return visOn?'AI: mark the jar, the dough and the target with 🎯 to start':'';
-  if(!o) return visOn?'AI: waiting for the first check':'';
+  if(!o) return '';
   if(!o.found) return 'AI: jar not in view';
   const p=visProgress(o), when=new Date(o.at).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
   if(!o.marker_line&&!visSetup) return `AI ${when}: jar and dough found, no marker line seen — set up the target with 🎯`;
@@ -4575,8 +4562,38 @@ function trackCameraMove(o){
   saveSetup(true);
   showToast('📷 The camera moved — your marks followed the jar');
 }
+// ─── Calibrar con la IA ────────────────────────────────────────────────────
+// La IA ya no mira sola: cada análisis es una consulta de pago y la cima la
+// mide `measureDough` cada 2 s gratis. Solo se la llama con este botón, una vez:
+// su altura de la masa corrige la de los píxeles con un desplazamiento
+// (`pixCal`, fracción del frasco) que se queda hasta la próxima calibración.
+// Solo si está segura, y como mucho ±15% del frasco — más que eso no es un
+// ajuste fino, es que las marcas están mal y hay que volver a marcar con 🎯.
+let calibrating=false;
+async function calibrateAI(){
+  if(!visSetup){ showToast('First mark the jar, the dough and the target with 🎯'); return; }
+  if(calibrating||visBusy) return;
+  calibrating=true;
+  const b=document.getElementById('btn-vis-now'); if(b){ b.disabled=true; b.textContent='✨ Calibrating…'; }
+  try{ await runVision(true); }
+  finally{ calibrating=false; if(b){ b.disabled=false; b.textContent='✨ Calibrate with AI'; } }
+}
+function applyCalibration(o){
+  const sure=o&&o.found&&(o.confidence==null||o.confidence>=0.45)&&o.dough_fraction!=null&&isFinite(o.dough_fraction);
+  if(!sure){ showToast('The AI was not sure this time — nothing changed',4000); return; }
+  if(!doughPix||doughPix.h==null||doughPix.conf<0.3){
+    showToast(`AI: the dough is at ${Math.round(o.dough_fraction*100)}% of the jar — the camera can't read it on its own right now`,5000); return;
+  }
+  const d=o.dough_fraction-doughPix.h;
+  if(Math.abs(d)>0.15){ showToast('The AI and the camera disagree a lot — mark the jar and the dough again with 🎯',5000); return; }
+  visSetup.pixCal=+d.toFixed(3); visSetup.calAt=Date.now(); saveSetup(true);
+  showToast(Math.abs(d)<0.02?'✨ Camera and AI agree — nothing to correct'
+    :`✨ Calibrated: camera reading ${d>0?'raised':'lowered'} by ${Math.round(Math.abs(d)*100)}% of the jar`,4000);
+  paintVisLine(); drawVision();
+}
 function onVision(o,mine){
   visLast=o;
+  if(mine&&calibrating) applyCalibration(o);
 
   const st=activeStage();
   // Primer resultado válido del paso: ahí empieza a contar su progreso.
@@ -4665,7 +4682,6 @@ function drawVision(){
     svg.innerHTML=r.svg;
   }
 }
-setInterval(()=>runVision(false),30000);
 addEventListener('resize',drawVision);
 
 // ─── Enmarcar a mano el recipiente ────────────────────────────────────────
@@ -4982,8 +4998,8 @@ function makeContrast(px,W,H,th){
 // Cuánto de la subida hacia el objetivo, con la medida de píxeles si es fiable.
 function pixProgress(){
   if(!visSetup||!doughPix||doughPix.h==null||doughPix.conf<0.3||Date.now()-doughPix.at>60000) return null;
-  const s0=visSetup.hDough, tg=visSetup.hTarget;
-  return {h:doughPix.h, pct:Math.max(0,Math.min(150,(doughPix.h-s0)/(tg-s0)*100))};
+  const s0=visSetup.hDough, tg=visSetup.hTarget, h=doughPix.h+(visSetup.pixCal||0);
+  return {h, pct:Math.max(0,Math.min(150,(h-s0)/(tg-s0)*100))};
 }
 // El aviso por la imagen: cinco medidas seguidas en la línea o por encima
 // (~10 s), una vez por paso.
@@ -5000,9 +5016,8 @@ function paintVisLine(){
   const n=document.getElementById('cam-vis-line'); if(!n) return;
   const p=pixProgress();
   if(!visSetup){ n.textContent=visOn?'AI: mark the jar, the dough and the target with 🎯 to start':''; return; }
-  const ai=visLast&&visProgress(visLast);
-  n.textContent=(p?`Camera: ${Math.round(p.pct)}% to your line`:'Camera: not enough contrast to read the dough')
-    +(ai?` · AI ${Math.round(ai.pct)}%`:'');
+  const cal=visSetup.calAt?` · calibrated ${new Date(visSetup.calAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}`:'';
+  n.textContent=(p?`Camera: ${Math.round(p.pct)}% to your line`:'Camera: not enough contrast to read the dough — try ✨ Calibrate with AI')+cal;
 }
 setInterval(measureDough,2000);
 
@@ -5156,7 +5171,6 @@ async function finishSetup(img){
   showToast(`🎯 Set: dough at ${Math.round(hDough*100)}% of the jar, target at ${Math.round(hTarget*100)}%`,4000);
   if(!visOn){ visOn=true; saveVis2(); paintVisButtons(); }
   drawVision();
-  runVision(true);
 }
 async function visRef(){
   try{ const r=localStorage.getItem('pb-vis-ref'); if(r) return r; }catch(e){}
@@ -5311,7 +5325,7 @@ function renderCamShots(){
 const HUD_ITEMS=[
   ['name','Sheet name','L'],['step','Step','L'],
   ['progress','Progress','R'],['chart','Chart — same as the app\'s','R'],
-  ['temp','Temperature','R'],['timer','Timer','R'],['cond','Conductivity','R'],['vision','Camera AI','R'],
+  ['temp','Temperature','R'],['timer','Timer','R'],['cond','Conductivity','R'],['vision','Camera','R'],
   ['growth','Growth · 3 h','R'],['tempchart','Temperature · 3 h','R']];
 let hudCfg={};
 try{ hudCfg=JSON.parse(localStorage.getItem('pb-hud')||'null')||null; }catch(e){ hudCfg=null; }
@@ -5399,7 +5413,7 @@ function hudHtml(k){
     case 'timer': return `<div class="l">Timer</div><b>${t('timer-big')}</b>`;
     case 'cond': return `<div class="l">Conductivity</div><b>${t('cond-rel')}%</b>`;
     case 'chart': return null;   // se pinta aparte, cada 20 s
-    case 'vision': { const pv=pixProgress()||(visLast&&visProgress(visLast));
+    case 'vision': { const pv=pixProgress();
       return `<div class="l">Camera AI</div><b style="color:#a36bff">${pv?Math.round(pv.pct)+'%':'--'}</b> <span style="opacity:.75">ToF ${t('meta-pct')}</span>`; }
   }
   return '';
