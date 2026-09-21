@@ -206,6 +206,17 @@ guardado (marcas, zona de búsqueda, plantilla) va en canónico y se traduce al
 formato de la imagen que se pinta o analiza (`toCanon`/`fromCanon`).
 Configuraciones anteriores a esto (sin `canon`) se descartan.
 
+**La cima de la masa se mide con píxeles; la IA es el apoyo.** La IA, con una
+foto oscura, no se atrevía a mover el recuadro azul. Cada 2 s (`measureDough`)
+se recorre el frasco marcado a lo largo de SU eje, 120 filas × 24 columnas del
+centro, y la cima es hasta dónde sigue habiendo claro subiendo desde la mitad
+del recuadro de masa (huecos de 3 filas tolerados). El umbral sale de lo marcado:
+la mitad baja del recuadro de masa es masa seguro, el fondo es el percentil 15
+del frasco, y el corte a medio camino. Un Otsu de toda la imagen daba 95 con la
+masa a ~58 y medía 3% en vez de 30%. Mediana de 7 medidas; aviso con 5 seguidas
+en la línea. ◐ enseña la vista de alto contraste (masa ámbar, resto azul) y se
+vuelve a la normal con el mismo botón; la IA la recibe como "Image 3".
+
 **Configurar lo que mira la IA: 🎯 frasco · masa · objetivo.** Tres gestos sobre
 la imagen: recuadro al frasco, recuadro a la masa, línea del objetivo. De ahí
 salen dos PROPORCIONES de la altura del frasco (`hDough`, `hTarget`), medidas en

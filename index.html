@@ -311,6 +311,7 @@ body.board .app{max-width:none;padding:16px 22px 80px}
     <button id="btn-frame-full" onclick="toggleFrameMode()" title="Set up jar, dough and target">🎯</button>
     <button onclick="clearHint()" title="Delete the marks">🗑</button>
     <button id="btn-vis-eye-full" onclick="toggleVisShow()" title="Show or hide what the AI sees">👁</button>
+    <button id="btn-contrast-full" onclick="toggleContrast()" title="High-contrast view">◐</button>
     <button onclick="openHudCfg()" title="What to show over the picture">⚙</button>
     <button onclick="closeCamFull()" title="Close">✕</button>
   </div>
@@ -600,6 +601,7 @@ body.board .app{max-width:none;padding:16px 22px 80px}
       <button id="btn-rot" onclick="toggleRot()" title="Turn the image by any angle">⟳ <span id="cam-rot-n">0°</span></button>
       <button id="btn-vis" onclick="toggleVisBox()" title="AI watches the jar, the dough and your marker line">🤖</button>
       <button id="btn-vis-eye" onclick="toggleVisShow()" title="Show or hide what the AI sees — it keeps watching either way">👁</button>
+      <button id="btn-contrast" onclick="toggleContrast()" title="High-contrast view: the dough in amber, as the measurement sees it">◐</button>
       <select id="cam-quality" onchange="setCamQuality(this.value)" title="Live picture quality — sharper means fewer frames per second"
         style="background:transparent;border:1px solid var(--border);border-radius:7px;color:var(--text);font-family:'DM Mono',monospace;font-size:12px;padding:3px 4px">
         <option value="0">Fluid</option><option value="1">Balanced</option><option value="2">Sharp</option>
@@ -4420,6 +4422,8 @@ function visAxis(o){
 }
 // La altura de la masa (0 base – 1 arriba del frasco) si la lectura es fiable.
 function visProgressRaw(o){
+  const pp=typeof pixProgress==='function'?pixProgress():null;
+  if(pp) return {h:pp.h};
   if(!o||!o.found) return null;
   if(o.confidence!=null&&o.confidence<0.45) return null;
   if(o.dough_fraction!=null&&isFinite(o.dough_fraction)) return {h:o.dough_fraction};
@@ -4497,11 +4501,16 @@ The baker set this up on Image 1: there the top of the dough was at ${Math.round
     const ref=visSetup?await visRef():null;
     // Con configuración, se le enseña primero cómo era el frasco: así lo vuelve
     // a encontrar aunque la cámara se haya movido o haya otros recipientes.
+    // Apoyo: la misma vista en alto contraste, con la masa en ámbar. En fotos
+    // oscuras es lo que deja ver dónde acaba la cúpula.
+    const hc=(doughPix&&doughPix.th!=null)?await contrastOf(d,doughPix.th):null;
     const content=img=>ref
       ? [{type:'text',text:'Image 1 is the container the baker framed when setting up — this is the one to find.'},
          {type:'image',source:{type:'base64',media_type:'image/jpeg',data:ref.split(',')[1]}},
          {type:'text',text:'Image 2 is the camera now. Give every coordinate in Image 2. Where are the container, the top of the dough and the marker line?'},
-         {type:'image',source:{type:'base64',media_type:'image/jpeg',data:img.split(',')[1]}}]
+         {type:'image',source:{type:'base64',media_type:'image/jpeg',data:img.split(',')[1]}},
+         ...(hc&&img===d?[{type:'text',text:'Image 3 is Image 2 in high contrast: bright amber is the pale dough, dark blue is everything darker. Use it to find where the dough ends; coordinates still refer to Image 2.'},
+           {type:'image',source:{type:'base64',media_type:'image/jpeg',data:hc.split(',')[1]}}]:[])]
       : [{type:'image',source:{type:'base64',media_type:'image/jpeg',data:img.split(',')[1]}},
          {type:'text',text:'Where are the container, the top of the dough and the marker line?'}];
     const ask=img=>fetch(`${SUPA_URL}/functions/v1/claude-proxy`,{method:'POST',
@@ -4583,7 +4592,7 @@ function onVision(o,mine){
   if(mine&&!SANDBOX&&mqttClient&&mqttClient.connected) mqttClient.publish(CAM_TOPIC+'/vision',JSON.stringify(o),{retain:true});
   if(!visSetup&&o.found&&!o.marker_line&&mine){ const n2=document.getElementById('cam-vis-line'); if(n2) n2.textContent=visText(o); }
   const n=document.getElementById('vis-note'); if(n) n.textContent=visText(o)+(o.note?' · '+o.note:'');
-  const cs=document.getElementById('cam-vis-line'); if(cs) cs.textContent=visOn?visText(o):'';
+  paintVisLine();
   drawVision();
 }
 // Dibujo: rectángulo del frasco orientado a su eje, rectángulo de la masa hasta
@@ -4629,10 +4638,11 @@ function drawVision(){
     // viejos antes de que el panadero hubiera marcado nada. Con configuración se
     // pinta lo que ÉL marcó, donde lo marcó; la IA solo sube el borde de la masa.
     let r=null;
-    if(setupStep||setupDrag||(visSetup&&visShow)){
+    if(setupStep||setupDrag||(visSetup&&(visShow||contrastOn))){
       const iw=img.naturalWidth||4, ih=img.naturalHeight||3;
       r={svg:'',W:1000,H:Math.round(1000*ih/iw)};
       r.svg=setupStep?setupSvg(r.W,r.H):setupDrawn(r.W,r.H,iw/ih);
+      if(contrastOn&&contrastUrl&&!setupStep) r.svg=`<image href="${contrastUrl}" x="0" y="0" width="${r.W}" height="${r.H}" preserveAspectRatio="none" opacity=".9"/>`+r.svg;
     }
     if(!r){ svg.innerHTML=''; continue; }
     // La capa ocupa exactamente la parte de la caja que pinta la foto (contain)…
@@ -4845,6 +4855,151 @@ async function trackJar(){
 }
 setInterval(trackJar,4000);
 
+// ─── Medir la masa con los píxeles ────────────────────────────────────────
+// La masa es clara y el frasco vacío por encima, oscuro. Dentro del frasco que
+// marcó el panadero se recorre la imagen de la base hacia la tapa, fila a fila,
+// y la cima es donde deja de haber claro. La IA en una imagen oscura no se
+// atrevía a mover el recuadro azul (confianza baja) y la masa subía sin él.
+// Esto es instantáneo, gratis y no depende de su seguridad; la IA queda de apoyo
+// y recibe además la versión de alto contraste.
+//
+// El frasco se recorre en SUS ejes (de su base a su tapa), no en los de la
+// imagen: así da igual cómo esté girada la cámara. De cada fila se toma la
+// mediana del centro del frasco, que ignora el reflejo vertical del cristal.
+let doughPix=null, doughHist=[], pixBusy=false, pixLastSrc=null, contrastOn=false, contrastUrl=null, pixHits=0;
+try{ contrastOn=localStorage.getItem('pb-contrast')==='1'; }catch(e){}
+function toggleContrast(){
+  contrastOn=!contrastOn;
+  try{ localStorage.setItem('pb-contrast',contrastOn?'1':'0'); }catch(e){}
+  ['btn-contrast','btn-contrast-full'].forEach(id=>{ const b=document.getElementById(id); if(b) b.classList.toggle('on',contrastOn); });
+  pixLastSrc=null; measureDough(); drawVision();
+}
+// Umbral de Otsu: el corte que mejor separa dos grupos (masa clara / fondo).
+function otsu(vals){
+  const hist=new Array(256).fill(0); for(const v of vals) hist[Math.max(0,Math.min(255,v|0))]++;
+  const n=vals.length; let sum=0; for(let i=0;i<256;i++) sum+=i*hist[i];
+  let sB=0,wB=0,best=0,th=128,between=0;
+  for(let t=0;t<256;t++){ wB+=hist[t]; if(!wB) continue; const wF=n-wB; if(!wF) break;
+    sB+=t*hist[t]; const mB=sB/wB, mF=(sum-sB)/wF, b=wB*wF*(mB-mF)*(mB-mF);
+    if(b>best){ best=b; th=t; between=Math.abs(mF-mB); } }
+  return {th, sep:between};
+}
+async function contrastOf(dataUrl,th){
+  try{
+    const img=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=dataUrl;});
+    const W=Math.min(640,img.naturalWidth), H=Math.round(W*img.naturalHeight/img.naturalWidth);
+    const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
+    const g=cv.getContext('2d',{willReadFrequently:true}); g.drawImage(img,0,0,W,H);
+    return makeContrast(g.getImageData(0,0,W,H),W,H,th);
+  }catch(e){ return null; }
+}
+async function measureDough(){
+  if(pixBusy||!visSetup||!camBlob||setupStep) return;
+  if(camBlob===pixLastSrc) return;
+  pixBusy=true; pixLastSrc=camBlob;
+  try{
+    const img=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=URL.createObjectURL(camBlob);});
+    const W=Math.min(480,img.naturalWidth), H=Math.round(W*img.naturalHeight/img.naturalWidth);
+    const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
+    const g=cv.getContext('2d',{willReadFrequently:true}); g.drawImage(img,0,0,W,H);
+    URL.revokeObjectURL(img.src);
+    const px=g.getImageData(0,0,W,H);
+    const gray=i=>0.299*px.data[i]+0.587*px.data[i+1]+0.114*px.data[i+2];
+    const A=W/H;
+    // Esquinas del frasco en esta imagen: 0 arriba-izq, 1 arriba-der, 2 abajo-der, 3 abajo-izq.
+    const J=visSetup.jar.map(p=>fromCanon(p,A)).map(p=>({x:p.x*W,y:p.y*H}));
+    const at=(u,v)=>({x:J[3].x+(J[2].x-J[3].x)*u+(J[0].x-J[3].x)*v, y:J[3].y+(J[2].y-J[3].y)*u+(J[0].y-J[3].y)*v});
+    const ROWS=120, COLS=24, rows=[], all=[];
+    for(let r=0;r<ROWS;r++){
+      const v=r/(ROWS-1), row=[];
+      for(let c=0;c<COLS;c++){
+        const u=0.2+0.6*c/(COLS-1), q=at(u,v), x=Math.round(q.x), y=Math.round(q.y);
+        if(x<0||y<0||x>=W||y>=H) continue;
+        const b=gray((y*W+x)*4); row.push(b); all.push(b);
+      }
+      row.sort((a,b)=>a-b); rows.push(row.length?row:null);
+    }
+    if(all.length<200) return;
+    // El umbral NO sale de toda la imagen: en una foto oscura el reborde de la
+    // tapa, un reflejo o cualquier cosa clara se lo llevaban (Otsu daba 95 y la
+    // masa, a ~60, quedaba "oscura" entera). Sale de lo que el panadero marcó:
+    // la parte baja de su recuadro de masa es masa seguro —la masa solo sube—,
+    // y el fondo es lo más oscuro del frasco. El corte, a medio camino.
+    const pick=(a,b)=>{ const out=[]; for(let r=Math.max(0,a);r<=Math.min(ROWS-1,b);r++) if(rows[r]) out.push(...rows[r]); return out.sort((x,y)=>x-y); };
+    const rb=Math.round((visSetup.hDoughBottom||0)*(ROWS-1)), rt=Math.round(visSetup.hDough*(ROWS-1));
+    const seed=Math.round(rb+(rt-rb)*0.5);
+    const dough=pick(rb+1,seed), sortedAll=[...all].sort((x,y)=>x-y);
+    if(dough.length<20) return;
+    const Ld=dough[Math.floor(dough.length/2)], Lb=sortedAll[Math.floor(sortedAll.length*0.15)];
+    const th=Lb+(Ld-Lb)*0.5, sep=Ld-Lb;
+    // Fracción de cada fila por encima del umbral (claro = masa). Con 0,45 basta:
+    // la cúpula es más alta en el centro y la fila de su cima no es masa entera.
+    const bright=rows.map(row=>row?row.filter(b=>b>th).length/row.length:0);
+    // Desde la mitad del recuadro de masa hacia arriba, mientras siga habiendo
+    // masa; un hueco de hasta 3 filas (una sombra, el reflejo del cristal) no la
+    // corta. Anclarse ahí evita confundirla con cualquier otra cosa clara del
+    // frasco — la tapa, un reflejo de arriba, el plato de abajo.
+    let top=null, gap=0;
+    let r0=seed; while(r0<Math.min(ROWS-1,seed+6)&&bright[r0]<0.45) r0++;
+    if(bright[r0]>=0.45) for(let r=r0;r<ROWS;r++){
+      if(bright[r]>=0.45){ top=r; gap=0; }
+      else if(++gap>3) break;
+    }
+    // Fiabilidad: la masa tiene que distinguirse del fondo (niveles de gris).
+    const conf=Math.max(0,Math.min(1,(sep-10)/30))*(top!=null?1:0);
+    const h=top!=null?top/(ROWS-1):null;
+    // Mediana de las últimas medidas: un fotograma con un reflejo no mueve nada.
+    if(h!=null&&conf>0.3){ doughHist.push(h); if(doughHist.length>7) doughHist.shift(); }
+    const med=doughHist.length?[...doughHist].sort((a,b)=>a-b)[Math.floor(doughHist.length/2)]:null;
+    doughPix={h:med, raw:h, conf:+conf.toFixed(2), at:Date.now(), th};
+    if(contrastOn) contrastUrl=makeContrast(px,W,H,th);
+    checkPixAlarm();
+    drawVision();
+    paintVisLine();
+  }catch(e){}
+  finally{ pixBusy=false; }
+}
+// La vista de alto contraste: la masa (claro) en ámbar vivo, el resto en azul
+// muy oscuro. Es lo que "ve" la medida; el panadero la puede mirar, pero la
+// imagen normal no desaparece — va encima, con transparencia.
+function makeContrast(px,W,H,th){
+  const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
+  const g=cv.getContext('2d'); const out=g.createImageData(W,H);
+  for(let i=0;i<W*H*4;i+=4){
+    const b=0.299*px.data[i]+0.587*px.data[i+1]+0.114*px.data[i+2];
+    const on=b>th, k=Math.max(0,Math.min(1,(b-th+30)/60));
+    out.data[i]=on?255:10; out.data[i+1]=on?170+85*k:20+30*k; out.data[i+2]=on?30:60+60*k; out.data[i+3]=255;
+  }
+  g.putImageData(out,0,0);
+  return cv.toDataURL('image/jpeg',0.8);
+}
+// Cuánto de la subida hacia el objetivo, con la medida de píxeles si es fiable.
+function pixProgress(){
+  if(!visSetup||!doughPix||doughPix.h==null||doughPix.conf<0.3||Date.now()-doughPix.at>60000) return null;
+  const s0=visSetup.hDough, tg=visSetup.hTarget;
+  return {h:doughPix.h, pct:Math.max(0,Math.min(150,(doughPix.h-s0)/(tg-s0)*100))};
+}
+// El aviso por la imagen: cinco medidas seguidas en la línea o por encima
+// (~10 s), una vez por paso.
+function checkPixAlarm(){
+  const p=pixProgress(), st=activeStage();
+  if(!p||!st) return;
+  pixHits=p.pct>=100?pixHits+1:0;
+  if(pixHits>=5&&!st.visionAlerted){
+    st.visionAlerted=true; saveSessions();
+    fireAlarm('📷 The dough reached your target line (camera)');
+  }
+}
+function paintVisLine(){
+  const n=document.getElementById('cam-vis-line'); if(!n) return;
+  const p=pixProgress();
+  if(!visSetup){ n.textContent=visOn?'AI: mark the jar, the dough and the target with 🎯 to start':''; return; }
+  const ai=visLast&&visProgress(visLast);
+  n.textContent=(p?`Camera: ${Math.round(p.pct)}% to your line`:'Camera: not enough contrast to read the dough')
+    +(ai?` · AI ${Math.round(ai.pct)}%`:'');
+}
+setInterval(measureDough,2000);
+
 // ─── Configurar lo que mira la IA: frasco, masa y objetivo ────────────────
 // Tres gestos sobre la imagen: un recuadro al frasco, otro a la masa y una
 // línea donde está el objetivo. De ahí salen dos PROPORCIONES a lo largo del
@@ -5037,7 +5192,7 @@ function setupDrawn(W,H,A){
   // Eje del frasco: de la esquina de abajo a la de arriba (los recuadros se
   // guardan como arriba-izq, arriba-der, abajo-der, abajo-izq).
   const ax=[J[0][0]-J[3][0], J[0][1]-J[3][1]];
-  const v=visLast&&visLast.stage!=null&&visProgressRaw(visLast);
+  const v=visProgressRaw(visLast);
   const f=(v&&v.h!=null)?v.h:visSetup.hDough;
   const b0=visSetup.hDoughBottom||0;
   const top=[[D[3][0]+ax[0]*(f-b0), D[3][1]+ax[1]*(f-b0)],[D[2][0]+ax[0]*(f-b0), D[2][1]+ax[1]*(f-b0)]];
@@ -5238,7 +5393,7 @@ function hudHtml(k){
     case 'timer': return `<div class="l">Timer</div><b>${t('timer-big')}</b>`;
     case 'cond': return `<div class="l">Conductivity</div><b>${t('cond-rel')}%</b>`;
     case 'chart': return null;   // se pinta aparte, cada 20 s
-    case 'vision': { const pv=visLast&&visProgress(visLast);
+    case 'vision': { const pv=pixProgress()||(visLast&&visProgress(visLast));
       return `<div class="l">Camera AI</div><b style="color:#a36bff">${pv?Math.round(pv.pct)+'%':'--'}</b> <span style="opacity:.75">ToF ${t('meta-pct')}</span>`; }
   }
   return '';
@@ -5385,6 +5540,7 @@ async function camToStep(){
 }
 function startCam(){
   const si=document.getElementById('cam-subject'); if(si) si.value=camSubject;
+  ['btn-contrast','btn-contrast-full'].forEach(id=>{ const b=document.getElementById(id); if(b) b.classList.toggle('on',contrastOn); });
   paintVisButtons();
   wireFrame(document.getElementById('cam-img').parentElement,'cam-img');
   wireFrame(document.getElementById('cam-full-stage'),'cam-full-img');
