@@ -614,7 +614,7 @@ body.board .app{max-width:none;padding:16px 22px 80px}
         <label style="font-size:11px;display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="vis-on" onchange="setVisOn(this.checked)"> AI watches the jar</label>
         <span style="flex:1"></span>
         <select id="vis-every" onchange="setVisEvery(this.value)" style="background:transparent;border:1px solid var(--border);border-radius:7px;color:var(--text);font-family:'DM Mono',monospace;font-size:11px;padding:3px 4px">
-          <option value="2">every 2 min</option><option value="5">every 5 min</option><option value="10">every 10 min</option><option value="15">every 15 min</option>
+          <option value="30">every 30 min</option><option value="60">every hour</option>
         </select>
         <button id="btn-vis-now" onclick="runVision(true)">Check now</button>
       </div>
@@ -4392,8 +4392,13 @@ async function straightenWithClaude(){
 // Un solo análisis para todos: el resultado va RETENIDO al broker, y un aparato
 // solo analiza si el último resultado es más viejo que el intervalo. Dos
 // pantallas abiertas no pagan dos veces.
-let visOn=false, visEvery=5, visShow=true, visLast=null, visBusy=false;
-try{ const v=JSON.parse(localStorage.getItem('pb-vis')||'null'); if(v){ visOn=!!v.on; visEvery=+v.every||5; visShow=v.show!==false; } }catch(e){}
+// Cada análisis es una consulta de pago; la cima la mide ya `measureDough` cada
+// 2 s gratis, así que la IA es solo apoyo: 30 min como mínimo. Un aparato con
+// un intervalo antiguo más corto se sube solo — si no, él solo seguiría
+// pagando cada 5 min por todos.
+const VIS_MIN_EVERY=30;
+let visOn=false, visEvery=VIS_MIN_EVERY, visShow=true, visLast=null, visBusy=false;
+try{ const v=JSON.parse(localStorage.getItem('pb-vis')||'null'); if(v){ visOn=!!v.on; visEvery=Math.max(VIS_MIN_EVERY,+v.every||0); visShow=v.show!==false; } }catch(e){}
 function saveVis2(){ try{ localStorage.setItem('pb-vis',JSON.stringify({on:visOn,every:visEvery,show:visShow})); }catch(e){} }
 function toggleVisBox(){
   const b=document.getElementById('cam-vis-box'), open=b.style.display!=='none';
@@ -4403,7 +4408,7 @@ function toggleVisBox(){
   paintVisButtons();
 }
 function setVisOn(v){ visOn=!!v; saveVis2(); paintVisButtons(); drawVision(); if(visOn) runVision(false); }
-function setVisEvery(v){ visEvery=+v||5; saveVis2(); }
+function setVisEvery(v){ visEvery=Math.max(VIS_MIN_EVERY,+v||0); saveVis2(); }
 function toggleVisShow(){ visShow=!visShow; saveVis2(); paintVisButtons(); drawVision(); }
 function paintVisButtons(){
   const a=document.getElementById('btn-vis'); if(a) a.classList.toggle('on',visOn);
@@ -4515,7 +4520,8 @@ The baker set this up on Image 1: there the top of the dough was at ${Math.round
          {type:'text',text:'Where are the container, the top of the dough and the marker line?'}];
     const ask=img=>fetch(`${SUPA_URL}/functions/v1/claude-proxy`,{method:'POST',
       headers:{Authorization:'Bearer '+SUPA_JWT,'Content-Type':'application/json'},
-      body:JSON.stringify({model:'claude-opus-5',max_tokens:5000,thinking:{type:'adaptive'},system:sys,
+      // Sonnet 5: el análisis es de apoyo y Opus costaba varias veces más.
+      body:JSON.stringify({model:'claude-sonnet-5',max_tokens:5000,thinking:{type:'adaptive'},system:sys,
         messages:[{role:'user',content:content(img)}],
         output_config:{format:{type:'json_schema',schema:{type:'object',additionalProperties:false,
           required:['found','base_center','lid_center','half_width','dough_top','marker_line','reached','dough_fraction','confidence','note'],

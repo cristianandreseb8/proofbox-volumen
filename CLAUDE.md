@@ -216,6 +216,9 @@ del frasco, y el corte a medio camino. Un Otsu de toda la imagen daba 95 con la
 masa a ~58 y medía 3% en vez de 30%. Mediana de 7 medidas; aviso con 5 seguidas
 en la línea. ◐ enseña la vista de alto contraste (masa ámbar, resto azul) y se
 vuelve a la normal con el mismo botón; la IA la recibe como "Image 3".
+La IA de visión va con **Sonnet 5 y cada 30 min como mínimo** (decisión del
+usuario por el gasto: a Opus cada 5 min eran ~15-25 USD al día con la app
+abierta). Un aparato con un intervalo guardado más corto se sube solo a 30.
 
 **Configurar lo que mira la IA: 🎯 frasco · masa · objetivo.** Tres gestos sobre
 la imagen: recuadro al frasco, recuadro a la masa, línea del objetivo. De ahí
