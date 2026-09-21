@@ -359,6 +359,17 @@ manda, no la razón de distancias del sensor, que no sabe cómo de ancho es. La
 barra enseña `2.5cm = 2.7×` y debajo lo crecido en las dos unidades. Hubo una
 versión que los hacía excluyentes; era peor.
 
+**El porcentaje de la tarjeta sale SOLO de centímetros.** La razón de distancias
+(inicio÷ahora) no es el × del bote: se dispara cerca del sensor. Una hoja con el
+objetivo solo en × ("LMM", 2,7×) daba 58% con la masa a 2,3 cm de 2,5 (91%) —
+el panadero lo vio como "marca 30% cuando va en 80%". La causa: el diálogo Next
+step mandaba los cm al aparato pero no los guardaba en la hoja; cuando el
+progreso pasó a calcularse en la app, esa hoja se quedó sin cm. Ahora Next step
+los guarda (hoja y paso), y `jarEquivalence()` resuelve los cm: de la hoja; si
+solo tiene ×, con la equivalencia de la última hoja que tenga los dos (el mismo
+bote, casi siempre), diciéndolo en la tarjeta; y si no hay ninguna, `--%` y se
+piden los cm. El gráfico (`stageGoal`) usa lo mismo.
+
 **Cambiar el objetivo repinta en el acto.** El porcentaje se recalculaba en el
 siguiente status del ESP32; con el aparato apagado no llega ninguno y parecía
 que el botón no había hecho nada. `repaint()` reusa el último status guardado.
