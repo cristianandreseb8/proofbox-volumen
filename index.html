@@ -5231,8 +5231,22 @@ function setupDrawn(W,H,A){
   const top=[[D[3][0]+ax[0]*(f-b0), D[3][1]+ax[1]*(f-b0)],[D[2][0]+ax[0]*(f-b0), D[2][1]+ax[1]*(f-b0)]];
   const doughPoly=[top[0],top[1],D[2],D[3]];
   const reached=v&&v.h!=null&&v.h>=visSetup.hTarget;
+  // Cuánto creció, dentro del propio recuadro: la altura de la masa ahora
+  // contra la que tenía cuando se marcó (las dos desde el fondo del recuadro),
+  // y cuánto del camino hacia la línea. El texto se contragira con la imagen
+  // para leerse derecho aunque la cámara esté de lado.
+  let label='';
+  const h0=visSetup.hDough-b0;
+  if(v&&v.h!=null&&h0>0.01){
+    const x=(f-b0)/h0, pct=Math.max(0,Math.round((f-visSetup.hDough)/(visSetup.hTarget-visSetup.hDough)*100));
+    const cx=doughPoly.reduce((t,q)=>t+q[0],0)/4, cy=doughPoly.reduce((t,q)=>t+q[1],0)/4;
+    const fs=Math.max(22,Math.min(60,Math.hypot(D[2][0]-D[3][0],D[2][1]-D[3][1])/5));
+    label=`<g transform="translate(${cx.toFixed(1)},${cy.toFixed(1)}) rotate(${-(camRot||0)})" font-family="'DM Mono',monospace" text-anchor="middle" paint-order="stroke" stroke="rgba(0,0,0,.75)" stroke-width="${(fs/7).toFixed(1)}" stroke-linejoin="round">`
+      +`<text y="${(fs*0.1).toFixed(1)}" font-size="${fs.toFixed(1)}" font-weight="600" fill="#4fd3ff">${x.toFixed(2)}×</text>`
+      +`<text y="${(fs*0.85).toFixed(1)}" font-size="${(fs*0.45).toFixed(1)}" fill="${reached?'#ff5c5c':'#fff'}">${reached?'reached ✓':pct+'% to line'}</text></g>`;
+  }
   return `<polygon points="${pts(J)}" fill="none" stroke="#9be15d" stroke-width="4" stroke-linejoin="round"/>`
-    +`<polygon points="${pts(doughPoly)}" fill="rgba(79,211,255,.10)" stroke="#4fd3ff" stroke-width="4" stroke-linejoin="round"/>`
+    +`<polygon points="${pts(doughPoly)}" fill="rgba(79,211,255,.10)" stroke="#4fd3ff" stroke-width="4" stroke-linejoin="round"/>`+label
     +`<line x1="${T[0][0]}" y1="${T[0][1]}" x2="${T[1][0]}" y2="${T[1][1]}" stroke="${reached?'#ff5c5c':'#a36bff'}" stroke-width="5" stroke-linecap="round"/>`;
 }
 
