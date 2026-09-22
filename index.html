@@ -5030,7 +5030,8 @@ function paintVisLine(){
   const p=pixProgress();
   if(!visSetup){ n.textContent=visOn?'AI: mark the jar, the dough and the target with 🎯 to start':''; return; }
   const cal=visSetup.calAt?` · calibrated ${new Date(visSetup.calAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}`:'';
-  n.textContent=(p?`Camera: ${Math.round(p.pct)}% to your line`:'Camera: not enough contrast to read the dough — try ✨ Calibrate with AI')+cal;
+  const b0=visSetup.hDoughBottom||0, g=p&&visSetup.hDough-b0>0.01?Math.max(0,Math.round(((p.h-b0)/(visSetup.hDough-b0)-1)*100)):null;
+  n.textContent=(p?`Camera: grown +${g}% · ${Math.round(p.pct)}% of the way to your line`:'Camera: not enough contrast to read the dough — try ✨ Calibrate with AI')+cal;
 }
 setInterval(measureDough,2000);
 
@@ -5233,17 +5234,17 @@ function setupDrawn(W,H,A){
   const reached=v&&v.h!=null&&v.h>=visSetup.hTarget;
   // Cuánto creció, dentro del propio recuadro: la altura de la masa ahora
   // contra la que tenía cuando se marcó (las dos desde el fondo del recuadro),
-  // y cuánto del camino hacia la línea. El texto se contragira con la imagen
+  // en % crecido (+84%) — "44% to line" se leía como lo que faltaba. El texto se contragira con la imagen
   // para leerse derecho aunque la cámara esté de lado.
   let label='';
   const h0=visSetup.hDough-b0;
   if(v&&v.h!=null&&h0>0.01){
-    const x=(f-b0)/h0, pct=Math.max(0,Math.round((f-visSetup.hDough)/(visSetup.hTarget-visSetup.hDough)*100));
+    const x=(f-b0)/h0;
     const cx=doughPoly.reduce((t,q)=>t+q[0],0)/4, cy=doughPoly.reduce((t,q)=>t+q[1],0)/4;
     const fs=Math.max(22,Math.min(60,Math.hypot(D[2][0]-D[3][0],D[2][1]-D[3][1])/5));
     label=`<g transform="translate(${cx.toFixed(1)},${cy.toFixed(1)}) rotate(${-(camRot||0)})" font-family="'DM Mono',monospace" text-anchor="middle" paint-order="stroke" stroke="rgba(0,0,0,.75)" stroke-width="${(fs/7).toFixed(1)}" stroke-linejoin="round">`
-      +`<text y="${(fs*0.1).toFixed(1)}" font-size="${fs.toFixed(1)}" font-weight="600" fill="#4fd3ff">${x.toFixed(2)}×</text>`
-      +`<text y="${(fs*0.85).toFixed(1)}" font-size="${(fs*0.45).toFixed(1)}" fill="${reached?'#ff5c5c':'#fff'}">${reached?'reached ✓':pct+'% to line'}</text></g>`;
+      +`<text y="${(fs*0.1).toFixed(1)}" font-size="${fs.toFixed(1)}" font-weight="600" fill="#4fd3ff">+${Math.max(0,Math.round((x-1)*100))}%</text>`
+      +`<text y="${(fs*0.85).toFixed(1)}" font-size="${(fs*0.45).toFixed(1)}" fill="${reached?'#ff5c5c':'#fff'}">${reached?'reached ✓':'grown · '+x.toFixed(2)+'×'}</text></g>`;
   }
   return `<polygon points="${pts(J)}" fill="none" stroke="#9be15d" stroke-width="4" stroke-linejoin="round"/>`
     +`<polygon points="${pts(doughPoly)}" fill="rgba(79,211,255,.10)" stroke="#4fd3ff" stroke-width="4" stroke-linejoin="round"/>`+label
