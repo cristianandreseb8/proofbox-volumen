@@ -199,6 +199,13 @@ movida (desplazada y al 85%), centro con <1% de error, tamaño 0,85 exacto,
 ~23 ms por búsqueda. Ojo: `grayFrom` usa `naturalWidth`; con `width` de una
 <img> de la página la plantilla salía deformada.
 
+**Sin textura no se sigue nada.** De noche la foto media 8 de 255 (desviación 3)
+y la búsqueda encontraba el frasco cada vez un 3% más allá: arrastraba las
+marcas y el × de la masa bailaba (1,86 → 1,7) con la masa y la cámara quietas.
+Ahora, con plantilla o imagen de desviación < 8, las marcas no se tocan; y para
+moverlas hace falta parecido ≥ 0,7, un desplazamiento > 6% (o 12% de tamaño) y
+TRES búsquedas seguidas que coincidan.
+
 **Coordenadas canónicas (4:3 del sensor).** El vivo Fluid es 3:2 y el Sharp y el
 archivo 4:3; el 3:2 es la franja central (y = 1/18 + y·8/9). Marcar en uno y
 pintar en otro desplazaba las marcas y les cambiaba las proporciones. Todo lo
@@ -217,7 +224,11 @@ masa a ~58 y medía 3% en vez de 30%. La fiabilidad sale de la FORMA del perfil 
 llenas dentro de la masa, vacías encima) y del contraste en proporción, no de
 niveles absolutos: de noche la masa está a 12 y el fondo a 7, y pedir 10 niveles
 de diferencia dejaba el recuadro quieto con la masa a la vista. Mediana de 7 medidas; aviso con 5 seguidas
-en la línea. ◐ enseña la vista de alto contraste (masa ámbar, resto azul) y se
+en la línea. El recuadro azul lleva dentro el × crecido (grande) y el % de la
+meta (pequeño). El inicio del ×, si se acaba de marcar, es la misma medida de
+píxeles (`pixStart`); para configuraciones viejas, las marcas a mano — medirlo
+en la foto del archivo de entonces dio 1,39× con 1,89× real (foto negra,
+cámara movida). Mediana de 30 medidas (1 min). ◐ enseña la vista de alto contraste (masa ámbar, resto azul) y se
 vuelve a la normal con el mismo botón; la IA la recibe como "Image 3".
 **La IA ya no mira sola: solo "✨ Calibrate with AI".** Decisión del usuario por
 el gasto (a Opus cada 5 min eran ~15-25 USD al día con la app abierta). Una

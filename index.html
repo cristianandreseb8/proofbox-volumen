@@ -4847,6 +4847,13 @@ async function trackJar(){
     const img=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=URL.createObjectURL(camBlob);});
     const G=grayFrom(img,TRK_W); URL.revokeObjectURL(img.src);
     const T0=tplFromSetup(); if(!T0) return;
+    // Con la foto casi negra no hay nada que seguir: de noche la imagen media
+    // 8 de 255 con desviación 3, la plantilla 6, y la búsqueda encontraba el
+    // frasco cada vez un 3% más allá. Arrastraba las marcas, y con ellas el ×
+    // de la masa (1,86 un rato, 1,7 otro) sin que la masa ni la cámara se
+    // movieran. Sin textura, las marcas se quedan donde están.
+    const sdOf=a=>{ let t=0,t2=0; for(const v of a){ t+=v; t2+=v*v; } const m=t/a.length; return Math.sqrt(Math.max(0,t2/a.length-m*m)); };
+    if(sdOf(T0.px)<8||sdOf(G.px)<8){ trkVotes=0; visSetup.trkScore=null; return; }
     const cur0=visSetup.trk||{sc:1};
     const f0=findTemplate(G,T0,cur0.sc);
     // Lo encontrado, en canónico: la imagen de ahora puede ser 3:2 o 4:3.
@@ -4855,13 +4862,15 @@ async function trackJar(){
     const t=visSetup.tpl, cur=visSetup.trk||{cx:t.cx,cy:t.cy,sc:1};
     visSetup.trkScore=f?+f.score.toFixed(2):null;
     // Poco parecido: no se toca nada (el frasco se tapó, luz distinta, etc.).
-    if(!f||f.score<0.55){ trkVotes=0; return; }
-    const moved=Math.hypot(f.cx-cur.cx,f.cy-cur.cy)>0.03||Math.abs(Math.log(f.sc/cur.sc))>Math.log(1.08);
+    if(!f||f.score<0.7){ trkVotes=0; return; }
+    // Solo un movimiento claro (6% de la foto, o 12% de tamaño): un golpe a la
+    // cámara es eso o más; menos que eso era ruido que desplazaba las marcas.
+    const moved=Math.hypot(f.cx-cur.cx,f.cy-cur.cy)>0.06||Math.abs(Math.log(f.sc/cur.sc))>Math.log(1.12);
     if(!moved){ trkVotes=0; return; }
-    // Dos búsquedas seguidas que coinciden: la cámara se movió de verdad.
-    if(trkPending&&Math.hypot(f.cx-trkPending.cx,f.cy-trkPending.cy)<0.02&&f.sc===trkPending.sc) trkVotes++;
+    // Tres búsquedas seguidas que coinciden: la cámara se movió de verdad.
+    if(trkPending&&Math.hypot(f.cx-trkPending.cx,f.cy-trkPending.cy)<0.015&&f.sc===trkPending.sc) trkVotes++;
     else{ trkVotes=1; trkPending=f; }
-    if(trkVotes<2) return;
+    if(trkVotes<3) return;
     const k=f.sc/cur.sc;
     const mv=p=>({x:Math.max(0,Math.min(1,f.cx+(p.x-cur.cx)*k)), y:Math.max(0,Math.min(1,f.cy+(p.y-cur.cy)*k))});
     visSetup.jar=visSetup.jar.map(mv); visSetup.dough=visSetup.dough.map(mv); visSetup.target=visSetup.target.map(mv);
@@ -4888,7 +4897,7 @@ setInterval(trackJar,4000);
 // El frasco se recorre en SUS ejes (de su base a su tapa), no en los de la
 // imagen: así da igual cómo esté girada la cámara. De cada fila se toma la
 // mediana del centro del frasco, que ignora el reflejo vertical del cristal.
-let doughPix=null, doughHist=[], pixBusy=false, pixLastSrc=null, contrastOn=false, contrastUrl=null, pixHits=0;
+let doughPix=null, doughHist=[], botHist=[], pixBusy=false, pixLastSrc=null, contrastOn=false, contrastUrl=null, pixHits=0;
 try{ contrastOn=localStorage.getItem('pb-contrast')==='1'; }catch(e){}
 function toggleContrast(){
   contrastOn=!contrastOn;
@@ -4915,12 +4924,10 @@ async function contrastOf(dataUrl,th){
     return makeContrast(g.getImageData(0,0,W,H),W,H,th);
   }catch(e){ return null; }
 }
-async function measureDough(){
-  if(pixBusy||!visSetup||!camBlob||setupStep) return;
-  if(camBlob===pixLastSrc) return;
-  pixBusy=true; pixLastSrc=camBlob;
-  try{
-    const img=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=URL.createObjectURL(camBlob);});
+// Mide una foto: cima y base de la masa (fracción del frasco, 0 abajo – 1
+// arriba) y cuánto fiarse. Sirve para el vivo y para las fotos del archivo.
+async function pixMeasure(blob){
+    const img=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=URL.createObjectURL(blob);});
     const W=Math.min(480,img.naturalWidth), H=Math.round(W*img.naturalHeight/img.naturalWidth);
     const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
     const g=cv.getContext('2d',{willReadFrequently:true}); g.drawImage(img,0,0,W,H);
@@ -4941,7 +4948,7 @@ async function measureDough(){
       }
       row.sort((a,b)=>a-b); rows.push(row.length?row:null);
     }
-    if(all.length<200) return;
+    if(all.length<200) return null;
     // El umbral NO sale de toda la imagen: en una foto oscura el reborde de la
     // tapa, un reflejo o cualquier cosa clara se lo llevaban (Otsu daba 95 y la
     // masa, a ~60, quedaba "oscura" entera). Sale de lo que el panadero marcó:
@@ -4951,7 +4958,7 @@ async function measureDough(){
     const rb=Math.round((visSetup.hDoughBottom||0)*(ROWS-1)), rt=Math.round(visSetup.hDough*(ROWS-1));
     const seed=Math.round(rb+(rt-rb)*0.5);
     const dough=pick(rb+1,seed), sortedAll=[...all].sort((x,y)=>x-y);
-    if(dough.length<20) return;
+    if(dough.length<20) return null;
     const Ld=dough[Math.floor(dough.length/2)], Lb=sortedAll[Math.floor(sortedAll.length*0.15)];
     const th=Lb+(Ld-Lb)*0.5, sep=Ld-Lb;
     // Fracción de cada fila por encima del umbral (claro = masa). Con 0,45 basta:
@@ -4982,12 +4989,31 @@ async function measureDough(){
       const level=cl((sep-2)/4)*cl((Ld/(Lb+1)-1.1)/0.3);
       conf=Math.min(shape,level);
     }
-    const h=top!=null?top/(ROWS-1):null;
+    // La base de la masa, bajando desde el mismo sitio: con ella el × sale de
+    // dos medidas del mismo método, no de un recuadro dibujado a mano.
+    let bot=null; gap=0;
+    if(top!=null) for(let r=r0;r>=0;r--){
+      if(bright[r]>=0.45){ bot=r; gap=0; }
+      else if(++gap>3) break;
+    }
+    return {h:top!=null?top/(ROWS-1):null, bot:bot!=null?bot/(ROWS-1):null, conf, th, px, W, H};
+}
+async function measureDough(){
+  if(pixBusy||!visSetup||!camBlob||setupStep) return;
+  if(camBlob===pixLastSrc) return;
+  pixBusy=true; pixLastSrc=camBlob;
+  try{
+    const m=await pixMeasure(camBlob); if(!m) return;
+    const {h,bot,conf,th,px,W,H}=m;
     // Mediana de las últimas medidas: un fotograma con un reflejo no mueve nada.
-    if(h!=null&&conf>0.3){ doughHist.push(h); if(doughHist.length>7) doughHist.shift(); }
-    const med=doughHist.length?[...doughHist].sort((a,b)=>a-b)[Math.floor(doughHist.length/2)]:null;
-    doughPix={h:med, raw:h, conf:+conf.toFixed(2), at:Date.now(), th};
+    // 30 medidas = un minuto: la masa tarda horas en subir, y con 7 el × bailaba
+    // unas décimas cuando cambiaba la luz.
+    if(h!=null&&conf>0.3){ doughHist.push(h); if(doughHist.length>30) doughHist.shift(); }
+    if(bot!=null&&conf>0.3){ botHist.push(bot); if(botHist.length>30) botHist.shift(); }
+    const md=a=>a.length?[...a].sort((x,y)=>x-y)[Math.floor(a.length/2)]:null;
+    doughPix={h:md(doughHist), bot:md(botHist), raw:h, conf:+conf.toFixed(2), at:Date.now(), th};
     if(contrastOn) contrastUrl=makeContrast(px,W,H,th);
+    ensurePixStart();
     checkPixAlarm();
     drawVision();
     paintVisLine();
@@ -5008,11 +5034,34 @@ function makeContrast(px,W,H,th){
   g.putImageData(out,0,0);
   return cv.toDataURL('image/jpeg',0.8);
 }
-// Cuánto de la subida hacia el objetivo, con la medida de píxeles si es fiable.
+// ─── El inicio, medido igual que el ahora ─────────────────────────────────
+// Recién marcado (primeros 15 min), el inicio del × es la MISMA medida de
+// píxeles que la de ahora, con 5 medidas estables: así el sesgo del método
+// está en los dos lados y se cancela, y no depende de cuánto acertó el dedo
+// con el borde del recuadro. Se probó también medirlo en la foto del archivo
+// de cuando se marcó, para configuraciones viejas: esa foto era tan oscura, y
+// la cámara se había movido, que daba 1,39× donde el recuadro a mano (bien
+// puesto) daba 1,89×. Para esas se quedan las marcas a mano.
+let pixStartBusy=false;
+function ensurePixStart(){
+  if(!visSetup||visSetup.pixStart) return;
+  if(Date.now()-visSetup.at>=15*60000){ visSetup.pixStart={none:true}; saveSetup(false); return; }
+  if(doughHist.length<5||!doughPix||doughPix.bot==null) return;
+  const h=doughPix.h, bot=doughPix.bot;
+  if(h-bot<0.03) return;
+  visSetup.pixStart={top:+h.toFixed(4), bot:+bot.toFixed(4), at:Date.now()};
+  saveSetup(true); drawVision(); paintVisLine();
+}
+// Cuánto creció (×) y cuánto de la subida hacia el objetivo, con la medida de
+// píxeles si es fiable. La calibración con la IA desplaza igual el inicio y el
+// ahora, así que no cambia el ×; sí dónde queda la línea.
 function pixProgress(){
   if(!visSetup||!doughPix||doughPix.h==null||doughPix.conf<0.3||Date.now()-doughPix.at>60000) return null;
-  const s0=visSetup.hDough, tg=visSetup.hTarget, h=doughPix.h+(visSetup.pixCal||0);
-  return {h, pct:Math.max(0,Math.min(150,(h-s0)/(tg-s0)*100))};
+  const ps=visSetup.pixStart&&visSetup.pixStart.top!=null?visSetup.pixStart:null;
+  const cal=visSetup.pixCal||0, tg=visSetup.hTarget, h=doughPix.h+cal;
+  const s0=ps?ps.top+cal:visSetup.hDough, b0=ps?ps.bot+cal:(visSetup.hDoughBottom||0);
+  const x=s0-b0>0.01?Math.max(1,(h-b0)/(s0-b0)):null;
+  return {h, x, pct:Math.max(0,Math.min(150,(h-s0)/(tg-s0)*100))};
 }
 // El aviso por la imagen: cinco medidas seguidas en la línea o por encima
 // (~10 s), una vez por paso.
@@ -5030,8 +5079,7 @@ function paintVisLine(){
   const p=pixProgress();
   if(!visSetup){ n.textContent=visOn?'AI: mark the jar, the dough and the target with 🎯 to start':''; return; }
   const cal=visSetup.calAt?` · calibrated ${new Date(visSetup.calAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}`:'';
-  const b0=visSetup.hDoughBottom||0, g=p&&visSetup.hDough-b0>0.01?Math.max(0,Math.round(((p.h-b0)/(visSetup.hDough-b0)-1)*100)):null;
-  n.textContent=(p?`Camera: ${(1+g/100).toFixed(2)}× · ${Math.round(p.pct)}% of your goal`:'Camera: not enough contrast to read the dough — try ✨ Calibrate with AI')+cal;
+  n.textContent=(p?`Camera: ${p.x!=null?p.x.toFixed(2)+'× since you marked it · ':''}${Math.round(p.pct)}% of your goal`:'Camera: not enough contrast to read the dough — try ✨ Calibrate with AI')+cal;
 }
 setInterval(measureDough,2000);
 
@@ -5150,6 +5198,7 @@ async function finishSetup(img){
     setupStep=3; setupBanner(); drawVision(); return;
   }
   setupStep=0; setupBanner();
+  doughHist=[]; botHist=[];   // lo medido con las marcas anteriores no vale
   // La imagen sobre la que se marcó es la que manda: de ella salen la foto de
   // referencia y la plantilla, y su formato dice cómo pasar a canónico.
   const A=(img.naturalWidth||4)/(img.naturalHeight||3);
@@ -5238,9 +5287,9 @@ function setupDrawn(W,H,A){
   // masa, 100% en la línea. "44% to line" se leía como lo que faltaba. El texto se contragira con la imagen
   // para leerse derecho aunque la cámara esté de lado.
   let label='';
-  const h0=visSetup.hDough-b0;
-  if(v&&v.h!=null&&h0>0.01){
-    const x=(f-b0)/h0, pct=Math.max(0,Math.round((f-visSetup.hDough)/(visSetup.hTarget-visSetup.hDough)*100));
+  const pg=pixProgress();
+  if(pg&&pg.x!=null){
+    const x=pg.x, pct=Math.round(pg.pct);
     const cx=doughPoly.reduce((t,q)=>t+q[0],0)/4, cy=doughPoly.reduce((t,q)=>t+q[1],0)/4;
     const fs=Math.max(22,Math.min(60,Math.hypot(D[2][0]-D[3][0],D[2][1]-D[3][1])/5));
     label=`<g transform="translate(${cx.toFixed(1)},${cy.toFixed(1)}) rotate(${-(camRot||0)})" font-family="'DM Mono',monospace" text-anchor="middle" paint-order="stroke" stroke="rgba(0,0,0,.75)" stroke-width="${(fs/7).toFixed(1)}" stroke-linejoin="round">`
