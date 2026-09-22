@@ -4967,8 +4967,21 @@ async function measureDough(){
       if(bright[r]>=0.45){ top=r; gap=0; }
       else if(++gap>3) break;
     }
-    // Fiabilidad: la masa tiene que distinguirse del fondo (niveles de gris).
-    const conf=Math.max(0,Math.min(1,(sep-10)/30))*(top!=null?1:0);
+    // Fiabilidad por la FORMA del perfil, no por niveles de gris absolutos.
+    // De noche la cámara da la masa a 12 y el fondo a 7: pedir 10 niveles de
+    // diferencia la descartaba con un perfil de libro (filas llenas hasta la
+    // cima y vacías encima), y el recuadro azul no se movía. Vale que dentro de
+    // la masa las filas estén llenas, que encima estén vacías, y que la masa sea
+    // claramente más clara que el fondo en proporción (no ruido de 1-2 niveles).
+    const cl=v=>Math.max(0,Math.min(1,v));
+    let conf=0;
+    if(top!=null){
+      const mean=(a,b)=>{ let t=0,n=0; for(let r=Math.max(0,a);r<=Math.min(ROWS-1,b);r++){ t+=bright[r]; n++; } return n?t/n:0; };
+      const inside=mean(r0,top), above=top>=ROWS-2?0:mean(top+1,top+15);
+      const shape=cl((inside-above-0.3)/0.4);
+      const level=cl((sep-2)/4)*cl((Ld/(Lb+1)-1.1)/0.3);
+      conf=Math.min(shape,level);
+    }
     const h=top!=null?top/(ROWS-1):null;
     // Mediana de las últimas medidas: un fotograma con un reflejo no mueve nada.
     if(h!=null&&conf>0.3){ doughHist.push(h); if(doughHist.length>7) doughHist.shift(); }

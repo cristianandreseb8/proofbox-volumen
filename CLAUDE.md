@@ -213,7 +213,10 @@ centro, y la cima es hasta dónde sigue habiendo claro subiendo desde la mitad
 del recuadro de masa (huecos de 3 filas tolerados). El umbral sale de lo marcado:
 la mitad baja del recuadro de masa es masa seguro, el fondo es el percentil 15
 del frasco, y el corte a medio camino. Un Otsu de toda la imagen daba 95 con la
-masa a ~58 y medía 3% en vez de 30%. Mediana de 7 medidas; aviso con 5 seguidas
+masa a ~58 y medía 3% en vez de 30%. La fiabilidad sale de la FORMA del perfil (filas
+llenas dentro de la masa, vacías encima) y del contraste en proporción, no de
+niveles absolutos: de noche la masa está a 12 y el fondo a 7, y pedir 10 niveles
+de diferencia dejaba el recuadro quieto con la masa a la vista. Mediana de 7 medidas; aviso con 5 seguidas
 en la línea. ◐ enseña la vista de alto contraste (masa ámbar, resto azul) y se
 vuelve a la normal con el mismo botón; la IA la recibe como "Image 3".
 **La IA ya no mira sola: solo "✨ Calibrate with AI".** Decisión del usuario por
