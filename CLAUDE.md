@@ -160,6 +160,12 @@ en iPhone ese API solo existe para vídeo. Mientras está abierta, los fotograma
 del vivo se pintan también ahí — es la misma suscripción, no una segunda. Sirve
 igual para una captura guardada.
 
+**Que el vivo se corte se avisa.** Antes el aviso rojo solo salía sin vivo y
+pasados 15 min; con el vivo cortado la imagen se quedaba congelada con su
+recuadro y su ×, y solo lo decía un renglón gris. Ahora, con el vivo puesto, al
+minuto sin fotogramas sale el aviso en la tarjeta, otro en pantalla completa con
+la hora de la última foto, y la línea de la medida dice de cuándo es.
+
 Las capturas se borran desde la app, una a una o todas, con un solo `DELETE` y
 la lista en `prefixes` (por tandas de 100: una lista de cientos falla). Borrar
 una captura no toca la copia que se hubiera añadido a un paso.
