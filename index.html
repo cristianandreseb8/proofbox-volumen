@@ -7,6 +7,17 @@
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <title>ProofBox Volumen</title>
+<!-- Instalable: icono en la pantalla de inicio y a pantalla completa, sin la
+     barra del navegador. Sin service worker a propósito: la app se publica a
+     menudo y una caché dejaría a un aparato con una versión vieja. -->
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="theme-color" content="#0f0e0c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ProofBox">
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@500;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/mqtt@4.3.7/dist/mqtt.min.js"></script>
 <style>
@@ -496,15 +507,28 @@ body.board .app{max-width:none;padding:16px 22px 80px}
     <button id="btn-erase-undo" hidden onclick="undoErase()" title="Bring back the last stretch you hid">↶ Undo erase</button>
     <button id="btn-section" onclick="toggleSection()" title="Mark steps on the chart: tap to split, drag to make a section, drag a line to move it">⎸⎸ Steps</button>
     <button id="btn-eraser" onclick="toggleEraser()" title="Drag across the chart to hide a stretch">🧽 Erase</button>
+    <button id="btn-compare" onclick="openCompare()" title="Put steps from any sheet on top of each other">⧉ Compare</button>
     <button onclick="closeChartFull()">✕</button>
   </div>
   <div id="section-hint" style="display:none;font-size:11px;color:var(--amber-l);padding:4px 2px">Tap to split a step there · drag across to make a new step from start to end · drag a dotted line to move it · tap a step's name to rename it.</div>
   <div id="eraser-hint" style="display:none;font-size:11px;color:var(--amber-l);padding:4px 2px">Drag across the stretch you want to hide — a knock, the sensor moved. Nothing is deleted: ↶ Undo erase brings it back.</div>
   <div id="erased-list" style="font-size:11px;color:var(--muted);padding:2px 2px 6px"></div>
   <div class="series-row" id="series-row-full"></div>
+  <div id="compare-bar" style="display:none;font-size:11px;padding:2px 2px 8px;gap:10px;flex-wrap:wrap;align-items:center"></div>
   <div class="chart-full-box" id="chart-full-box"></div>
   <div class="chart-readout" id="chart-readout"></div>
   <div class="series-legend" id="legend-full"></div>
+</div>
+<div class="modal" id="compare-modal" onclick="if(event.target===this)closeCompare()">
+  <div class="modal-box" style="max-width:460px">
+    <div class="card-label" style="margin-bottom:4px">Compare steps</div>
+    <div style="font-size:10px;color:var(--muted);margin-bottom:10px;line-height:1.45">Pick two to four measured steps, from any sheet. Each curve starts at its own beginning, so a refresh today sits on top of last week's.</div>
+    <div id="compare-list" style="max-height:52vh;overflow:auto;font-size:12px"></div>
+    <div class="log-btns" style="margin-top:12px">
+      <button class="mark-btn" style="flex:1" onclick="closeCompare()">Cancel</button>
+      <button class="cal-btn" style="flex:2;margin:0" onclick="runCompare()">⧉ Compare</button>
+    </div>
+  </div>
 </div>
 <div class="alarm-banner" id="alarm-banner">
   <b id="alarm-msg">⏰</b>
@@ -789,6 +813,12 @@ body.board .app{max-width:none;padding:16px 22px 80px}
       <button class="mark-btn" onclick="setOffset()">Apply</button>
     </div>
     <button class="reset-btn" onclick="if(confirm('Reset WiFi?'))sendCmd({cmd:'resetwifi'})">⚙ Change WiFi network</button>
+  </div>
+
+  <div class="card">
+    <div class="card-label">Phone notifications</div>
+    <div style="font-size:10px;color:var(--muted);margin-bottom:8px;line-height:1.5">The alarms in the app only ring with it open and on screen. With this on, the cloud checks every sheet each minute and sends a notification to your phone — target reached, your % alarm, a timer finished, the sensor gone silent — even with the app closed and the phone locked. It uses the free <b>ntfy</b> app.</div>
+    <div id="notify-box" style="font-size:11px"></div>
   </div>
 
   <div class="card">
@@ -1245,7 +1275,7 @@ let syncTimer=null, lastPulled=0, syncing=false;
 const LOGGER_URL=`${SUPA_URL}/functions/v1/proofbox-logger`;
 const LS_SESS=SANDBOX?'pb-sessions-sandbox':'pb-sessions';
 const LS_ACTIVE=SANDBOX?'pb-active-sess-sandbox':'pb-active-sess';
-function syncState(){ return {sessions, activeSess, reports:reports.map(repIndex), v:3}; }
+function syncState(){ return {sessions, activeSess, reports:reports.map(repIndex), notify:notifyCfg, v:3}; }
 function setSyncNote(t,col){
   const el=document.getElementById('sync-note'); if(!el)return;
   el.textContent=t; el.style.color=col||'var(--muted)';
@@ -1287,6 +1317,7 @@ async function pullState(force){
     if(!sessions.find(x=>x.id===activeSess&&!x.archived)){ const v=sessions.filter(x=>!x.archived); activeSess=v.length?v[0].id:null; }
     sess=sessions.find(s=>s.id===activeSess)||null;
     bindSessionState();
+    notifyCfg=d.notify||null; renderNotify();
     if(Array.isArray(d.reports)){
       const a=await adoptReports(d.reports);
       reports=a.list; saveReportIndex();
@@ -2267,6 +2298,7 @@ function renderLegend(active){
   }).join('');
 }
 function drawChartFull(){
+  if(comparing){ drawCompare(); return; }
   const box=document.getElementById('chart-full-box');
   drawChart(chartRows(),'chart-full-box',
             Math.max(600,Math.round(box.clientWidth)),
@@ -2278,7 +2310,106 @@ function openChartFull(){
   document.getElementById('smooth-sel-full').value=String(smoothSecs());
   setDMode('chart');
 }
-function closeChartFull(){ setDMode(currentMode); }
+function closeChartFull(){ endCompare(); setDMode(currentMode); }
+// ─── Comparar pasos ───────────────────────────────────────────────────────
+// Dos o más pasos, de cualquier hoja, uno encima de otro, cada uno contado
+// desde SU comienzo: el eje ya es tiempo transcurrido justo para esto. Cada
+// curva se calcula como la de su propia hoja —su cero, su objetivo, su bote y
+// su goma—, no con la hoja que está abierta.
+const CMP_COLORS=['#f0a832','#4fd3ff','#9be15d','#e8867a'];
+let comparing=null;
+function allMeasuredSteps(){
+  const out=[];
+  for(const sh of sessions) for(const st of (sh.stages||[]))
+    if(!st.manual&&st.startedAt&&(st.endedAt||Date.now())-st.startedAt>10*60000) out.push({sh,st});
+  return out.sort((a,b)=>b.st.startedAt-a.st.startedAt);
+}
+function openCompare(){
+  const list=allMeasuredSteps();
+  const f=t=>new Date(t).toLocaleDateString('en-GB',{day:'2-digit',month:'short'});
+  document.getElementById('compare-list').innerHTML=list.length?list.map(({sh,st},i)=>
+    `<label class="vis-row"><input type="checkbox" data-i="${i}" ${comparing&&comparing.picked.includes(st.id)?'checked':''}>
+      <span style="flex:1">${esc(st.name)} <span style="color:var(--muted)">· ${esc(sh.name)}${sh.archived?' (archived)':''} · ${f(st.startedAt)} · ${fmtElapsed((st.endedAt||Date.now())-st.startedAt)}</span></span></label>`).join('')
+    :'<div style="color:var(--muted)">No measured steps yet.</div>';
+  document.getElementById('compare-modal').classList.add('show');
+}
+function closeCompare(){ document.getElementById('compare-modal').classList.remove('show'); }
+function endCompare(){
+  if(!comparing) return;
+  comparing=null;
+  document.getElementById('compare-bar').style.display='none';
+  document.getElementById('btn-compare').classList.remove('on');
+  if(fullOpen()) drawChartFull();
+}
+// Las lecturas de un paso cualquiera, con el × de SU hoja.
+async function stepRows(sh,st){
+  const from=new Date(st.startedAt).toISOString(), to=new Date(st.endedAt||Date.now()).toISOString();
+  let all=[], off=0;
+  while(true){
+    const r=await fetch(`${SUPA_URL}/rest/v1/proofbox_readings?device_id=eq.${DEVICE_ID}&select=${HIST_COLS}&logged_at=gte.${encodeURIComponent(from)}&logged_at=lte.${encodeURIComponent(to)}&order=logged_at.asc&limit=1000&offset=${off}`,
+      {headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY}});
+    const page=await r.json(); if(!Array.isArray(page)) break;
+    all=all.concat(page); if(page.length<1000||all.length>20000) break; off+=1000;
+  }
+  const gone=sh.erased||[];
+  all=all.filter(r=>{ const t=new Date(r.logged_at).getTime(); return !gone.some(g=>t>=g.from&&t<=g.to)&&r.dist_mm!=null; });
+  let z=st.zeroDist>0?st.zeroDist:null;
+  if(!z){ const v=all.filter(r=>new Date(r.logged_at).getTime()<=st.startedAt+10*60000).map(r=>+r.dist_mm).sort((a,b)=>a-b); z=v.length?v[Math.floor(v.length/2)]:null; }
+  if(!z) return [];
+  const x=st.myRatio>1?st.myRatio:(sh.myRatio>1?sh.myRatio:0);
+  let cm=st.goalCm>0?st.goalCm:(sh.goalCm>0?sh.goalCm:0);
+  if(!cm&&x>1){ const eq=jarEquivalence(x,sh); if(eq) cm=eq.cm; }
+  return all.map(r=>{
+    const d=Math.max(1,+r.dist_mm), g=(z-d)/10;
+    const v=(cm&&x)?Math.max(1,1+(g/cm)*(x-1)):Math.min(10,Math.max(1,z/d));
+    return {t:new Date(r.logged_at).getTime()-st.startedAt, v};
+  });
+}
+async function runCompare(){
+  const list=allMeasuredSteps();
+  const picked=[...document.querySelectorAll('#compare-list input:checked')].map(i=>list[+i.dataset.i]).slice(0,4);
+  if(picked.length<2){ showToast('Pick at least two steps'); return; }
+  closeCompare();
+  showToast('Loading the steps…',4000);
+  const sets=[];
+  for(const [i,{sh,st}] of picked.entries()){
+    const pts=await stepRows(sh,st);
+    sets.push({name:st.name, sheet:sh.name, color:CMP_COLORS[i], pts, goal:(st.myRatio>1?st.myRatio:(sh.myRatio>1?sh.myRatio:0))});
+  }
+  comparing={picked:picked.map(p=>p.st.id), sets};
+  document.getElementById('btn-compare').classList.add('on');
+  drawCompare();
+}
+function drawCompare(){
+  const box=document.getElementById('chart-full-box'); if(!comparing||!box) return;
+  const W=Math.max(600,box.clientWidth), H=Math.max(240,box.clientHeight), p=34;
+  const win=smoothSecs()*1000;
+  const sets=comparing.sets.map(sg=>({...sg, ys:smoothSeries(sg.pts.map(q=>q.t),sg.pts.map(q=>q.v),win)}));
+  const x1=Math.max(60000,...sets.flatMap(sg=>sg.pts.map(q=>q.t)));
+  const allY=sets.flatMap(sg=>sg.pts.map(q=>q.v)).concat(sets.map(sg=>sg.goal).filter(v=>v>1));
+  const y0=1, y1=Math.max(1.1,...allY)*1.03;
+  const sx=t=>p+t/x1*(W-2*p), sy=v=>H-p-(v-y0)/(y1-y0)*(H-2*p);
+  let grid='';
+  for(let i=0;i<=4;i++){ const v=y0+(y1-y0)*i/4, yy=sy(v);
+    grid+=`<line x1="${p}" y1="${yy.toFixed(1)}" x2="${W-p}" y2="${yy.toFixed(1)}" stroke="var(--border)"/><text x="${p-6}" y="${(yy+3).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--muted)">${v.toFixed(2)}×</text>`; }
+  for(let i=0;i<=4;i++){ const t=x1*i/4, xx=sx(t);
+    grid+=`<line x1="${xx.toFixed(1)}" y1="${p}" x2="${xx.toFixed(1)}" y2="${H-p}" stroke="var(--border)" opacity=".6"/><text x="${xx.toFixed(1)}" y="${H-p+16}" text-anchor="middle" font-size="10" fill="var(--muted)">${fmtElapsed(t)}</text>`; }
+  let lines='';
+  for(const sg of sets){
+    if(sg.goal>1) lines+=`<line x1="${p}" y1="${sy(sg.goal).toFixed(1)}" x2="${W-p}" y2="${sy(sg.goal).toFixed(1)}" stroke="${sg.color}" stroke-dasharray="5 4" opacity=".5"/>`;
+    let d='', prev=null;
+    sg.pts.forEach((q,i)=>{ const cut=prev==null||q.t-prev>10*60000; d+=(cut?'M':'L')+sx(q.t).toFixed(1)+' '+sy(sg.ys[i]).toFixed(1)+' '; prev=q.t; });
+    lines+=`<path d="${d}" fill="none" stroke="${sg.color}" stroke-width="1.8" stroke-linejoin="round"/>`;
+  }
+  box.innerHTML=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:100%;display:block" preserveAspectRatio="none">${grid}${lines}</svg>`;
+  const bar=document.getElementById('compare-bar');
+  bar.style.display='flex';
+  bar.innerHTML=sets.map(sg=>{ const mx=sg.pts.length?Math.max(...sg.pts.map(q=>q.v)):null;
+      return `<span><span class="series-dot" style="background:${sg.color};display:inline-block;margin-right:5px"></span>${esc(sg.name)} <span style="color:var(--muted)">· ${esc(sg.sheet)} · ${sg.pts.length?`max ${mx.toFixed(2)}× · ${fmtElapsed(sg.pts[sg.pts.length-1].t)}`:'no readings'}</span></span>`; }).join('')
+    +`<button class="mark-btn" style="padding:4px 10px;font-size:10px" onclick="endCompare()">✕ End compare</button>`;
+  document.getElementById('chart-readout').innerHTML='';
+  document.getElementById('legend-full').innerHTML='';
+}
 // Girar el móvil a horizontal es la mejor manera de mirar una curva de tiempo,
 // así que hay que redibujar cuando cambia el tamaño.
 addEventListener('resize',()=>{ if(fullOpen()) drawChartFull(); });
@@ -3493,6 +3624,42 @@ Return clean semantic HTML for the report body: h1, h2, p, ul, table. No CSS, no
                    : 'Could not write it: '+m;
     st.style.color='var(--red)';
   }finally{ btn.disabled=false; }
+}
+
+// ═══ AVISOS AL MÓVIL (ntfy) ═════════════════════════════════════════════
+// Los manda la función proofbox-watch de la nube, cada minuto, con la app
+// cerrada o abierta. Aquí solo se elige el canal: un nombre difícil de adivinar,
+// porque en ntfy.sh cualquiera que lo sepa puede leerlo. Viaja con las hojas.
+let notifyCfg=null;
+try{ notifyCfg=JSON.parse(localStorage.getItem('pb-notify')||'null'); }catch(e){}
+function saveNotify(){ try{ localStorage.setItem('pb-notify',JSON.stringify(notifyCfg)); }catch(e){} queueSync(); renderNotify(); }
+function newNotifyTopic(){
+  const r=Array.from(crypto.getRandomValues(new Uint8Array(9)),b=>'abcdefghijkmnpqrstuvwxyz23456789'[b%32]).join('');
+  notifyCfg={topic:'proofbox-'+r,on:true}; saveNotify();
+}
+function toggleNotify(){ if(!notifyCfg) return; notifyCfg.on=notifyCfg.on===false; saveNotify(); showToast(notifyCfg.on?'Phone notifications on':'Phone notifications off'); }
+function copyTopic(){ if(!notifyCfg) return; navigator.clipboard&&navigator.clipboard.writeText(notifyCfg.topic).then(()=>showToast('Channel name copied')); }
+async function testNotify(){
+  if(!notifyCfg) return;
+  try{
+    const r=await fetch('https://ntfy.sh/'+encodeURIComponent(notifyCfg.topic),{method:'POST',body:'🔔 Test from ProofBox — this is how the alarms will arrive',headers:{Title:'ProofBox',Tags:'bell'}});
+    showToast(r.ok?'Test sent — it should be on your phone now':'ntfy said '+r.status,4000);
+  }catch(e){ showToast('Could not reach ntfy'); }
+}
+function renderNotify(){
+  const box=document.getElementById('notify-box'); if(!box) return;
+  if(!notifyCfg){
+    box.innerHTML=`<button class="cal-btn" style="margin:0" onclick="newNotifyTopic()">🔔 Turn on phone notifications</button>`;
+    return;
+  }
+  const on=notifyCfg.on!==false;
+  box.innerHTML=`<ol style="padding-left:18px;line-height:1.6;margin:0 0 8px">
+      <li>Install <b>ntfy</b> on your phone (App Store / Google Play).</li>
+      <li>In ntfy tap <b>+</b> and subscribe to this channel:<br><b style="color:var(--amber-l);user-select:all">${esc(notifyCfg.topic)}</b> <button class="mark-btn" style="padding:3px 8px;font-size:10px" onclick="copyTopic()">Copy</button></li>
+      <li>Press <b>Send a test</b> and check it arrives.</li></ol>
+    <div class="log-btns"><button class="mark-btn" style="flex:1" onclick="testNotify()">🔔 Send a test</button>
+      <button class="mark-btn" style="flex:1" onclick="toggleNotify()">${on?'⏸ Turn off':'▶ Turn on'}</button></div>
+    <div style="font-size:10px;color:var(--muted);margin-top:6px;line-height:1.45">${on?'On':'Off'} · anyone who knows the channel name can read these messages (sheet names and progress), so keep it to yourself. <span style="cursor:pointer;text-decoration:underline" onclick="if(confirm('Make a new channel? The phone has to subscribe to the new name.'))newNotifyTopic()">New channel name</span></div>`;
 }
 
 // ═══ DESHACER, PARA TODO ════════════════════════════════════════════════
@@ -5721,8 +5888,21 @@ function openCamFull(src){
   hudTimer=setInterval(()=>{ if(camFullOpen()) renderHud(); },1000);
   try{ if(box.requestFullscreen) box.requestFullscreen({navigationUI:'hide'}); }catch(e){}
   if(!src) autoLive();
+  keepAwake(true);
 }
+// Mirando la cámara, la pantalla no se apaga sola. Solo mientras está abierta
+// la pantalla completa; el navegador suelta el bloqueo al ocultar la pestaña,
+// así que se vuelve a pedir al volver.
+let wakeLock=null;
+async function keepAwake(on){
+  try{
+    if(on&&!wakeLock&&navigator.wakeLock){ wakeLock=await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release',()=>{ wakeLock=null; }); }
+    else if(!on&&wakeLock){ await wakeLock.release(); wakeLock=null; }
+  }catch(e){ wakeLock=null; }
+}
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible'&&camFullOpen()) keepAwake(true); });
 function closeCamFull(){
+  keepAwake(false);
   document.getElementById('cam-full').classList.remove('show');
   closeHudCfg(); releaseOverlays();
   if(hudTimer){ clearInterval(hudTimer); hudTimer=null; }
@@ -6341,6 +6521,7 @@ loadRep();
 loadSess();
 startCam();
 loadReports();
+renderNotify();
 setTimeout(()=>pullState(),1200);
 // El deshacer empieza cuando ya está todo cargado (hojas, informes, marcas):
 // antes, la propia carga parecería un cambio.
