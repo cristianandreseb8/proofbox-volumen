@@ -48,7 +48,7 @@ const char* TOPIC_LIGHT  = "proofboxcam/proofbox-cam01/light";
 // más nueva, se la descarga y se la instala. Solo de ESA dirección: quien puede
 // cambiar el firmware es quien puede hacer push al repositorio, no cualquiera
 // que escriba en el broker público. Subir FW_VERSION en cada publicación.
-const int   FW_VERSION  = 5;
+const int   FW_VERSION  = 6;
 const char* FW_MANIFEST = "https://cristianandreseb8.github.io/proofbox-volumen/fw/cam.json";
 const unsigned long FW_CHECK_MS = 6UL * 3600UL * 1000UL;   // cada 6 h, y al arrancar
 
@@ -374,7 +374,6 @@ void onMqtt(char* topic, byte* payload, unsigned int len) {
       prefs.putInt("liveq", liveQ);
       if (camOn) camMode(SIZE_LIVE, QUAL_LIVE);
       publishQuality();
-    publishLight();
       Serial.printf("🎚️ calidad del vivo: %s\n", LIVE_Q[liveQ].name);
       return;
     }
@@ -408,6 +407,7 @@ void mqttEnsure() {
     publishState("idle");
     publishFlip();
     publishQuality();
+    publishLight();
     publishFw("");
     Serial.println("MQTT ✅");
   } else {
