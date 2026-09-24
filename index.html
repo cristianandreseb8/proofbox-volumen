@@ -386,6 +386,55 @@ button,select,input,textarea{font-family:inherit!important}
 .undo-btn .ic{width:15px;height:15px}
 @media (max-width:420px){ .header .logo{font-size:18px} #status-txt{display:none} }
 .chart-full-head b{flex:1 1 260px;min-width:0}
+/* ── Gráfico grande ── */
+.chart-full{padding:10px 14px 12px}
+.chart-full-head{gap:10px}
+.ctools{display:flex;flex-wrap:wrap;gap:6px;align-items:center;flex:1 1 100%}
+.ctools .grow{flex:1}
+.ctools>button,.ctools .seg button{display:inline-flex;align-items:center;gap:4px;min-height:32px;padding:5px 9px;font-size:12px}
+.ctools select{width:auto;padding:6px 8px;font-size:12px;min-height:32px}
+.seg{display:inline-flex;border:1px solid var(--border-strong);border-radius:10px;overflow:hidden;background:var(--surface-2)}
+.seg button{border:none!important;border-radius:0!important;background:transparent!important;color:var(--muted)!important;min-width:34px;justify-content:center}
+.seg button+button{border-left:1px solid var(--border)!important}
+.seg button:hover{color:var(--text)!important}
+.seg button.on{background:var(--accent-soft)!important;color:var(--amber-l)!important}
+.seg button:disabled{opacity:.35}
+.tool-hint{font-size:11px;color:var(--muted);padding:2px 2px 6px;min-height:18px}
+.chart-wrap{flex:1;min-height:0;position:relative}
+.chart-full-box{user-select:none;-webkit-user-select:none;position:relative;height:100%;border:1px solid var(--border);border-radius:12px;background:var(--surface);outline:none}
+.chart-full-box:focus-visible{box-shadow:0 0 0 3px var(--accent-soft);border-color:var(--amber)}
+.chart-full-box[data-tool="inspect"]{cursor:crosshair}
+.chart-full-box[data-tool="zoom"]{cursor:zoom-in}
+.chart-full-box[data-tool="pan"]{cursor:grab}
+.chart-full-box[data-tool="note"]{cursor:copy}
+.chart-tip{position:absolute;z-index:3;pointer-events:none;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;
+  box-shadow:var(--shadow);padding:8px 10px;font-size:11.5px;min-width:170px}
+.chart-tip .tt{font-weight:600}
+.chart-tip .ts{color:var(--muted);font-size:10.5px;margin-bottom:5px}
+.chart-tip .tr{display:flex;align-items:center;gap:6px;padding:1px 0}
+.chart-tip .tr b{margin-left:auto;font-weight:600}
+.chart-tip .sw{width:8px;height:8px;border-radius:50%;flex:none}
+.chart-sel{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;justify-content:space-between;margin-top:8px;padding:9px 12px;
+  border:1px solid var(--amber);background:var(--accent-soft);border-radius:12px;font-size:12px}
+.sel-stats{display:flex;flex-wrap:wrap;gap:4px 16px}
+.sel-acts{display:flex;flex-wrap:wrap;gap:6px}
+.sel-acts .mark-btn{min-height:30px;padding:4px 10px;display:inline-flex;align-items:center;gap:5px}
+.chart-readout{padding:0 2px}
+.note-mark{cursor:pointer}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+@media (max-width:700px){ .ctools .tl{display:none} .ctools select{max-width:118px} }
+/* Widgets sobre el gráfico: el bote, la cámara, el reloj… Se arrastran. */
+#chart-widgets{position:absolute;inset:0;pointer-events:none;z-index:4}
+.cwidget{position:absolute;pointer-events:auto;background:var(--surface);border:1px solid var(--border-strong);border-radius:12px;
+  box-shadow:var(--shadow);padding:8px 10px;cursor:move;touch-action:none;user-select:none;-webkit-user-select:none;min-width:96px}
+.cwidget .l{font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:3px}
+.cwidget .v{font-family:'Syne',sans-serif;font-size:22px;font-weight:700;color:var(--amber-l);line-height:1.1}
+.cwidget .s{font-size:11px;color:var(--muted)}
+.cwidget.cam{padding:6px;width:min(240px,42vw)}
+.cwidget.cam .frame{width:100%;aspect-ratio:4/3;overflow:hidden;border-radius:8px;background:#000;position:relative}
+.cwidget.cam img{width:100%;height:100%;object-fit:contain;display:block}
+.cwidget .x{position:absolute;top:2px;right:4px;border:none;background:transparent;color:var(--muted);cursor:pointer;font-size:14px;line-height:1;padding:2px}
+#chart-full:fullscreen{padding:14px 18px}
 .theme-btn{background:transparent;border:1px solid var(--border-strong);color:var(--muted);border-radius:9px;padding:6px 8px;cursor:pointer;line-height:0}
 .theme-btn:hover{color:var(--text);border-color:var(--amber)}
 </style>
@@ -596,26 +645,50 @@ button,select,input,textarea{font-family:inherit!important}
 <div class="chart-full" id="chart-full">
   <div class="chart-full-head">
     <b id="chart-full-title">Growth × over elapsed time</b>
-    <select class="num-input" id="smooth-sel-full" onchange="setSmooth(this.value)" style="width:150px;padding:6px 8px;font-size:12px">
-      <option value="0">Raw</option>
-      <option value="120">Light · 2 min</option>
-      <option value="300">Medium · 5 min</option>
-      <option value="900">Strong · 15 min</option>
-      <option value="1800">Very strong · 30 min</option>
-    </select>
-    <button id="btn-erase-undo" hidden onclick="undoErase()" title="Bring back the last stretch you hid">↶ Undo erase</button>
-    <button id="btn-section" onclick="toggleSection()" title="Mark steps on the chart: tap to split, drag to make a section, drag a line to move it"><i data-ic="steps"></i> Steps</button>
-    <button id="btn-eraser" onclick="toggleEraser()" title="Drag across the chart to hide a stretch"><i data-ic="eraser"></i> Erase</button>
-    <button id="btn-compare" onclick="openCompare()" title="Put steps from any sheet on top of each other"><i data-ic="compare"></i> Compare</button>
-    <button onclick="closeChartFull()" title="Close"><i data-ic="close"></i></button>
+    <div class="ctools" role="toolbar" aria-label="Chart tools">
+      <div class="seg" role="group" aria-label="Tool">
+        <button data-tool="inspect" onclick="setTool('inspect')" title="Inspect (V) — hover to read, drag to select a stretch" aria-label="Inspect"><i data-ic="cursor"></i></button>
+        <button data-tool="zoom" onclick="setTool('zoom')" title="Zoom (Z) — drag across a stretch" aria-label="Zoom tool"><i data-ic="zoomin"></i></button>
+        <button data-tool="pan" onclick="setTool('pan')" title="Pan (H) — drag to move" aria-label="Pan"><i data-ic="hand"></i></button>
+        <button data-tool="note" onclick="setTool('note')" title="Note (N) — tap to pin a note" aria-label="Add notes"><i data-ic="note"></i></button>
+        <button data-tool="steps" id="btn-section" onclick="setTool(sectionMode?'inspect':'steps')" title="Steps (S) — tap to split, drag to make one, drag a line to move it" aria-label="Edit steps"><i data-ic="steps"></i></button>
+        <button data-tool="erase" id="btn-eraser" onclick="setTool(eraser?'inspect':'erase')" title="Erase (E) — drag across a stretch to hide it" aria-label="Erase"><i data-ic="eraser"></i></button>
+      </div>
+      <div class="seg" role="group" aria-label="Zoom">
+        <button onclick="zoomBy(1/0.6)" title="Zoom out (−)" aria-label="Zoom out"><i data-ic="zoomout"></i></button>
+        <button onclick="zoomBy(0.6)" title="Zoom in (+)" aria-label="Zoom in"><i data-ic="zoomin"></i></button>
+        <button id="btn-fit" onclick="zoomFit()" title="Show everything (0, or double-click)" aria-label="Show everything"><i data-ic="fit"></i></button>
+      </div>
+      <select class="num-input" id="unit-sel" onchange="setUnit(this.value)" title="What the main curve shows" aria-label="Unit">
+        <option value="x">× growth</option><option value="cm">cm grown</option><option value="pct">% of target</option>
+      </select>
+      <select class="num-input" id="smooth-sel-full" onchange="setSmooth(this.value)" title="Smoothing — only how it is drawn" aria-label="Smoothing">
+        <option value="0">Raw</option>
+        <option value="120">Smooth 2 min</option>
+        <option value="300">Smooth 5 min</option>
+        <option value="900">Smooth 15 min</option>
+        <option value="1800">Smooth 30 min</option>
+      </select>
+      <button id="btn-clock" onclick="setClock(!chartClock)" title="Axis: time elapsed or clock time"></button>
+      <span class="grow"></span>
+      <button id="btn-erase-undo" hidden onclick="undoErase()" title="Bring back the last stretch you hid">↶ Undo erase</button>
+      <button id="btn-compare" onclick="openCompare()" title="Put steps from any sheet on top of each other"><i data-ic="compare"></i><span class="tl"> Compare</span></button>
+      <button id="btn-widgets" onclick="widgetsMenu(this)" title="Show the jar, the camera, the timer… over the chart"><i data-ic="widgets"></i><span class="tl"> Widgets</span></button>
+      <button onclick="exportMenu(this)" title="Download the chart"><i data-ic="download"></i><span class="tl"> Export</span></button>
+      <button id="btn-chart-fs" onclick="toggleChartFs()" title="Full screen"><i data-ic="expand"></i></button>
+      <button onclick="closeChartFull()" title="Close (Esc)" aria-label="Close the chart"><i data-ic="close"></i></button>
+    </div>
   </div>
-  <div id="section-hint" style="display:none;font-size:11px;color:var(--amber-l);padding:4px 2px">Tap to split a step there · drag across to make a new step from start to end · drag a dotted line to move it · tap a step's name to rename it.</div>
-  <div id="eraser-hint" style="display:none;font-size:11px;color:var(--amber-l);padding:4px 2px">Drag across the stretch you want to hide — a knock, the sensor moved. Nothing is deleted: ↶ Undo erase brings it back.</div>
+  <div id="tool-hint" class="tool-hint" aria-live="polite"></div>
+  <div id="section-hint" style="display:none"></div>
+  <div id="eraser-hint" style="display:none"></div>
   <div id="erased-list" style="font-size:11px;color:var(--muted);padding:2px 2px 6px"></div>
   <div class="series-row" id="series-row-full"></div>
   <div id="compare-bar" style="display:none;font-size:11px;padding:2px 2px 8px;gap:10px;flex-wrap:wrap;align-items:center"></div>
-  <div class="chart-full-box" id="chart-full-box"></div>
+  <div class="chart-wrap"><div class="chart-full-box" id="chart-full-box"></div><div id="chart-widgets"></div></div>
+  <div class="chart-sel" id="chart-sel" style="display:none"></div>
   <div class="chart-readout" id="chart-readout"></div>
+  <div id="chart-live" class="sr-only" aria-live="polite"></div>
   <div class="series-legend" id="legend-full"></div>
 </div>
 <div class="modal" id="compare-modal" onclick="if(event.target===this)closeCompare()">
@@ -1896,7 +1969,7 @@ function renderStageChips(){
     sess.stages.map(s=>chip(s.id,(s.manual?'✎ ':'')+esc(s.name))).join('');
 }
 function pickStage(v){
-  stagePick=v;
+  stagePick=v; chartView=null; chartSel=null; chartCursorT=null;
   renderStageChips(); renderHistory();
   if(fullOpen()) drawChartFull();
 }
@@ -1984,12 +2057,14 @@ function goalMarks(){
 // propio cero y su propio objetivo, y una recta continua daba a entender que
 // el segundo refresco perseguía la meta del primero. El hueco entre pasos
 // queda vacío, igual que la curva.
-function goalSvg(marks,sy,W,p,reachedMax,geo){
+function goalSvg(marks,sy,W,p,reachedMax,geo,unit){
+  unit=unit||'x';
+  const suf=UNITS[unit].suf, dec=UNITS[unit].dec;
   const one=(g,v,xa,xb,hit,label)=>{
     const y=sy(v);
     if(!isFinite(y)||y<p-2||y>1e5||xb-xa<2) return '';
     const col=g.main?'#e8867a':'#7a8fa8';
-    const txt=(g.label?g.label+' · ':'')+v.toFixed(2)+'×';
+    const txt=(g.label?g.label+' · ':'')+v.toFixed(dec)+suf;
     return `<line x1="${xa.toFixed(1)}" y1="${y.toFixed(1)}" x2="${xb.toFixed(1)}" y2="${y.toFixed(1)}" stroke="${col}" stroke-width="1" `+
            `stroke-dasharray="${hit?'':'5 4'}" opacity="${hit?.85:.55}"/>`+
            (label&&xb-xa>70?`<text x="${(xb-3).toFixed(1)}" y="${(y-4).toFixed(1)}" text-anchor="end" font-size="9" fill="${col}" opacity=".9">${hit?'✓ ':''}${txt}</text>`:'');
@@ -2010,7 +2085,8 @@ function goalSvg(marks,sy,W,p,reachedMax,geo){
     if(!steps.length) return one(g,g.v,p,W-p,reachedMax>=g.v,true);
     return steps.map((k,i)=>{
       // La meta principal de cada paso es la suya; las intermedias son de la hoja.
-      const v=g.main?(stageGoal(k.st).x||g.v):g.v;
+      const sg=stageGoal(k.st);
+      const v=!g.main?g.v:(unit==='cm'?sg.cm:(unit==='pct'?(sg.cm?100:0):(sg.x||g.v)));
       if(!(v>1)) return '';
       return one(g,v,k.xa,k.xb,k.max>=v,true);
     }).join('');
@@ -2019,9 +2095,9 @@ function goalSvg(marks,sy,W,p,reachedMax,geo){
 // Las etapas, dibujadas sobre el eje de tiempos. Las anotadas a mano se rayan
 // en diagonal: no hay curva que enseñar ahí, y marcarlas igual que las medidas
 // haría creer que el sensor estuvo delante cuando no lo estuvo.
-function stageSvg(t0,x0,x1,sx,H,p,W){
+function stageSvg(t0,x0,x1,sx,H,p,W,bigOpt){
   if(!sess||stagePick!=='all') return '';
-  const big=W>500;
+  const big=bigOpt!=null?bigOpt:W>500;
   return sess.stages.map(s=>{
     if(!s.startedAt) return '';        // sin hora no hay dónde dibujarla
     const a=s.startedAt-t0, b=(s.endedAt||Date.now())-t0;
@@ -2043,8 +2119,30 @@ function stageSvg(t0,x0,x1,sx,H,p,W){
     return band+tick+lab;
   }).join('');
 }
-function drawChart(rows,boxId,W,H){
-  boxId=boxId||'log-chart'; W=W||340; H=H||90;
+// Marcas de eje "redondas": 5, 10, 15, 30 min, 1, 2, 3, 6, 12 h… en tiempo, y
+// 1-2-5 en valores. Repartir el eje en cuatro partes iguales daba etiquetas como
+// 1h43 y 2.18×, que no se leen de un vistazo.
+const TIME_STEPS=[60e3,2*60e3,5*60e3,10*60e3,15*60e3,30*60e3,3600e3,2*3600e3,3*3600e3,6*3600e3,12*3600e3,24*3600e3,48*3600e3];
+function timeTicks(a,b,max){ const span=b-a; const st=TIME_STEPS.find(s=>span/s<=max)||TIME_STEPS[TIME_STEPS.length-1]; const out=[]; for(let t=Math.ceil(a/st)*st;t<=b;t+=st) out.push(t); return out; }
+function niceTicks(a,b,max){
+  const span=b-a||1, raw=span/max, mag=Math.pow(10,Math.floor(Math.log10(raw)));
+  const st=[1,2,2.5,5,10].map(k=>k*mag).find(s=>span/s<=max)||10*mag;
+  const out=[]; for(let v=Math.ceil(a/st)*st;v<=b+1e-9;v+=st) out.push(+v.toFixed(6)); return {ticks:out,step:st};
+}
+// Unidades del eje principal. × es el del bote (o inicio÷ahora sin
+// equivalencia); cm, lo crecido desde el cero de su paso; %, de la meta de su paso.
+const UNITS={x:{suf:'×',dec:2},cm:{suf:' cm',dec:1},pct:{suf:'%',dec:0}};
+function rowVal(r,unit){
+  if(unit==='cm') return r.cm_step!=null?+r.cm_step:null;
+  if(unit==='pct'){
+    if(r.cm_step==null) return null;
+    const st=stageOfTime(new Date(r.logged_at).getTime()), g=stageGoal(st);
+    return g.cm?+r.cm_step/g.cm*100:null;
+  }
+  return r.rise==null?1:+r.rise;
+}
+function drawChart(rows,boxId,W,H,opts){
+  boxId=boxId||'log-chart'; W=W||340; H=H||90; opts=opts||{};
   const box=document.getElementById(boxId);
   if(!box)return;
   if(!rows.length){
@@ -2053,13 +2151,30 @@ function drawChart(rows,boxId,W,H){
     box.innerHTML=(sess&&!sess.baseAt)
       ? '<div style="color:var(--muted);font-size:11px;text-align:center;padding:24px 0">This sheet is not recording yet.<br>Mark a start in the growth card to begin.</div>'
       : '<div style="color:var(--muted);font-size:11px;text-align:center;padding:24px 0">No saved data yet.<br>The first point arrives in a few minutes.</div>';
+    if(boxId==='chart-full-box') chartState=null;
     return;}
-  const p=W>500?34:6;   // en grande hace falta margen para las etiquetas
+  // El gráfico grande siempre lleva ejes, aunque el móvil mida menos de 500 px.
+  const big=opts.big!=null?opts.big:W>500;
+  const unit=opts.unit||'x', U=UNITS[unit];
+  const narrow=W<520;
+  const pL=big?(narrow?40:48):6, pR=big?(narrow?38:46):6, pT=big?22:6, pB=big?28:6, p=big?34:6;
   // El eje X es TIEMPO TRANSCURRIDO desde que arrancó el gráfico, no hora del
   // reloj: así dos fermentaciones distintas se pueden comparar superpuestas.
+  // (Con "clock" las etiquetas dicen la hora, pero la escala es la misma.)
   const t0=chartT0()||new Date(rows[0].logged_at).getTime();
-  const xs=rows.map(r=>new Date(r.logged_at).getTime()-t0);
-  const raw=rows.map(r=>r.rise==null?1:r.rise);
+  let xs=rows.map(r=>new Date(r.logged_at).getTime()-t0);
+  const full1=Math.max(...xs,60000);
+  const x0=opts.view?Math.max(0,opts.view.a):0, x1=opts.view?Math.min(full1,opts.view.b):full1;
+  // Con zoom, solo lo visible (más un punto a cada lado, para que la línea entre
+  // y salga del marco en vez de empezar en el aire).
+  if(opts.view){
+    let i0=0; while(i0<xs.length&&xs[i0]<x0) i0++;
+    let i1=xs.length-1; while(i1>=0&&xs[i1]>x1) i1--;
+    i0=Math.max(0,i0-1); i1=Math.min(xs.length-1,i1+1);
+    rows=rows.slice(i0,i1+1); xs=xs.slice(i0,i1+1);
+    if(!rows.length){ box.innerHTML='<div style="color:var(--muted);font-size:11px;text-align:center;padding:24px 0">Nothing measured in this stretch.</div>'; return; }
+  }
+  const raw=rows.map(r=>rowVal(r,unit));
   const active=SERIES.filter(sr=>seriesOn[sr.key]);
   const win=smoothSecs()*1000;
   const ys=smoothSeries(xs,raw,win);
@@ -2067,12 +2182,14 @@ function drawChart(rows,boxId,W,H){
   // marco y el pico de verdad sigue siendo el techo del gráfico. Las metas
   // también estiran el techo, porque una meta fuera del marco no se ve y es
   // justo cuando más falta hace: antes de alcanzarla.
-  const marks=goalMarks();
+  const marks=unit==='x'?goalMarks():(unit==='pct'?[{v:100,label:'target',main:true}]:goalMarks().filter(g=>g.main).map(g=>({...g,v:(stageGoal(activeStage()).cm||0)})).filter(g=>g.v>0));
+  const vis=raw.filter((v,i)=>v!=null&&isFinite(v)&&xs[i]>=x0&&xs[i]<=x1);
   const topGoal=marks.length?Math.max(...marks.map(g=>g.v)):0;
-  const x0=0,x1=Math.max(...xs,60000),y0=Math.min(...raw,1);
-  const y1=Math.max(...raw,1.1,topGoal?topGoal*1.03:0);
-  const sx=t=>p+(x1===x0?0:(t-x0)/(x1-x0))*(W-2*p);
-  const sy=v=>H-p-(y1===y0?0:(v-y0)/(y1-y0))*(H-2*p);
+  const base=unit==='x'?1:0;
+  let y0=Math.min(...(vis.length?vis:[base]),base), y1=Math.max(...(vis.length?vis:[base]),base+(unit==='x'?0.1:1),topGoal?topGoal*1.03:0);
+  if(opts.view&&vis.length){ const lo=Math.min(...vis), hi=Math.max(...vis), pad=(hi-lo)*0.12||0.05; y0=Math.max(unit==='x'?0.9:-Infinity,lo-pad); y1=Math.max(hi+pad,y0+0.05); }
+  const sx=t=>pL+(x1===x0?0:(t-x0)/(x1-x0))*(W-pL-pR);
+  const sy=v=>H-pB-(y1===y0?0:(v-y0)/(y1-y0))*(H-pT-pB);
   // Donde se borró con la goma, o entre dos pasos, la línea se CORTA. Unir los
   // dos lados con una recta hacía que borrar pareciera no haber hecho nada, y
   // dibujaba una subida que nadie midió.
@@ -2090,18 +2207,13 @@ function drawChart(rows,boxId,W,H){
     if(gone.some(g=>g.a<x&&g.b>a)) return true;
     return stepOf(a)!==stepOf(x);
   });
-  const path=arr=>arr.map((v,i)=>(cut[i]?'M':'L')+sx(xs[i]).toFixed(1)+' '+sy(v).toFixed(1)).join(' ');
+  const ok=v=>v!=null&&isFinite(v);
+  const path=arr=>{ let d='',pen=false; arr.forEach((v,i)=>{ if(!ok(v)){pen=false;return;} d+=((cut[i]||!pen)?'M':'L')+sx(xs[i]).toFixed(1)+' '+sy(v).toFixed(1); pen=true; }); return d; };
   const line=path(ys);
   // El relleno, un polígono por tramo: uno solo rellenaría también el hueco.
-  let area='', segStart=0;
-  for(let i=1;i<=ys.length;i++){
-    if(i===ys.length||cut[i]){
-      const seg=[];
-      for(let k=segStart;k<i;k++) seg.push('L'+sx(xs[k]).toFixed(1)+' '+sy(ys[k]).toFixed(1));
-      area+=`M${sx(xs[segStart]).toFixed(1)} ${H-p} `+seg.join(' ')+` L${sx(xs[i-1]).toFixed(1)} ${H-p} Z `;
-      segStart=i;
-    }
-  }
+  let area='', seg=[];
+  const flush=()=>{ if(seg.length>1) area+=`M${seg[0][0]} ${H-pB} `+seg.map(q=>'L'+q[0]+' '+q[1]).join(' ')+` L${seg[seg.length-1][0]} ${H-pB} Z `; seg=[]; };
+  ys.forEach((v,i)=>{ if(cut[i]||!ok(v)) flush(); if(ok(v)) seg.push([sx(xs[i]).toFixed(1),sy(v).toFixed(1)]); }); flush();
   // Con suavizado, el crudo queda de fondo: se ve qué se ha limpiado y cuánto.
   const ghost=(win&&seriesOn.rise)?`<path d="${path(raw)}" fill="none" stroke="var(--amber-l)" stroke-width="1" opacity=".22"/>`:'';
 
@@ -2112,77 +2224,86 @@ function drawChart(rows,boxId,W,H){
   for(const sr of active){
     if(sr.key==='rise'){ legend.push(sr); continue; }
     const vals=smoothSeries(xs,rows.map(r=>r[sr.key]==null?null:+r[sr.key]),win);
-    const ok=vals.filter(v=>v!=null&&isFinite(v));
-    if(ok.length<2){ sr._none=true; legend.push(sr); continue; }
-    let mn=Math.min(...ok), mx=Math.max(...ok);
+    const okv=vals.filter((v,i)=>ok(v)&&xs[i]>=x0&&xs[i]<=x1);
+    if(okv.length<2){ sr._none=true; legend.push(sr); continue; }
+    let mn=Math.min(...okv), mx=Math.max(...okv);
     sr._dataMin=mn; sr._dataMax=mx;
     // Ensanchar hasta la ventana mínima, centrada en los datos.
     const span=Math.max(mx-mn, sr.minSpan||0.5);
     const mid=(mn+mx)/2;
     mn=mid-span/2; mx=mid+span/2;
-    sr._winMin=mn; sr._winMax=mx;
-    const yv=v=>H-p-((v-mn)/(mx-mn))*(H-2*p);
+    sr._winMin=mn; sr._winMax=mx; sr._vals=vals;
+    const yv=v=>H-pB-((v-mn)/(mx-mn))*(H-pT-pB);
+    sr._yv=yv;
     let d='',pen=false;
     for(let i=0;i<vals.length;i++){
       const v=vals[i];
-      if(v==null||!isFinite(v)){pen=false;continue;}
+      if(!ok(v)){pen=false;continue;}
       if(cut[i]) pen=false;
       d+=(pen?'L':'M')+sx(xs[i]).toFixed(1)+' '+yv(v).toFixed(1)+' ';
       pen=true;
     }
-    extra+=`<path d="${d}" fill="none" stroke="${sr.color}" stroke-width="${W>500?1.6:1.2}" stroke-linejoin="round"/>`;
+    extra+=`<path d="${d}" fill="none" stroke="${sr.color}" stroke-width="${big?1.6:1.2}" stroke-linejoin="round" ${sr.key==='cond_rel'?'stroke-dasharray="6 3"':''}/>`;
     sr._min=mn; sr._max=mx; sr._none=false;
     legend.push(sr);
   }
   // Rejilla y etiquetas solo en grande. En la tarjeta pequeña no caben y sobran.
   let grid='';
-  if(W>500){
-    for(let i=0;i<=4;i++){
-      const v=y0+(y1-y0)*i/4, yy=sy(v);
-      grid+=`<line x1="${p}" y1="${yy.toFixed(1)}" x2="${W-p}" y2="${yy.toFixed(1)}" stroke="var(--border)" stroke-width="1"/>`
-          +`<text x="${p-6}" y="${(yy+3).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--muted)">${v.toFixed(2)}×</text>`;
-    }
+  if(big){
+    const yt=niceTicks(y0,y1,Math.max(3,Math.floor((H-pT-pB)/48)));
+    for(const v of yt.ticks){ const yy=sy(v);
+      grid+=`<line x1="${pL}" y1="${yy.toFixed(1)}" x2="${W-pR}" y2="${yy.toFixed(1)}" stroke="var(--border)" stroke-width="1"/>`
+          +`<text x="${pL-7}" y="${(yy+3.5).toFixed(1)}" text-anchor="end" font-size="10.5" fill="var(--muted)">${v.toFixed(yt.step<0.1&&unit==='x'?2:(yt.step<1?(unit==='x'?2:1):0))}${U.suf.trim()}</text>`; }
     // Eje derecho para la primera serie secundaria: sin esto se ve la forma de
     // la curva pero no a qué temperatura está, que es justo lo que hace falta.
     const sec=active.find(a=>a.key!=='rise'&&a._winMin!=null);
     if(sec){
-      for(let i=0;i<=4;i++){
-        const v=sec._winMin+(sec._winMax-sec._winMin)*i/4;
-        const yy=H-p-(i/4)*(H-2*p);
-        grid+=`<text x="${W-p+6}" y="${(yy+3).toFixed(1)}" text-anchor="start" font-size="10" fill="${sec.color}">${v.toFixed(sec.dec)}${sec.unit}</text>`;
-      }
+      const st=niceTicks(sec._winMin,sec._winMax,Math.max(3,Math.floor((H-pT-pB)/48)));
+      for(const v of st.ticks){ const yy=sec._yv(v);
+        grid+=`<text x="${W-pR+7}" y="${(yy+3.5).toFixed(1)}" text-anchor="start" font-size="10.5" fill="${sec.color}">${v.toFixed(sec.dec)}${sec.unit}</text>`; }
     }
-    for(let i=0;i<=4;i++){
-      const t=x1*i/4, xx=sx(t);
-      grid+=`<line x1="${xx.toFixed(1)}" y1="${p}" x2="${xx.toFixed(1)}" y2="${H-p}" stroke="var(--border)" stroke-width="1" opacity=".6"/>`
-          +`<text x="${xx.toFixed(1)}" y="${H-p+16}" text-anchor="middle" font-size="10" fill="var(--muted)">${fmtElapsed(t)}</text>`;
+    const clock=opts.clock;
+    for(const t of timeTicks(x0,x1,Math.max(3,Math.floor((W-pL-pR)/90)))){
+      const xx=sx(t);
+      const lab=clock?new Date(t0+t).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}):fmtElapsed(t);
+      grid+=`<line x1="${xx.toFixed(1)}" y1="${pT}" x2="${xx.toFixed(1)}" y2="${H-pB}" stroke="var(--border)" stroke-width="1" opacity=".6"/>`
+          +`<text x="${xx.toFixed(1)}" y="${H-pB+17}" text-anchor="middle" font-size="10.5" fill="var(--muted)">${lab}</text>`;
     }
   }
-  box.innerHTML=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:${W>500?'100%':H+'px'};display:block" preserveAspectRatio="none">
-    ${grid}
-    ${stageSvg(t0,x0,x1,sx,H,p,W)}
-    ${(W>500&&eraser)?erasedSvg(t0,x0,x1,sx,H,p):''}
-    ${goalSvg(marks,sy,W,p,Math.max(...raw),{t0,x0,x1,sx,xs,raw})}
-    <defs><mask id="erase-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="${W}" height="${H}">
+  const noteLayer=(big&&boxId==='chart-full-box')?notesSvg(t0,x0,x1,sx,H,pT,pB):'';
+  // Un id por dibujo: el informe junta varios gráficos en la misma página y con
+  // un id compartido todos se recortaban con el marco del primero.
+  const clipId='plot-'+boxId+'-'+(drawChart.seq=(drawChart.seq||0)+1);
+  box.innerHTML=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:${big?'100%':H+'px'};display:block" preserveAspectRatio="none" aria-hidden="true">
+    <defs><clipPath id="${clipId}"><rect x="${pL}" y="${pT-4}" width="${W-pL-pR}" height="${H-pT-pB+8}"/></clipPath>
+    <mask id="erase-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="${W}" height="${H}">
       <rect x="0" y="0" width="${W}" height="${H}" fill="white"/>
       <rect id="erase-hole" x="0" y="0" width="0" height="${H}" fill="black"/>
     </mask></defs>
+    ${grid}
+    <g clip-path="url(#${clipId})">
+    ${stageSvg(t0,x0,x1,sx,H,p,W,big)}
+    ${(big&&eraser)?erasedSvg(t0,x0,x1,sx,H,p):''}
+    ${goalSvg(marks,sy,W,p,Math.max(...raw.filter(ok)),{t0,x0,x1,sx,xs,raw},unit)}
     <g id="data-layer" mask="url(#erase-mask)">
-    ${seriesOn.rise?`<path d="${area}" fill="rgba(212,130,14,.12)"/>`:''}
+    ${seriesOn.rise?`<path d="${area}" fill="var(--accent-soft)"/>`:''}
     ${ghost}
-    ${seriesOn.rise?`<path d="${line}" fill="none" stroke="var(--amber-l)" stroke-width="1.5" stroke-linejoin="round"/>`:''}
+    ${seriesOn.rise?`<path d="${line}" fill="none" stroke="var(--amber-l)" stroke-width="${big?1.8:1.5}" stroke-linejoin="round"/>`:''}
     ${extra}
     </g>
-  </svg>`+(W>500?'':`
+    ${noteLayer}
+    </g>
+  </svg>`+(big?'':`
   <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--muted);margin-top:2px">
     <span>0min</span>
-    <span style="color:var(--amber)">max ${Math.max(...raw).toFixed(2)}× · ${fmtElapsed(x1/2)} mid</span>
+    <span style="color:var(--amber)">max ${Math.max(...raw.filter(ok)).toFixed(2)}× · ${fmtElapsed(x1/2)} mid</span>
     <span>${fmtElapsed(x1)}</span>
   </div>`);
   if(boxId==='chart-full-box'){
     renderLegend(legend);
-    chartState={xs,rows,active:legend,W,H,p,x1,sx,raw,win,t0};
+    chartState={xs,rows,active:legend,W,H,p,pL,pR,pT,pB,x0,x1,full1,sx,sy,y0,y1,raw,ys,win,t0,unit,cut};
     renderErased();
+    chartAria();
     showReadout(null);
   }
 }
@@ -2199,39 +2320,61 @@ function nearestIdx(xs,t){
   if(lo>0&&Math.abs(xs[lo-1]-t)<Math.abs(xs[lo]-t))lo--;
   return lo;
 }
-function showReadout(vbx){
+// Lo que dice el cursor: hora, tiempo transcurrido, paso y todas las series en
+// ese instante. Sin cursor, la última lectura, para que siempre diga algo útil.
+// Va también a una región aria-live: con el teclado se oye lo mismo que se ve.
+let chartCursor=null;   // índice fijado con el teclado o con un toque
+function readoutAt(i){
+  const cs=chartState; if(!cs) return null;
+  const r=cs.rows[i]; if(!r) return null;
+  const t=cs.t0+cs.xs[i], st=stageOfTime(t);
+  const U=UNITS[cs.unit];
+  const vals=cs.active.map(sr=>{
+    let v;
+    if(sr.key==='rise') v=cs.ys[i]!=null?cs.ys[i]:cs.raw[i];
+    else v=sr._vals?sr._vals[i]:(r[sr.key]==null?null:+r[sr.key]);
+    const txt=(v==null||!isFinite(v))?'--':(sr.key==='rise'?v.toFixed(U.dec)+U.suf:v.toFixed(sr.dec)+sr.unit);
+    return {sr,v,txt};
+  });
+  return {r,t,st,vals};
+}
+function showReadout(vbx,idx){
   const box=document.getElementById('chart-readout');
-  if(!box||!chartState)return;
-  const {xs,rows,active,W,p,x1,win}=chartState;
-  // Sin dedo encima, enseña la última lectura: así siempre dice algo útil.
-  let i=rows.length-1;
-  if(vbx!=null){
-    const t=x1*((vbx-p)/(W-2*p));
-    i=nearestIdx(xs,Math.max(0,Math.min(x1,t)));
+  const cs=chartState; if(!box||!cs)return;
+  let i=idx!=null?idx:cs.rows.length-1;
+  if(vbx!=null) i=nearestIdx(cs.xs,Math.max(cs.x0,Math.min(cs.x1,vbToRel(vbx))));
+  const R=readoutAt(i); if(!R) return;
+  const when=new Date(R.t).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
+  box.innerHTML=`<span style="color:var(--muted)">${when} · ${fmtElapsed(cs.xs[i])}${R.st?' · '+esc(R.st.name):''}</span>`
+    +R.vals.map(q=>`<span style="color:${q.sr.color}">${q.sr.label} <b>${q.txt}</b></span>`).join('')
+    +((vbx==null&&idx==null)?'<span style="color:var(--muted);font-size:10px">hover or touch the chart · ← → with the keyboard</span>':'');
+  const live=document.getElementById('chart-live');
+  if(live&&(vbx!=null||idx!=null)) live.textContent=`${when}, ${fmtElapsed(cs.xs[i])} in. `+R.vals.map(q=>`${q.sr.label} ${q.txt}`).join(', ');
+  drawCursor((vbx==null&&idx==null)?null:i);
+}
+function drawCursor(i){
+  const cs=chartState, box=document.getElementById('chart-full-box');
+  const svg=box&&box.querySelector('svg'); if(!svg||!cs) return;
+  let g=svg.querySelector('#cursor-g'), tip=box.querySelector('.chart-tip');
+  if(i==null){ if(g) g.remove(); if(tip) tip.remove(); return; }
+  if(!g){ g=document.createElementNS('http://www.w3.org/2000/svg','g'); g.id='cursor-g'; g.setAttribute('pointer-events','none'); svg.appendChild(g); }
+  const x=cs.sx(cs.xs[i]);
+  let html=`<line x1="${x}" x2="${x}" y1="${cs.pT}" y2="${cs.H-cs.pB}" stroke="var(--text)" stroke-width="1" opacity=".45" stroke-dasharray="3 3"/>`;
+  const R=readoutAt(i);
+  for(const q of R.vals){
+    if(q.v==null||!isFinite(q.v)) continue;
+    const y=q.sr.key==='rise'?cs.sy(q.v):(q.sr._yv?q.sr._yv(q.v):null); if(y==null) continue;
+    html+=`<circle cx="${x}" cy="${y.toFixed(1)}" r="4" fill="var(--surface)" stroke="${q.sr.color}" stroke-width="2"/>`;
   }
-  const r=rows[i]; if(!r)return;
-  const parts=active.map(sr=>{
-    const v=sr.key==='rise'?(r.rise==null?null:+r.rise):(r[sr.key]==null?null:+r[sr.key]);
-    const txt=(v==null||!isFinite(v))?'--':v.toFixed(sr.dec)+sr.unit;
-    return `<span style="color:${sr.color}">${sr.label} <b>${txt}</b></span>`;
-  }).join('');
-  box.innerHTML=`<span style="color:var(--muted)">${fmtElapsed(xs[i])}</span>${parts}`
-    +(vbx==null?'<span style="color:var(--muted);font-size:9px">touch the chart to read any moment</span>':'');
-  // Marcador vertical sobre el punto elegido.
-  const svg=document.querySelector('#chart-full-box svg');
-  if(svg){
-    let ln=svg.querySelector('#cursor-line');
-    if(vbx==null){ if(ln)ln.remove(); return; }
-    if(!ln){
-      ln=document.createElementNS('http://www.w3.org/2000/svg','line');
-      ln.id='cursor-line'; ln.setAttribute('stroke','var(--text)');
-      ln.setAttribute('stroke-width','1'); ln.setAttribute('opacity','.5');
-      svg.appendChild(ln);
-    }
-    const xx=chartState.sx(xs[i]);
-    ln.setAttribute('x1',xx); ln.setAttribute('x2',xx);
-    ln.setAttribute('y1',p);  ln.setAttribute('y2',chartState.H-p);
-  }
+  g.innerHTML=html;
+  if(!tip){ tip=document.createElement('div'); tip.className='chart-tip'; box.appendChild(tip); }
+  tip.innerHTML=`<div class="tt">${new Date(R.t).toLocaleString('en-GB',{weekday:'short',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</div>`
+    +`<div class="ts">${fmtElapsed(cs.xs[i])} in${R.st?' · '+esc(R.st.name):''}</div>`
+    +R.vals.map(q=>`<div class="tr"><span class="sw" style="background:${q.sr.color}"></span>${q.sr.label}<b>${q.txt}</b></div>`).join('')
+    +(cs.unit!=='cm'&&R.r.cm_step!=null?`<div class="tr"><span class="sw"></span>Grown<b>${(+R.r.cm_step).toFixed(1)} cm</b></div>`:'');
+  const bw=box.clientWidth, px=x/cs.W*bw, tw=tip.offsetWidth;
+  tip.style.left=Math.max(4,Math.min(bw-tw-4,px+(px>bw/2?-tw-14:14)))+'px';
+  tip.style.top='10px';
 }
 // ─── Goma de borrar ───────────────────────────────────────────────────────
 // Un golpe al bote o el sensor movido dejan una curva enorme que ensucia la
@@ -2251,19 +2394,20 @@ function erasedSvg(t0,x0,x1,sx,H,p){
 function toggleEraser(){
   eraser=!eraser;
   if(eraser&&sectionMode) toggleSection();
-  document.getElementById('btn-eraser').classList.toggle('on',eraser);
-  document.getElementById('btn-eraser').innerHTML=ic('eraser')+(eraser?' Erasing — done':' Erase');
+  if(eraser) chartTool='erase'; else if(chartTool==='erase') chartTool='inspect';
+  paintTools();
   document.getElementById('chart-full-box').classList.toggle('erasing',eraser);
   document.getElementById('eraser-hint').style.display=eraser?'block':'none';
   eraseFrom=null; eraseShade(null,null);
   if(fullOpen()) drawChartFull();
   if(!eraser) showReadout(null);
 }
-function vbToAbs(vbx){
-  const {W,p,x1,t0}=chartState;
-  const t=x1*Math.max(0,Math.min(1,(vbx-p)/(W-2*p)));
-  return t0+t;
+// De la coordenada del dibujo al tiempo, respetando el zoom.
+function vbToRel(vbx){
+  const {W,pL,pR,x0,x1}=chartState;
+  return x0+(x1-x0)*Math.max(0,Math.min(1,(vbx-pL)/(W-pL-pR)));
 }
+function vbToAbs(vbx){ return chartState.t0+vbToRel(vbx); }
 // Borrar se ve como borrar: la máscara abre un hueco en las líneas justo donde
 // pasa la goma, y la rejilla y los ejes quedan intactos debajo.
 function eraseShade(a,b){
@@ -2275,7 +2419,7 @@ function eraseShade(a,b){
 function commitErase(a,b){
   if(!sess||!chartState)return;
   const from=vbToAbs(Math.min(a,b)), to=vbToAbs(Math.max(a,b));
-  const n=chartState.rows.filter(r=>{const t=new Date(r.logged_at).getTime();return t>=from&&t<=to;}).length;
+  const n=chartRows().filter(r=>{const t=new Date(r.logged_at).getTime();return t>=from&&t<=to;}).length;
   if(!n){ eraseShade(null,null); showToast('No readings in that stretch'); return; }
   const f=ms=>new Date(ms).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
   if(!confirm(`Hide ${n} readings from ${f(from)} to ${f(to)}?\n\nThey stay saved and you can bring them back.`)){ eraseShade(null,null); return; }
@@ -2315,7 +2459,8 @@ let sectionMode=false, secDrag=null;
 function toggleSection(){
   sectionMode=!sectionMode;
   if(sectionMode&&eraser) toggleEraser();
-  document.getElementById('btn-section').classList.toggle('on',sectionMode);
+  if(sectionMode) chartTool='steps'; else if(chartTool==='steps') chartTool='inspect';
+  paintTools();
   document.getElementById('section-hint').style.display=sectionMode?'block':'none';
   // Las fronteras solo se ven con toda la hoja a la vista.
   if(sectionMode&&stagePick!=='all'){ stagePick='all'; renderHistory(); }
@@ -2452,38 +2597,398 @@ function initSectionHandlers(box,toVb){
     if(st) afterSectionEdit(st,true);
   },true);
 }
+// ═══ GRÁFICO INTERACTIVO ═════════════════════════════════════════════════
+// Herramientas: Inspect (pasar por encima lee; arrastrar selecciona un tramo
+// con sus cifras), Zoom (arrastrar amplía ese tramo), Pan (arrastrar mueve),
+// Note (tocar pone una nota), Steps y Erase (las de siempre). La rueda amplía
+// alrededor del puntero, deslizar de lado mueve, doble clic vuelve a todo. Con
+// dos dedos, pellizcar amplía y mover desplaza. Teclado: ← → recorren las
+// lecturas (⇧ de diez en diez), + − 0 amplían, letras para cada herramienta.
+let chartTool='inspect', chartView=null, chartSel=null, chartUnit='x', chartClock=false, chartCursorT=null;
+try{ chartUnit=localStorage.getItem('pb-chart-unit')||'x'; chartClock=localStorage.getItem('pb-chart-clock')==='1'; }catch(e){}
+const TOOLS=[['inspect','V','Inspect — hover to read, drag to select a stretch'],['zoom','Z','Zoom — drag across a stretch to zoom in'],
+  ['pan','H','Pan — drag to move along the timeline'],['note','N','Note — tap the chart to pin a note'],
+  ['steps','S','Steps — tap to split, drag to make one, drag a line to move it'],['erase','E','Erase — drag across a stretch to hide it']];
+const TOOL_IC={inspect:'cursor',zoom:'zoomin',pan:'hand',note:'note',steps:'steps',erase:'eraser'};
+function setTool(t){
+  if(t==='erase'){ if(!eraser) toggleEraser(); return; }
+  if(t==='steps'){ if(!sectionMode) toggleSection(); return; }
+  if(eraser) toggleEraser();
+  if(sectionMode) toggleSection();
+  chartTool=t; paintTools();
+}
+function paintTools(){
+  document.querySelectorAll('[data-tool]').forEach(b=>{ const on=b.dataset.tool===chartTool; b.classList.toggle('on',on); b.setAttribute('aria-pressed',on?'true':'false'); });
+  const box=document.getElementById('chart-full-box');
+  if(box){ box.dataset.tool=chartTool; }
+  const h=document.getElementById('tool-hint'), T=TOOLS.find(x=>x[0]===chartTool);
+  if(h) h.textContent=T?T[2]:'';
+}
+function setUnit(u){ chartUnit=u; try{localStorage.setItem('pb-chart-unit',u);}catch(e){} chartSel=null; drawChartFull(); }
+function setClock(on){ chartClock=on; try{localStorage.setItem('pb-chart-clock',on?'1':'0');}catch(e){} paintViewBtns(); drawChartFull(); }
+function paintViewBtns(){
+  const c=document.getElementById('btn-clock'); if(c){ c.classList.toggle('on',chartClock); c.innerHTML=ic('clock')+'<span class="tl">'+(chartClock?' Clock time':' Elapsed')+'</span>'; }
+  const u=document.getElementById('unit-sel'); if(u) u.value=chartUnit;
+  const z=document.getElementById('btn-fit'); if(z) z.disabled=!chartView;
+}
+// ─── Zoom ───
+function zoomAround(rel,k){
+  const cs=chartState; if(!cs) return;
+  const a=chartView?chartView.a:0, b=chartView?chartView.b:cs.full1;
+  let na=rel-(rel-a)*k, nb=rel+(b-rel)*k;
+  const min=5*60000;
+  if(nb-na<min){ const m=(na+nb)/2; na=m-min/2; nb=m+min/2; }
+  if(na<=0&&nb>=cs.full1){ chartView=null; }
+  else{ const w=nb-na; if(na<0){na=0;nb=w;} if(nb>cs.full1){nb=cs.full1;na=Math.max(0,nb-w);} chartView={a:na,b:nb}; }
+  drawChartFull();
+}
+function zoomBy(k){ const cs=chartState; if(!cs) return; zoomAround(chartCursor!=null?cs.xs[chartCursor]:(cs.x0+cs.x1)/2,k); }
+function zoomFit(){ chartView=null; drawChartFull(); }
+function zoomTo(a,b){ if(b-a<60000) return; chartView={a:Math.max(0,a),b}; drawChartFull(); }
+function panBy(dt){
+  const cs=chartState; if(!cs||!chartView) return;
+  const w=chartView.b-chartView.a; let a=chartView.a+dt; a=Math.max(0,Math.min(cs.full1-w,a));
+  chartView={a,b:a+w}; drawChartFull();
+}
+// ─── Tramo seleccionado ───
+function selShade(a,b){
+  const svg=document.querySelector('#chart-full-box svg'); if(!svg||!chartState) return;
+  let r=svg.querySelector('#sel-shade');
+  if(a==null){ if(r) r.remove(); return; }
+  if(!r){ r=document.createElementNS('http://www.w3.org/2000/svg','rect'); r.id='sel-shade'; r.setAttribute('fill','var(--accent-soft)'); r.setAttribute('stroke','var(--amber)'); r.setAttribute('stroke-dasharray','4 3'); r.setAttribute('pointer-events','none'); svg.appendChild(r); }
+  r.setAttribute('x',Math.min(a,b)); r.setAttribute('width',Math.max(1,Math.abs(b-a)));
+  r.setAttribute('y',chartState.pT); r.setAttribute('height',chartState.H-chartState.pT-chartState.pB);
+}
+function selectRange(ra,rb){
+  const cs=chartState; if(!cs) return;
+  const rows=chartRows().filter(r=>{ const t=new Date(r.logged_at).getTime()-cs.t0; return t>=ra&&t<=rb; });
+  if(rows.length<2){ chartSel=null; renderSel(); showToast('Not enough readings in that stretch'); return; }
+  chartSel={a:ra,b:rb}; renderSel(); drawChartFull();
+}
+function renderSel(){
+  const box=document.getElementById('chart-sel'); if(!box) return;
+  const cs=chartState;
+  if(!chartSel||!cs){ box.style.display='none'; box.innerHTML=''; return; }
+  const rows=chartRows().filter(r=>{ const t=new Date(r.logged_at).getTime()-cs.t0; return t>=chartSel.a&&t<=chartSel.b; });
+  if(rows.length<2){ box.style.display='none'; return; }
+  const U=UNITS[cs.unit], v=rows.map(r=>rowVal(r,cs.unit)).filter(x=>x!=null&&isFinite(x));
+  const first=v[0], last=v[v.length-1], hrs=(chartSel.b-chartSel.a)/3600000;
+  const cm0=rows[0].cm_step, cm1=rows[rows.length-1].cm_step;
+  const T=rows.map(r=>r.temp_c).filter(x=>x!=null).map(Number);
+  const f=t=>new Date(cs.t0+t).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+  const mx=Math.max(...v), mn=Math.min(...v);
+  box.style.display='flex';
+  box.innerHTML=`<div class="sel-stats">
+      <span><b>${f(chartSel.a)} → ${f(chartSel.b)}</b> · ${fmtElapsed(chartSel.b-chartSel.a)} · ${rows.length} readings</span>
+      <span>${first.toFixed(U.dec)} → ${last.toFixed(U.dec)}${U.suf} <b>${last-first>=0?'+':''}${(last-first).toFixed(U.dec)}${U.suf}</b> · ${hrs>0?((last-first)/hrs).toFixed(U.dec+1)+U.suf.trim()+'/h':''}</span>
+      <span>range ${mn.toFixed(U.dec)}–${mx.toFixed(U.dec)}${U.suf}${cm0!=null&&cm1!=null&&cs.unit!=='cm'?` · grew ${(cm1-cm0).toFixed(1)} cm`:''}</span>
+      ${T.length?`<span>temp ${Math.min(...T).toFixed(1)}–${Math.max(...T).toFixed(1)}° · avg ${(T.reduce((a,b)=>a+b,0)/T.length).toFixed(1)}°</span>`:''}
+    </div>
+    <div class="sel-acts">
+      <button class="mark-btn" onclick="zoomTo(chartSel.a,chartSel.b);chartSel=null;renderSel()">${ic('zoomin')} Zoom in</button>
+      <button class="mark-btn" onclick="selToStep()">${ic('steps')} Make a step</button>
+      <button class="mark-btn" onclick="selToNote()">${ic('note')} Note</button>
+      <button class="mark-btn" onclick="selErase()">${ic('eraser')} Hide</button>
+      <button class="mark-btn" onclick="chartSel=null;renderSel();drawChartFull()" aria-label="Clear the selection">${ic('close')}</button>
+    </div>`;
+}
+function selToStep(){ if(!chartSel) return; const t0=chartState.t0; const st=sectionRange(t0+chartSel.a,t0+chartSel.b); if(st){ chartSel=null; renderSel(); afterSectionEdit(st,true); } }
+function selErase(){ if(!chartSel) return; const cs=chartState; commitErase(cs.sx(chartSel.a),cs.sx(chartSel.b)); chartSel=null; renderSel(); }
+function selToNote(){ if(!chartSel) return; const t=chartState.t0+(chartSel.a+chartSel.b)/2; chartSel=null; renderSel(); addNoteAt(t); }
+// ─── Notas sobre la curva ───
+// Una bandera en un instante: "plegado", "subí la temperatura"… Van con la hoja
+// (y con el deshacer), se editan tocándolas y se pueden arrastrar.
+function sheetNotes(){ return (sess&&sess.notes)||[]; }
+function notesSvg(t0,x0,x1,sx,H,pT,pB){
+  return sheetNotes().map(n=>{
+    const rel=n.t-t0; if(rel<x0||rel>x1) return '';
+    const x=sx(rel).toFixed(1), txt=n.text.length>28?n.text.slice(0,27)+'…':n.text;
+    return `<g class="note-mark" data-note="${n.id}"><line x1="${x}" x2="${x}" y1="${pT}" y2="${H-pB}" stroke="#7a8fa8" stroke-width="1.2" stroke-dasharray="2 3"/>`
+      +`<path d="M${x} ${pT+2}h10l-3 5 3 5h-10z" fill="#7a8fa8"/>`
+      +`<text x="${(+x+14).toFixed(1)}" y="${pT+11}" font-size="10.5" fill="#7a8fa8" style="paint-order:stroke" stroke="var(--bg)" stroke-width="3">${esc(txt)}</text></g>`;
+  }).join('');
+}
+function noteNear(vbx){
+  const cs=chartState; if(!cs) return null;
+  return sheetNotes().find(n=>{ const rel=n.t-cs.t0; return rel>=cs.x0&&rel<=cs.x1&&Math.abs(cs.sx(rel)-vbx)<8; })||null;
+}
+function inlineInput(x,y,w,value,placeholder,onSave){
+  document.querySelectorAll('.inline-rename').forEach(e=>e.remove());
+  const inp=document.createElement('input');
+  inp.className='num-input inline-rename'; inp.value=value||''; inp.placeholder=placeholder||'';
+  inp.style.cssText=`position:fixed;left:${Math.max(4,Math.min(innerWidth-(w||220)-4,x))}px;top:${Math.max(4,y)}px;width:${w||220}px;z-index:3000;font-size:13px;padding:7px 9px;border-color:var(--amber)`;
+  (document.fullscreenElement||document.body).appendChild(inp); inp.focus(); inp.select();
+  let done=false;
+  const finish=save=>{ if(done) return; done=true; const v=inp.value.trim(); inp.remove(); if(save) onSave(v); };
+  inp.addEventListener('keydown',e=>{ if(e.key==='Enter'){e.preventDefault();finish(true);} else if(e.key==='Escape'){e.preventDefault();finish(false);} e.stopPropagation(); });
+  inp.addEventListener('blur',()=>finish(true));
+}
+function addNoteAt(t,screenX,screenY){
+  if(!sess) return;
+  const box=document.getElementById('chart-full-box'), r=box.getBoundingClientRect();
+  inlineInput(screenX!=null?screenX:r.left+r.width/2-110,screenY!=null?screenY:r.top+24,240,'','What happened here?',v=>{
+    if(!v) return;
+    sess.notes=(sess.notes||[]).concat([{id:Date.now(),t:Math.round(t),text:v}]);
+    undoLabel('Add a note on the chart'); saveSessions(); drawChartFull(); showToast('Note added');
+  });
+}
+function editNote(n,anchor){
+  openPop(anchor,[
+    {label:ic('note')+' Edit the text',fn:()=>{ const r=anchor.getBoundingClientRect(); inlineInput(r.left,r.bottom+4,240,n.text,'',v=>{ if(!v) return; n.text=v; undoLabel('Edit a note'); saveSessions(); drawChartFull(); }); }},
+    {label:ic('zoomin')+' Zoom around it',fn:()=>{ const rel=n.t-chartState.t0; zoomTo(Math.max(0,rel-45*60000),rel+45*60000); }},
+    {label:ic('trash')+' Delete note',danger:true,fn:()=>{ sess.notes=sheetNotes().filter(x=>x.id!==n.id); undoLabel('Delete a note'); saveSessions(); drawChartFull(); showToast('Note deleted — ↶ brings it back'); }}
+  ]);
+}
+// ─── Exportar ───
+// El SVG usa las variables del tema; al sacarlo fuera se sustituyen por sus
+// colores reales, y se le pone fondo y título.
+function chartSvgString(){
+  const box=document.getElementById('chart-full-box'), svg=box&&box.querySelector('svg'); if(!svg||!chartState) return null;
+  const cs=getComputedStyle(document.documentElement);
+  let str=new XMLSerializer().serializeToString(svg);
+  str=str.replace(/var\((--[\w-]+)\)/g,(m,v)=>cs.getPropertyValue(v).trim()||'#888');
+  const {W,H}=chartState, title=esc((sess?sess.name:'ProofBox')+' · '+(document.getElementById('chart-full-title').textContent||''));
+  const bg=cs.getPropertyValue('--surface').trim(), fg=cs.getPropertyValue('--text').trim();
+  str=str.replace(/<svg([^>]*)>/,`<svg$1 xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H+30}" font-family="Inter,system-ui,sans-serif"><rect x="0" y="0" width="${W}" height="${H+30}" fill="${bg}"/><text x="14" y="20" font-size="13" font-weight="600" fill="${fg}">${title}</text><g transform="translate(0 30)">`).replace(/<\/svg>$/,'</g></svg>')
+    .replace(/viewBox="0 0 [\d.]+ [\d.]+"/,`viewBox="0 0 ${W} ${H+30}"`).replace(/style="[^"]*"/,'');
+  return str;
+}
+function chartFileName(ext){ return ((sess?sess.name:'proofbox').replace(/[^\w\-]+/g,'-')||'proofbox')+'-chart-'+new Date().toISOString().slice(0,10)+'.'+ext; }
+function downloadBlob(blob,name){ const u=URL.createObjectURL(blob), a=document.createElement('a'); a.href=u; a.download=name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(u),1500); }
+function exportChart(kind){
+  const str=chartSvgString(); if(!str){ showToast('Nothing to export'); return; }
+  if(kind==='svg'){ downloadBlob(new Blob([str],{type:'image/svg+xml'}),chartFileName('svg')); return; }
+  const img=new Image(), u=URL.createObjectURL(new Blob([str],{type:'image/svg+xml'}));
+  img.onload=()=>{ const k=2, c=document.createElement('canvas'); c.width=img.width*k; c.height=img.height*k;
+    const g=c.getContext('2d'); g.scale(k,k); g.drawImage(img,0,0); URL.revokeObjectURL(u);
+    c.toBlob(b=>downloadBlob(b,chartFileName('png')),'image/png'); };
+  img.src=u;
+}
+function exportMenu(btn){ openPop(btn,[{label:ic('image')+' Picture (PNG)',fn:()=>exportChart('png')},{label:ic('image')+' Vector (SVG)',fn:()=>exportChart('svg')},{label:ic('report')+' Readings (CSV)',fn:()=>downloadCsv()}]); }
+// ─── Widgets sobre el gráfico ───
+// Lo que se quiere tener a la vista mientras se mira la curva: el bote con su
+// masa, la cámara en vivo, el reloj, la temperatura, el progreso. Se eligen en
+// Widgets, se arrastran a donde molesten menos y se recuerdan en este aparato.
+const CW_ITEMS=[['jar','Jar'],['progress','Progress'],['camera','Camera'],['timer','Timer'],['temp','Temperature']];
+let cwOn={}, cwPos={}, cwTimer=null, cwCamUrl=null;
+try{ cwOn=JSON.parse(localStorage.getItem('pb-cw')||'{}')||{}; cwPos=JSON.parse(localStorage.getItem('pb-cw-pos')||'{}')||{}; }catch(e){}
+function saveCw(){ try{ localStorage.setItem('pb-cw',JSON.stringify(cwOn)); localStorage.setItem('pb-cw-pos',JSON.stringify(cwPos)); }catch(e){} }
+function widgetsMenu(btn){
+  openPop(btn,CW_ITEMS.map(([k,n])=>({label:`<span style="display:inline-block;width:16px;color:var(--amber-l)">${cwOn[k]?'✓':''}</span>${n}`,fn:()=>{ cwOn[k]=!cwOn[k]; if(!cwOn[k]) delete cwOn[k]; saveCw(); renderWidgets(); }}))
+    .concat(Object.keys(cwOn).length?[{label:'Put them back in place',fn:()=>{ cwPos={}; saveCw(); renderWidgets(); }}]:[]));
+}
+function cwHtml(k){
+  const t=id=>{ const e=document.getElementById(id); return e?e.textContent.trim():'--'; };
+  if(k==='progress') return `<div class="l">Progress</div><div class="v">${t('meta-pct')}</div><div class="s">${t('meta-ratio-now')} of ${t('meta-ratio-goal')}</div>`;
+  if(k==='timer') return `<div class="l">Timer</div><div class="v">${t('timer-big')}</div><div class="s">${t('timer-note')}</div>`;
+  if(k==='temp') return `<div class="l">Temperature</div><div class="v">${t('temp-big')}°C</div>`;
+  return '';
+}
+function renderWidgets(){
+  const host=document.getElementById('chart-widgets'); if(!host) return;
+  const want=CW_ITEMS.map(x=>x[0]).filter(k=>cwOn[k]);
+  for(const el of [...host.children]) if(!want.includes(el.dataset.k)) el.remove();
+  for(const k of want){
+    let el=host.querySelector(`[data-k="${k}"]`);
+    if(!el){
+      el=document.createElement('div'); el.className='cwidget'+(k==='camera'?' cam':''); el.dataset.k=k;
+      el.innerHTML=`<button class="x" title="Hide" aria-label="Hide this widget" onclick="cwOn['${k}']=false;delete cwOn['${k}'];saveCw();renderWidgets()">×</button>`
+        +(k==='jar'?`<div class="l">Jar</div><div class="cw-jar"></div>`
+         :k==='camera'?`<div class="l">Camera</div><div class="frame"><img id="cw-cam-img" alt="Live camera" draggable="false"></div>`
+         :`<div class="cw-body"></div>`);
+      host.appendChild(el); wireCwDrag(el);
+    }
+  }
+  updateWidgets(); placeWidgets();
+}
+function updateWidgets(){
+  const host=document.getElementById('chart-widgets'); if(!host) return;
+  host.querySelectorAll('.cwidget').forEach(el=>{
+    const k=el.dataset.k;
+    if(k==='jar'){
+      const src=document.getElementById('meta-jar'), box=el.querySelector('.cw-jar'); if(!src||!box) return;
+      let svg=box.querySelector('svg');
+      if(!svg){ svg=src.cloneNode(true); svg.removeAttribute('id'); svg.style.cssText='position:static;width:86px;height:98px;display:block'; svg.querySelectorAll('[id]').forEach(n=>{ if(n.id!=='jar-inside') n.removeAttribute('id'); }); box.appendChild(svg); }
+      const d=src.querySelector('#meta-jar-dough'), dd=svg.querySelector('path[fill="#f0a832"]');
+      if(d&&dd) dd.style.transform=d.style.transform;
+      svg.setAttribute('class',src.getAttribute('class'));
+      svg.style.position='static'; svg.style.opacity=src.classList.contains('empty')?'.4':'1';
+      const lab=el.querySelector('.l'); if(lab) lab.textContent='Jar · '+(document.getElementById('meta-pct').textContent.trim());
+    }else if(k==='camera'){
+      const img=el.querySelector('img'), main=document.getElementById('cam-img');
+      if(img&&!img.src&&main&&main.src) img.src=main.src;
+      if(img){ const f=img.parentElement; img.style.transform=camRot?`rotate(${camRot}deg) scale(${rotCover(f.clientWidth,f.clientHeight,camRot).toFixed(3)})`:''; }
+    }else{
+      const b=el.querySelector('.cw-body'); if(b) b.innerHTML=cwHtml(k);
+    }
+  });
+}
+// Cada fotograma del vivo va también a la cámara del widget, con su propia URL
+// (la de la tarjeta se libera al llegar el siguiente y dejaría esta en blanco).
+function cwFrame(blob){
+  const img=document.getElementById('cw-cam-img'); if(!img) return;
+  if(cwCamUrl) URL.revokeObjectURL(cwCamUrl);
+  cwCamUrl=URL.createObjectURL(blob); img.src=cwCamUrl;
+}
+function placeWidgets(){
+  const host=document.getElementById('chart-widgets'); if(!host) return;
+  const W=host.clientWidth, H=host.clientHeight; if(!W||!H) return;
+  let y=12;
+  for(const [k] of CW_ITEMS){
+    const el=host.querySelector(`[data-k="${k}"]`); if(!el) continue;
+    const w=el.offsetWidth, h=el.offsetHeight, p=cwPos[k];
+    let x,yy;
+    if(p){ x=p.x*W; yy=p.y*H; } else { x=W-w-12; yy=y; y+=h+8; }
+    x=Math.max(0,Math.min(W-w,x)); yy=Math.max(0,Math.min(H-h,yy));
+    el.style.left=x+'px'; el.style.top=yy+'px';
+  }
+}
+function wireCwDrag(el){
+  el.addEventListener('pointerdown',e=>{
+    if(e.target.closest('button')) return;
+    e.preventDefault(); e.stopPropagation();
+    const host=document.getElementById('chart-widgets'), W=host.clientWidth, H=host.clientHeight;
+    const x0=parseFloat(el.style.left)||0, y0=parseFloat(el.style.top)||0, px=e.clientX, py=e.clientY;
+    try{ el.setPointerCapture(e.pointerId); }catch(err){}
+    const mv=ev=>{ cwPos[el.dataset.k]={x:(x0+ev.clientX-px)/W,y:(y0+ev.clientY-py)/H}; placeWidgets(); };
+    const up=()=>{ el.removeEventListener('pointermove',mv); el.removeEventListener('pointerup',up); saveCw(); };
+    el.addEventListener('pointermove',mv); el.addEventListener('pointerup',up);
+  });
+}
+addEventListener('resize',()=>{ if(fullOpen()) placeWidgets(); });
+// ─── Pantalla completa del gráfico ───
+// Lo que se abre encima (avisos, alarmas, la lista de comparar) tiene que vivir
+// DENTRO del elemento a pantalla completa o no se ve: se muda y vuelve.
+const CHART_FS_OVERLAYS=['toast','alarm-banner','compare-modal'];
+const chartFsHome={};
+function toggleChartFs(){
+  const el=document.getElementById('chart-full');
+  if(document.fullscreenElement) document.exitFullscreen().catch(()=>{});
+  else if(el.requestFullscreen) el.requestFullscreen().catch(()=>showToast('Full screen is not available here'));
+  else showToast('Full screen is not available on this device');
+}
+document.addEventListener('fullscreenchange',()=>{
+  const el=document.getElementById('chart-full'), on=document.fullscreenElement===el;
+  for(const id of CHART_FS_OVERLAYS){
+    const o=document.getElementById(id); if(!o) continue;
+    if(on&&o.parentElement!==el){ chartFsHome[id]={parent:o.parentElement,next:o.nextSibling}; el.appendChild(o); }
+    else if(!on&&chartFsHome[id]){ const h=chartFsHome[id]; h.parent.insertBefore(o,h.next&&h.next.parentElement===h.parent?h.next:null); delete chartFsHome[id]; }
+  }
+  const b=document.getElementById('btn-chart-fs'); if(b) b.classList.toggle('on',on);
+  if(fullOpen()) setTimeout(()=>{ drawChartFull(); placeWidgets(); },80);
+});
+// ─── Accesibilidad ───
+function chartAria(){
+  const box=document.getElementById('chart-full-box'), cs=chartState; if(!box||!cs) return;
+  const v=cs.raw.filter(x=>x!=null&&isFinite(x)), U=UNITS[cs.unit];
+  box.setAttribute('aria-label',v.length?`Growth chart${sess?' for '+sess.name:''}: from ${v[0].toFixed(U.dec)}${U.suf} to ${v[v.length-1].toFixed(U.dec)}${U.suf} over ${fmtElapsed(cs.x1-cs.x0)}, highest ${Math.max(...v).toFixed(U.dec)}${U.suf}. Use the left and right arrow keys to read each point.`:'Growth chart, no readings');
+}
+// ─── Punteros ───
 function initReadout(){
   const box=document.getElementById('chart-full-box');
+  box.setAttribute('tabindex','0'); box.setAttribute('role','img');
   const toVb=e=>{
     const svg=box.querySelector('svg'); if(!svg||!chartState)return null;
     const r=svg.getBoundingClientRect();
     return (e.clientX-r.left)/r.width*chartState.W;
   };
   initSectionHandlers(box,toVb);
-  const move=e=>{
-    e.preventDefault(); const v=toVb(e); if(v==null)return;
-    if(eraser){ if(eraseFrom!=null) eraseShade(eraseFrom,v); return; }
-    showReadout(v);
-  };
+  const pts=new Map(); let drag=null, pinch=null;
   box.addEventListener('pointerdown',e=>{
+    if(sectionMode||!chartState) return;
     try{ box.setPointerCapture(e.pointerId); }catch(err){}
-    if(eraser){ eraseFrom=toVb(e); return; }
-    move(e);
+    pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    const v=toVb(e); if(v==null) return;
+    if(pts.size===2){
+      // Dos dedos: pellizcar amplía, mover desplaza.
+      const a=[...pts.values()]; const d=Math.abs(a[0].x-a[1].x)||1, m=(a[0].x+a[1].x)/2;
+      pinch={d,m,view:chartView?{...chartView}:{a:0,b:chartState.full1},rel:vbToRel(toVb({clientX:m}))}; drag=null; return;
+    }
+    if(eraser){ eraseFrom=v; return; }
+    drag={v0:v,rel0:vbToRel(v),moved:false,view:chartView?{...chartView}:null,cx:e.clientX,cy:e.clientY};
   });
   box.addEventListener('pointermove',e=>{
-    if(eraser&&eraseFrom!=null){ move(e); return; }
-    if(box.hasPointerCapture&&box.hasPointerCapture(e.pointerId))move(e);
-  });
-  box.addEventListener('pointerup',e=>{
-    if(eraser&&eraseFrom!=null){
-      const v=toVb(e), a=eraseFrom; eraseFrom=null;
-      if(v!=null&&Math.abs(v-a)>3) commitErase(a,v); else eraseShade(null,null);
+    if(sectionMode||!chartState) return;
+    if(pts.has(e.pointerId)) pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    const v=toVb(e); if(v==null) return;
+    if(pinch&&pts.size===2){
+      const a=[...pts.values()]; const d=Math.abs(a[0].x-a[1].x)||1, m=(a[0].x+a[1].x)/2;
+      const w0=pinch.view.b-pinch.view.a, w=Math.max(5*60000,w0*pinch.d/d);
+      const shift=(m-pinch.m)/box.clientWidth*w;
+      let na=pinch.rel-(pinch.rel-pinch.view.a)*(w/w0)-shift; na=Math.max(0,Math.min(chartState.full1-w,na));
+      chartView=w>=chartState.full1?null:{a:na,b:na+w}; drawChartFull(); return;
+    }
+    if(eraser){ if(eraseFrom!=null) eraseShade(eraseFrom,v); return; }
+    if(drag){
+      if(Math.abs(v-drag.v0)>5) drag.moved=true;
+      if(!drag.moved) return;
+      if(chartTool==='pan'&&drag.view){ const w=drag.view.b-drag.view.a; const dt=(drag.v0-v)/(chartState.W-chartState.pL-chartState.pR)*w;
+        let a=drag.view.a+dt; a=Math.max(0,Math.min(chartState.full1-w,a)); chartView={a,b:a+w}; drawChartFull(); return; }
+      if(chartTool==='inspect'||chartTool==='zoom'){ selShade(drag.v0,v); showReadout(v); return; }
       return;
     }
-    showReadout(null);
+    // Sin botón pulsado (ratón por encima): leer.
+    if(e.pointerType==='mouse'&&!e.buttons){ chartCursor=null; chartCursorT=null; showReadout(v); }
   });
-  box.addEventListener('pointercancel',()=>{ eraseFrom=null; eraseShade(null,null); showReadout(null); });
+  const end=e=>{
+    pts.delete(e.pointerId);
+    if(pts.size<2) pinch=null;
+    if(sectionMode||!chartState) return;
+    const v=toVb(e);
+    if(eraser){ if(eraseFrom!=null){ const a=eraseFrom; eraseFrom=null; if(v!=null&&Math.abs(v-a)>3) commitErase(a,v); else eraseShade(null,null); } return; }
+    const d=drag; drag=null; if(!d||v==null) return;
+    if(d.moved){
+      const ra=Math.min(d.rel0,vbToRel(v)), rb=Math.max(d.rel0,vbToRel(v));
+      if(chartTool==='zoom'){ selShade(null,null); zoomTo(ra,rb); }
+      else if(chartTool==='inspect'){ selectRange(ra,rb); }
+      return;
+    }
+    // Un toque.
+    const n=noteNear(v);
+    if(n){ const tmp=document.createElement('span'); tmp.style.cssText=`position:fixed;left:${e.clientX}px;top:${e.clientY}px;width:1px;height:1px`; document.body.appendChild(tmp); editNote(n,tmp); setTimeout(()=>tmp.remove(),50); return; }
+    if(chartTool==='note'){ addNoteAt(vbToAbs(v),e.clientX-110,e.clientY+12); return; }
+    if(chartTool==='zoom'){ zoomAround(vbToRel(v),0.5); return; }
+    if(e.pointerType!=='mouse'){ chartCursor=nearestIdx(chartState.xs,vbToRel(v)); chartCursorT=chartState.xs[chartCursor]; showReadout(null,chartCursor); }
+  };
+  box.addEventListener('pointerup',end);
+  box.addEventListener('pointercancel',e=>{ pts.delete(e.pointerId); pinch=null; drag=null; eraseFrom=null; eraseShade(null,null); selShade(null,null); });
+  box.addEventListener('pointerleave',e=>{ if(e.pointerType==='mouse'&&!drag&&chartCursor==null) showReadout(null); });
+  // Rueda: amplía alrededor del puntero; de lado (o con ⇧) desplaza.
+  box.addEventListener('wheel',e=>{
+    if(!chartState||sectionMode) return;
+    e.preventDefault();
+    const v=toVb(e); if(v==null) return;
+    const dx=Math.abs(e.deltaX)>Math.abs(e.deltaY)?e.deltaX:(e.shiftKey?e.deltaY:0);
+    if(dx){ const w=(chartView?chartView.b-chartView.a:chartState.full1); panBy(dx/box.clientWidth*w); return; }
+    zoomAround(vbToRel(v),Math.exp(e.deltaY*(e.ctrlKey?0.01:0.0025)));
+  },{passive:false});
+  box.addEventListener('dblclick',()=>{ if(!sectionMode) zoomFit(); });
+  // Teclado.
+  box.addEventListener('keydown',e=>{
+    const cs=chartState; if(!cs) return;
+    const n=cs.rows.length;
+    if(e.key==='ArrowRight'||e.key==='ArrowLeft'){
+      e.preventDefault();
+      const step=(e.shiftKey?10:1)*(e.key==='ArrowRight'?1:-1);
+      chartCursor=Math.max(0,Math.min(n-1,(chartCursor==null?n-1:chartCursor)+step));
+      const rel=cs.xs[chartCursor];
+      if(chartView&&(rel<chartView.a||rel>chartView.b)){ const w=chartView.b-chartView.a; chartView={a:Math.max(0,rel-w/2),b:Math.max(0,rel-w/2)+w}; drawChartFull(); }
+      chartCursorT=cs.xs[chartCursor]; showReadout(null,chartCursor); return;
+    }
+    if(e.key==='Home'||e.key==='End'){ e.preventDefault(); chartCursor=e.key==='Home'?0:n-1; chartCursorT=cs.xs[chartCursor]; showReadout(null,chartCursor); return; }
+    if(e.key==='+'||e.key==='='){ e.preventDefault(); zoomBy(0.6); return; }
+    if(e.key==='-'){ e.preventDefault(); zoomBy(1/0.6); return; }
+    if(e.key==='0'){ e.preventDefault(); zoomFit(); return; }
+    if(e.key==='Escape'){ chartSel=null; chartCursor=null; chartCursorT=null; renderSel(); showReadout(null); return; }
+  });
 }
+// Letras de herramienta con el gráfico a la vista y sin estar escribiendo.
+addEventListener('keydown',e=>{
+  if(!fullOpen()||e.ctrlKey||e.metaKey||e.altKey) return;
+  const t=e.target; if(t&&(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.tagName==='SELECT')) return;
+  const T=TOOLS.find(x=>x[1].toLowerCase()===e.key.toLowerCase());
+  if(T){ e.preventDefault(); setTool(T[0]); }
+});
 function renderLegend(active){
   const box=document.getElementById('legend-full'); if(!box)return;
   box.innerHTML=active.map(sr=>{
@@ -2496,15 +3001,26 @@ function renderLegend(active){
 function drawChartFull(){
   if(comparing){ drawCompare(); return; }
   const box=document.getElementById('chart-full-box');
+  const tip=box.querySelector('.chart-tip'); if(tip) tip.remove();
   drawChart(chartRows(),'chart-full-box',
-            Math.max(600,Math.round(box.clientWidth)),
-            Math.max(240,Math.round(box.clientHeight)));
+            Math.max(320,Math.round(box.clientWidth)),
+            Math.max(240,Math.round(box.clientHeight)),
+            {view:chartView,unit:chartUnit,clock:chartClock,big:true});
+  if(chartSel&&chartState) selShade(chartState.sx(chartSel.a),chartState.sx(chartSel.b));
+  if(chartCursorT!=null&&chartState){ chartCursor=nearestIdx(chartState.xs,chartCursorT); showReadout(null,chartCursor); } else chartCursor=null;
+  paintViewBtns(); renderSel();
   const w=chartWindow(), t=document.getElementById('chart-full-title');
   if(t) t.textContent=(w?w.name+' · ':'')+'growth × over elapsed time';
 }
 function openChartFull(){
   document.getElementById('smooth-sel-full').value=String(smoothSecs());
   setDMode('chart');
+}
+// Cada vez que se enseña el gráfico: herramientas pintadas, widgets vivos.
+function onChartShown(){
+  paintTools(); paintViewBtns(); renderWidgets();
+  if(cwTimer) clearInterval(cwTimer);
+  cwTimer=setInterval(()=>{ if(fullOpen()) updateWidgets(); else { clearInterval(cwTimer); cwTimer=null; } },1000);
 }
 function closeChartFull(){ endCompare(); setDMode(currentMode); }
 // ─── Comparar pasos ───────────────────────────────────────────────────────
@@ -2609,7 +3125,7 @@ function drawCompare(){
 // Girar el móvil a horizontal es la mejor manera de mirar una curva de tiempo,
 // así que hay que redibujar cuando cambia el tamaño.
 addEventListener('resize',()=>{ if(fullOpen()) drawChartFull(); });
-addEventListener('keydown',e=>{ if(e.key==='Escape'&&document.getElementById('next-modal').classList.contains('show')){closeNext();return;} if(e.key==='Escape'&&(fullOpen()||document.getElementById('report-view').classList.contains('show'))) setDMode(currentMode); });
+addEventListener('keydown',e=>{ if(e.key==='Escape'&&fullOpen()&&(chartSel||chartCursorT!=null||document.querySelector('.pop,.inline-rename'))){ closePop(); return; } if(e.key==='Escape'&&document.getElementById('next-modal').classList.contains('show')){closeNext();return;} if(e.key==='Escape'&&(fullOpen()||document.getElementById('report-view').classList.contains('show'))) setDMode(currentMode); });
 
 // El CSV es lo que enseña la hoja: sus pasos medidos, con la goma aplicada y el
 // × de su bote. Antes sacaba todo el histórico del aparato desde su último
@@ -3261,7 +3777,8 @@ function setDMode(mode){
   document.getElementById('chart-full').classList.toggle('show',mode==='chart');
   document.getElementById('report-view').classList.toggle('show',mode==='report');
   if(isBoard){ applyVisibility(); applyBoard(); }
-  if(mode==='chart') drawChartFull();
+  if(mode==='chart'){ drawChartFull(); onChartShown(); }
+  else if(document.fullscreenElement&&document.fullscreenElement.id==='chart-full') document.exitFullscreen().catch(()=>{});
   SHEETS.forEach(m=>{
     const b=document.getElementById('mode-'+m);
     if(b) b.className='sheet'+(m===mode?' active':'');
@@ -3844,6 +4361,16 @@ Return clean semantic HTML for the report body: h1, h2, p, ul, table. No CSS, no
 // Iconos de línea en vez de emojis: los emojis cambian de aspecto según el
 // sistema y no siguen el color del tema. En el HTML van como <i data-ic="x">.
 const ICONS={
+  cursor:'<path d="M5 3l14 7-6 2-2 6z"/>',
+  zoomin:'<circle cx="11" cy="11" r="7"/><path d="M21 21l-5-5M11 8v6M8 11h6"/>',
+  zoomout:'<circle cx="11" cy="11" r="7"/><path d="M21 21l-5-5M8 11h6"/>',
+  fit:'<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5M8 12h8"/>',
+  hand:'<path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V12M11 11.5V4.5a1.5 1.5 0 0 1 3 0v7M14 11.5V6a1.5 1.5 0 0 1 3 0v8a7 7 0 0 1-7 7h-.5a6 6 0 0 1-5-2.7L3 15.5a1.5 1.5 0 0 1 2.4-1.8L8 16"/>',
+  note:'<path d="M5 21V4h12l-3 4.5 3 4.5H5"/>',
+  clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  image:'<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/>',
+  widgets:'<rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="5" rx="1.5"/><rect x="13" y="10" width="8" height="11" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/>',
+  download:'<path d="M12 3v12M7 10l5 5 5-5M4 21h16"/>',
   undo:'<path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>',
   redo:'<path d="M15 14l5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/>',
   target:'<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/>',
@@ -4198,7 +4725,7 @@ function pickSession(id){
   // El aparato mide una masa a la vez. Si otra hoja lo reclama después, esta
   // deja de mostrar su progreso — que es lo correcto, ya no es el suyo.
   activeSess=id; sess=sessions.find(s=>s.id===id)||null;
-  stagePick='all';
+  stagePick='all'; chartView=null; chartSel=null; chartCursorT=null;
   bindSessionState();           // timer, ratio y alarma son de la hoja
   setTimeout(backfillPhotos,3000);   // sin prisa: primero que se vea la app
   setTimeout(applyVisibility,0);
@@ -4642,6 +5169,7 @@ function onLiveFrame(bytes){
   img.src=url; img.dataset.live='1';
   if(camFullOpen()&&!camFullSrc){ const fi=document.getElementById('cam-full-img'); fi.src=url; if(camRot&&!fi.dataset.fitted){ fi.onload=()=>{ rotFit(fi); fi.dataset.fitted='1'; }; } }
   camBlob=b; camShotAt=Date.now(); liveLastFrame=Date.now();
+  cwFrame(b);
   if(visOn&&visShow&&visLast&&!img.dataset.visFit){ img.dataset.visFit='1'; img.addEventListener('load',drawVision,{once:true}); }
   if(camRot&&!img.style.transform) paintRot();
   document.getElementById('cam-empty').style.display='none';

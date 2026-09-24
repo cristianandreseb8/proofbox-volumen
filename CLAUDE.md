@@ -686,6 +686,19 @@ con el tema. El bloque "Acabado" va al final del `<style>` y pisa lo anterior.
 `#dock` (`pb-min`, por aparato); en el móvil un desplegable. Una minimizada
 queda fuera de `applyVisibility` igual que una oculta en Ajustes.
 
+**Gráfico interactivo (2026-09-24).** `drawChart(rows,box,W,H,opts)` acepta
+`view` (zoom, en ms desde `chartT0`), `unit` (x · cm · pct de la meta del paso,
+`rowVal`), `clock` y `big`. Marcas de eje redondas (`timeTicks`, `niceTicks`) y
+recorte al área del gráfico con un id por dibujo. Herramientas (`chartTool`):
+inspeccionar (arrastrar = tramo con cifras y acciones: zoom, paso, nota, goma),
+zoom, mover, nota, pasos, goma; rueda amplía, de lado desplaza, pellizco,
+doble clic = todo, teclado (← → ⇧, + − 0, letras). El cursor se guarda por
+TIEMPO (`chartCursorT`), no por índice: el zoom cambia los índices. Notas en
+`sess.notes` (con deshacer). Exportar PNG/SVG sustituye las variables del tema
+por sus colores. Widgets sobre el gráfico (bote, progreso, cámara en vivo,
+reloj, temperatura; `pb-cw`) y pantalla completa real con los avisos mudados
+dentro.
+
 ## Pendiente
 
 - **Los electrodos nunca se han verificado en líquido.** Marcan 4.7 kΩ clavado,
