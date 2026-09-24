@@ -259,6 +259,9 @@ body.board .app{max-width:none;padding:16px 22px 80px}
 .log-row{display:flex;justify-content:space-between;align-items:center;font-size:12px;margin-bottom:10px}
 .log-btns{display:flex;gap:8px}
 .new-dough{padding:5px 10px;background:transparent;border:1px solid var(--amber-d);border-radius:7px;color:var(--amber-l);font-family:'DM Mono',monospace;font-size:11px;cursor:pointer;white-space:nowrap}
+.undo-btn{background:transparent;border:1px solid var(--border);border-radius:7px;color:var(--text);font-family:'DM Mono',monospace;font-size:13px;padding:3px 8px;cursor:pointer;line-height:1.2}
+.undo-btn span{font-size:9px;color:var(--muted);margin-left:2px}
+.undo-btn:disabled{opacity:.3;cursor:default}
 .new-dough:active{background:var(--amber-d);color:var(--text)}
 .interval-row{display:flex;gap:8px;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}
 #interval-sel{color:var(--text);font-family:'DM Mono',monospace;font-size:13px;outline:none}
@@ -509,6 +512,8 @@ body.board .app{max-width:none;padding:16px 22px 80px}
   <div class="header">
     <div class="logo">Proof<span>Box</span> Vol</div>
     <div style="display:flex;align-items:center;gap:10px">
+      <button class="undo-btn" id="btn-undo-g" onclick="undo()" disabled title="Nothing to undo">↶<span></span></button>
+      <button class="undo-btn" id="btn-redo-g" onclick="redo()" disabled title="Nothing to redo">↷</button>
       <button class="new-dough" id="btn-next-top" onclick="openNext()">▶ Start reading</button>
       <div class="status-row" onclick="forceReconnect()" style="cursor:pointer" title="Tap to reconnect">
         <div class="dot" id="dot"></div>
@@ -776,6 +781,12 @@ body.board .app{max-width:none;padding:16px 22px 80px}
   </div>
 
   <div class="card">
+    <div class="card-label">Undo history</div>
+    <div style="font-size:10px;color:var(--muted);margin-bottom:6px;line-height:1.45">The last 30 changes on this device — names, steps, photos, erased stretches, camera marks, reports. ↶ and ↷ at the top, or Ctrl/⌘ Z.</div>
+    <div id="undo-list" style="font-size:11px"></div>
+  </div>
+
+  <div class="card">
     <div class="card-label">All reports</div>
     <details>
       <summary id="all-rep-sum" style="font-size:11px;color:var(--amber);cursor:pointer;padding:4px 0">Reports</summary>
@@ -1018,15 +1029,29 @@ function histFrom(){
   if(sess) return new Date(sess.startedAt).toISOString();
   return sessionStart;
 }
+// Solo las columnas que se usan y solo lo nuevo. Antes se bajaba cada minuto
+// el tramo entero con todas las columnas —incluido `raw`, el JSON completo de
+// cada status—: una hoja de tres días son ~4.600 filas, megas por minuto en
+// datos del móvil. Ahora la primera vez se baja el tramo de la hoja y después
+// solo lo posterior a la última fila. Cambiar de hoja (u otro comienzo) vuelve
+// a bajarlo entero.
+const HIST_COLS='logged_at,dist_mm,rise,temp_c,cond_rel,meta_progress,cm_grown,grams';
+let histKey=null, histBusy=false, histAgain=false;
 async function fetchHistory(){
+  // Si ya hay una en curso (p. ej. al cambiar de hoja), se repite al acabar.
+  if(histBusy){ histAgain=true; return; }
+  histBusy=true;
   const from=histFrom();
-  const flt = from ? `&logged_at=gte.${encodeURIComponent(from)}` : '';
+  const key=from||'all';
+  const incremental=key===histKey&&history.length>0;
+  const since=incremental?history[history.length-1].logged_at:from;
+  const flt=since?`&logged_at=${incremental?'gt':'gte'}.${encodeURIComponent(since)}`:'';
   try{
     // Paginado: el servidor corta en 1000 filas y varios días de registro pasan
     // de eso con holgura.
     let all=[], off=0;
     while(true){
-      const r=await fetch(`${SUPA_URL}/rest/v1/proofbox_readings?device_id=eq.${DEVICE_ID}${flt}&order=logged_at.asc&limit=1000&offset=${off}`,
+      const r=await fetch(`${SUPA_URL}/rest/v1/proofbox_readings?device_id=eq.${DEVICE_ID}&select=${HIST_COLS}${flt}&order=logged_at.asc&limit=1000&offset=${off}`,
         {headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY}});
       if(!r.ok) throw new Error(r.status);
       const page=await r.json();
@@ -1034,8 +1059,13 @@ async function fetchHistory(){
       if(page.length<1000||all.length>20000) break;
       off+=1000;
     }
-    history=all; renderHistory();
+    // Otra hoja abierta mientras llegaba la respuesta: no se mezcla.
+    if(from!==histFrom()) return;
+    if(incremental){ if(all.length){ history=history.concat(all); zeroCache.clear(); } }
+    else{ history=all; histKey=key; zeroCache.clear(); }
+    if(!incremental||all.length) renderHistory();
   }catch(e){ const el=document.getElementById('log-elapsed'); if(el)el.textContent='error'; }
+  finally{ histBusy=false; if(histAgain){ histAgain=false; fetchHistory(); } }
 }
 function renderHistory(){
   renderStageChips(); renderGoals();
@@ -1199,7 +1229,7 @@ let syncTimer=null, lastPulled=0, syncing=false;
 const LOGGER_URL=`${SUPA_URL}/functions/v1/proofbox-logger`;
 const LS_SESS=SANDBOX?'pb-sessions-sandbox':'pb-sessions';
 const LS_ACTIVE=SANDBOX?'pb-active-sess-sandbox':'pb-active-sess';
-function syncState(){ return {sessions, activeSess, reports, v:2}; }
+function syncState(){ return {sessions, activeSess, reports:reports.map(repIndex), v:3}; }
 function setSyncNote(t,col){
   const el=document.getElementById('sync-note'); if(!el)return;
   el.textContent=t; el.style.color=col||'var(--muted)';
@@ -1240,9 +1270,15 @@ async function pullState(force){
     activeSess=d.activeSess||(sessions[0]&&sessions[0].id)||null;
     sess=sessions.find(s=>s.id===activeSess)||null;
     bindSessionState();
-    if(Array.isArray(d.reports)) reports=d.reports;
-    
-    saveSessions();
+    if(Array.isArray(d.reports)){
+      const a=await adoptReports(d.reports);
+      reports=a.list; saveReportIndex();
+      // Venían con el contenido dentro: se sube la fila ya ligera.
+      if(a.moved) queueSync();
+    }
+
+    undoApplying=true; try{ saveSessions(); }finally{ undoApplying=false; }
+    undoRebase();
     renderSessBar(); renderSess(); renderReports(); renderHistory();
     lastPulled=remote;
     try{ localStorage.setItem('pb-synced-once','1'); }catch(e){}
@@ -1377,7 +1413,7 @@ function openPast(){
     `onclick="document.getElementById('pa-name').value='${n.replace(/'/g,"\\'")}'">${n}</button>`).join('');
   const w=document.getElementById('pa-where');
   w.innerHTML='<option value="0">at the start</option>'+
-    sess.stages.map((s,i)=>`<option value="${i+1}">after ${s.name}</option>`).join('');
+    sess.stages.map((s,i)=>`<option value="${i+1}">after ${esc(s.name)}</option>`).join('');
   w.value=String(sess.stages.length);
   w.parentElement.style.display='flex';
   document.getElementById('past-modal').classList.add('show');
@@ -1613,7 +1649,7 @@ function renderStageChips(){
   if(!sess||!sess.stages.length){ box.innerHTML=''; return; }
   const chip=(v,n)=>`<button class="gtab" style="flex:none;padding:5px 9px;font-size:10px${String(stagePick)===String(v)?';border-color:var(--amber);color:var(--amber-l)':''}" onclick="pickStage('${v}')">${n}</button>`;
   box.innerHTML=chip('all','Whole session')+
-    sess.stages.map(s=>chip(s.id,(s.manual?'✎ ':'')+s.name)).join('');
+    sess.stages.map(s=>chip(s.id,(s.manual?'✎ ':'')+esc(s.name))).join('');
 }
 function pickStage(v){
   stagePick=v;
@@ -1758,7 +1794,7 @@ function stageSvg(t0,x0,x1,sx,H,p,W){
     const fs=sec?11:9, room=Math.floor((xb-xa-8)/(fs*0.62));
     const nm=(s.name.length>room?s.name.slice(0,Math.max(1,room-1))+'…':s.name);
     const lab=big&&(xb-xa)>30
-      ? `<text x="${(xa+4).toFixed(1)}" y="${p+11}" font-size="${sec?11:9}" fill="${s.manual?'#7a8fa8':(sec?'var(--amber-l)':'var(--muted)')}" opacity=".9" ${sec?'text-decoration="underline"':''}><title>${s.name}</title>${nm}${s.manual?' ✎':''}</text>`
+      ? `<text x="${(xa+4).toFixed(1)}" y="${p+11}" font-size="${sec?11:9}" fill="${s.manual?'#7a8fa8':(sec?'var(--amber-l)':'var(--muted)')}" opacity=".9" ${sec?'text-decoration="underline"':''}><title>${esc(s.name)}</title>${esc(nm)}${s.manual?' ✎':''}</text>`
       : '';
     return band+tick+lab;
   }).join('');
@@ -3435,6 +3471,169 @@ Return clean semantic HTML for the report body: h1, h2, p, ul, table. No CSS, no
   }finally{ btn.disabled=false; }
 }
 
+// ═══ DESHACER, PARA TODO ════════════════════════════════════════════════
+// Cualquier cambio se puede volver atrás: un nombre, un paso borrado, una foto
+// quitada, un tramo borrado con la goma, las marcas de la cámara, un informe.
+// No hace falta que cada acción sepa deshacerse: cada vez que algo se guarda se
+// compara el estado con el anterior, y si cambió, el anterior entra en la pila.
+// Deshacer es volver a ese estado entero. Por eso nada se borra de verdad al
+// instante: las fotos y los informes quitados siguen guardados, y lo que se
+// quita es su referencia.
+// Los cambios que hace la app sola (una alarma que ya sonó, el primer punto de
+// la cámara) no cuentan: no son cosas que uno quiera deshacer.
+const UNDO_MAX=30;
+const UNDO_KEY=SANDBOX?'pb-undo-sandbox':'pb-undo';
+const UNDO_VOLATILE=new Set(['metaFired','fired','visionAlerted','visionHits','visionStartH','trkScore','pixStart','moveVotes','detBase']);
+let undoStack=[], redoStack=[], undoBase=null, undoReady=false, undoApplying=false, undoTimer=null, undoPending=null;
+try{ const u=JSON.parse(localStorage.getItem(UNDO_KEY)||'null'); if(u){ undoStack=u.undo||[]; redoStack=u.redo||[]; } }catch(e){}
+function undoSnap(){
+  return JSON.stringify({sessions, reports:reports.map(repIndex), visSetup, visHint});
+}
+function undoNorm(snap){
+  return JSON.stringify(JSON.parse(snap),(k,v)=>UNDO_VOLATILE.has(k)?undefined:v);
+}
+function undoSave(){
+  try{ localStorage.setItem(UNDO_KEY,JSON.stringify({undo:undoStack,redo:redoStack})); }
+  catch(e){ undoStack=undoStack.slice(-10); try{ localStorage.setItem(UNDO_KEY,JSON.stringify({undo:undoStack,redo:redoStack})); }catch(e2){} }
+  paintUndo();
+}
+// La etiqueta de lo que se va a guardar, si quien cambia sabe decirlo mejor.
+function undoLabel(t){ undoPending=t; }
+// Se agrupa: una acción que guarda tres veces seguidas es un solo paso atrás.
+function undoCheckpoint(){
+  if(!undoReady||undoApplying) return;
+  clearTimeout(undoTimer);
+  undoTimer=setTimeout(undoCommit,600);
+}
+function undoCommit(){
+  if(!undoReady||undoApplying) return;
+  const now=undoSnap();
+  if(undoBase==null){ undoBase=now; return; }
+  if(now===undoBase) return;
+  if(undoNorm(now)===undoNorm(undoBase)){ undoBase=now; return; }   // solo cambió algo automático
+  const label=undoPending||describeChange(JSON.parse(undoBase),JSON.parse(now));
+  undoPending=null;
+  undoStack.push({snap:undoBase,label,at:Date.now()});
+  if(undoStack.length>UNDO_MAX) undoStack.shift();
+  redoStack=[];
+  undoBase=now;
+  undoSave();
+}
+// Lo que llega de otro aparato es el nuevo punto de partida, no un cambio tuyo.
+function undoRebase(){ clearTimeout(undoTimer); undoBase=undoSnap(); undoPending=null; }
+// Qué cambió, en palabras, para el botón y el aviso.
+function describeChange(a,b){
+  const nm=s=>`“${s.name}”`;
+  const A=new Map((a.sessions||[]).map(s=>[s.id,s])), B=new Map((b.sessions||[]).map(s=>[s.id,s]));
+  for(const [id,s] of B) if(!A.has(id)) return 'New sheet '+nm(s);
+  for(const [id,s] of A) if(!B.has(id)) return 'Delete sheet '+nm(s);
+  for(const [id,s2] of B){
+    const s1=A.get(id);
+    if(JSON.stringify(s1)===JSON.stringify(s2)) continue;
+    if(!!s1.archived!==!!s2.archived) return (s2.archived?'Archive sheet ':'Restore sheet ')+nm(s2);
+    if(s1.name!==s2.name) return `Rename sheet ${nm(s1)} → ${nm(s2)}`;
+    const st1=s1.stages||[], st2=s2.stages||[];
+    if(st2.length>st1.length){ const n=st2.find(x=>!st1.some(y=>y.id===x.id)); return 'Add step '+(n?nm(n):'')+' in '+nm(s2); }
+    if(st2.length<st1.length){ const n=st1.find(x=>!st2.some(y=>y.id===x.id)); return 'Remove step '+(n?nm(n):'')+' from '+nm(s2); }
+    for(const x of st2){
+      const y=st1.find(z=>z.id===x.id); if(!y) continue;
+      if(y.name!==x.name) return `Rename step ${nm(y)} → ${nm(x)}`;
+      if((y.photos||[]).length!==(x.photos||[]).length) return ((x.photos||[]).length>(y.photos||[]).length?'Add a photo to ':'Remove a photo from ')+nm(x);
+      if((y.note||'')!==(x.note||'')) return 'Note on '+nm(x);
+      if(y.startedAt!==x.startedAt||y.endedAt!==x.endedAt) return 'Move step '+nm(x);
+    }
+    if(st1.map(x=>x.id).join()!==st2.map(x=>x.id).join()) return 'Reorder steps in '+nm(s2);
+    if((s1.erased||[]).length!==(s2.erased||[]).length) return ((s2.erased||[]).length>(s1.erased||[]).length?'Hide a stretch in ':'Bring back a stretch in ')+nm(s2);
+    if(s1.baseAt!==s2.baseAt||s1.baseDist!==s2.baseDist) return 'Start of '+nm(s2);
+    if(s1.goalCm!==s2.goalCm||s1.myRatio!==s2.myRatio) return 'Target of '+nm(s2);
+    if(JSON.stringify(s1.timer)!==JSON.stringify(s2.timer)) return 'Timer of '+nm(s2);
+    if(JSON.stringify(s1.pctAlarm)!==JSON.stringify(s2.pctAlarm)) return '% alarm of '+nm(s2);
+    return 'Change in '+nm(s2);
+  }
+  if((a.reports||[]).length!==(b.reports||[]).length) return (b.reports||[]).length>(a.reports||[]).length?'New report':'Remove a report';
+  if(!a.visSetup&&b.visSetup) return 'Mark jar, dough and target';
+  if(a.visSetup&&!b.visSetup) return 'Delete the camera marks';
+  if(JSON.stringify(a.visSetup)!==JSON.stringify(b.visSetup)){
+    if(a.visSetup&&b.visSetup&&a.visSetup.pixCal!==b.visSetup.pixCal) return 'Calibrate the camera';
+    return 'Camera marks moved';
+  }
+  return 'Change';
+}
+function undoApply(snap){
+  const o=JSON.parse(snap);
+  undoApplying=true;
+  try{
+    sessions=o.sessions||[];
+    if(!sessions.find(s=>s.id===activeSess)){
+      const vis=sessions.filter(s=>!s.archived);
+      activeSess=vis.length?vis[0].id:null;
+    }
+    sess=sessions.find(s=>s.id===activeSess)||null;
+    reports=o.reports||[];
+    const setupChanged=JSON.stringify(visSetup)!==JSON.stringify(o.visSetup);
+    visSetup=o.visSetup||null; visHint=o.visHint||null;
+    bindSessionState();
+    try{ localStorage.setItem(LS_SESS,JSON.stringify(sessions)); if(activeSess) localStorage.setItem(LS_ACTIVE,String(activeSess)); }catch(e){}
+    idbDo('readwrite',st=>st.put(reports,'reports')).catch(()=>{});
+    if(setupChanged){ doughHist=[]; botHist=[]; saveSetup(true); saveHint(true); }
+    queueSync();
+    renderSessBar(); renderSess(); renderReports(); renderHistory(); applyVisibility(); drawVision(); paintVisLine();
+    if(fullOpen()) drawChartFull();
+    repaint();
+  }finally{ undoApplying=false; }
+  undoBase=undoSnap();
+}
+function undo(){
+  undoCommit();                  // lo que estuviera por guardar, primero
+  const e=undoStack.pop(); if(!e){ showToast('Nothing to undo'); return; }
+  if(e.shots){ redoStack.push(e); undoSave(); shotsUndo(e,true).then(()=>showToast('↶ Undone: '+e.label,3000)).catch(err=>showToast('Could not bring them back: '+err.message)); return; }
+  redoStack.push({snap:undoSnap(),label:e.label,at:Date.now()});
+  undoApply(e.snap); undoSave();
+  showToast('↶ Undone: '+e.label,3000);
+}
+function redo(){
+  const e=redoStack.pop(); if(!e){ showToast('Nothing to redo'); return; }
+  if(e.shots){ undoStack.push(e); undoSave(); shotsUndo(e,false).then(()=>showToast('↷ Redone: '+e.label,3000)).catch(err=>showToast('Could not do it: '+err.message)); return; }
+  undoStack.push({snap:undoSnap(),label:e.label,at:Date.now()});
+  undoApply(e.snap); undoSave();
+  showToast('↷ Redone: '+e.label,3000);
+}
+function paintUndo(){
+  const u=document.getElementById('btn-undo-g'), r=document.getElementById('btn-redo-g');
+  if(u){ const e=undoStack[undoStack.length-1]; u.disabled=!e; u.title=e?'Undo: '+e.label+' (Ctrl/⌘ Z)':'Nothing to undo';
+         u.querySelector('span').textContent=undoStack.length||''; }
+  if(r){ const e=redoStack[redoStack.length-1]; r.disabled=!e; r.title=e?'Redo: '+e.label+' (Ctrl/⌘ ⇧ Z)':'Nothing to redo'; }
+  renderUndoList();
+}
+// La lista entera, en Ajustes: para volver varios pasos de una vez sabiendo a dónde.
+function renderUndoList(){
+  const box=document.getElementById('undo-list'); if(!box) return;
+  if(!undoStack.length){ box.innerHTML='<div style="color:var(--muted);padding:6px 0">Nothing to undo yet.</div>'; return; }
+  const f=t=>new Date(t).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
+  box.innerHTML=undoStack.slice().reverse().map((e,i)=>`<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+      <span style="color:var(--muted);min-width:92px">${f(e.at)}</span><span style="flex:1">${esc(e.label)}</span>
+      <button class="mark-btn" style="padding:4px 8px;font-size:10px" onclick="undoTo(${i+1})">↶ back to before this</button></div>`).join('');
+}
+function undoTo(n){
+  if(!confirm(`Undo the last ${n} change${n>1?'s':''}?\n\nYou can redo them with ↷.`)) return;
+  for(let i=0;i<n;i++){
+    const e=undoStack.pop(); if(!e) break;
+    if(e.shots){ redoStack.push(e); shotsUndo(e,true); continue; }
+    redoStack.push({snap:undoSnap(),label:e.label,at:Date.now()});
+    undoApply(e.snap);
+  }
+  undoSave(); showToast(`↶ Undid ${n} change${n>1?'s':''}`,3000);
+}
+addEventListener('keydown',e=>{
+  if(!(e.ctrlKey||e.metaKey)||e.key.toLowerCase()!=='z') return;
+  // Dentro de un campo de texto, Ctrl+Z es del campo.
+  const t=e.target; if(t&&(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.isContentEditable)) return;
+  e.preventDefault(); e.shiftKey?redo():undo();
+});
+// Texto que va dentro de HTML: nombres de hojas, pasos y notas los escribe el
+// panadero y pueden llevar < o comillas.
+function esc(v){ return String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
 // ═══ SESIÓN POR ETAPAS ═══════════════════════════════════════════════════
 // Una sesión es una elaboración entera — sacar el lievito de la nevera, los
 // refrescos, los impastos, el horno. Cada etapa guarda cuándo empezó y acabó,
@@ -3472,6 +3671,7 @@ function loadSess(){
   renderSessBar(); renderSess();
 }
 function saveSessions(){
+  undoCheckpoint();
   queueSync();
   try{
     localStorage.setItem(LS_SESS,JSON.stringify(sessions));
@@ -3482,7 +3682,7 @@ function saveSess(){ saveSessions(); }
 function renderSessBar(){
   const bar=document.getElementById('sess-bar'); if(!bar)return;
   bar.innerHTML=sessions.map(s=>
-    `<button class="sheet${s.id===activeSess?' active':''}" onclick="pickSession(${s.id})">${s.name}`+
+    `<button class="sheet${s.id===activeSess?' active':''}" onclick="pickSession(${s.id})">${esc(s.name)}`+
     `<span class="x" onclick="event.stopPropagation();closeSession(${s.id})">✕</span></button>`).join('')+
     `<button class="sheet add" onclick="newSession()" title="New session">＋</button>`;
   fitBars();
@@ -3624,11 +3824,11 @@ function renderSess(){
     return `<div style="padding:8px 0;border-bottom:1px solid var(--border)">
       <div style="display:flex;align-items:center;gap:8px">
         <span style="color:var(--muted);min-width:38px">${t}</span>
-        <span style="flex:1"><span onclick="renameStageEl(${s.id},this)" title="Tap to rename" style="cursor:text;border-bottom:1px dotted var(--border)">${s.name}</span>${hand}${s.endedAt?'':' <span style="color:var(--green)">•</span>'}</span>
+        <span style="flex:1"><span onclick="renameStageEl(${s.id},this)" title="Tap to rename" style="cursor:text;border-bottom:1px dotted var(--border)">${esc(s.name)}</span>${hand}${s.endedAt?'':' <span style="color:var(--green)">•</span>'}</span>
         <span style="color:var(--muted)">${dur!=null?fmtElapsed(dur):'no time'}</span>
       </div>
       ${handVals}
-      ${s.note?`<div style="color:var(--muted);margin:4px 0 0 46px;font-style:italic">${s.note}</div>`:''}
+      ${s.note?`<div style="color:var(--muted);margin:4px 0 0 46px;font-style:italic">${esc(s.note)}</div>`:''}
       ${thumbs?`<div style="display:flex;gap:5px;margin:6px 0 0 46px">${thumbs}</div>`:''}
       <div style="display:flex;gap:5px;margin:6px 0 0 46px">
         <button class="mark-btn" style="padding:4px 8px;font-size:10px" onclick="pickPhoto(${s.id})">📷</button>
@@ -3749,15 +3949,13 @@ async function delPhoto(){
   const {stageId,pid}=photoOpen;
   const s=sess&&sess.stages.find(x=>x.id===stageId);
   if(!s){closePhoto();return;}
-  if(!confirm('Remove this photo?\n\nIt goes from the step and from the reports written after this.'))return;
+  if(!confirm('Remove this photo from the step?\n\n↶ Undo brings it back.'))return;
+  // Se quita del paso, no se borra el fichero: así ↶ la devuelve. Lo que se
+  // sincroniza es la lista del paso, y sin su id nadie la enseña ni la manda
+  // al informe.
   s.photos=(s.photos||[]).filter(x=>x!==pid);
-  // El blob también, aquí y arriba: si solo se borrase aquí, el otro aparato
-  // la seguiría viendo y al sincronizar volvería.
-  try{ await idbDo('readwrite',st=>st.delete('photo-'+pid)); }catch(e){}
-  photoUp.delete(pid); try{localStorage.setItem('pb-photo-up',JSON.stringify([...photoUp]));}catch(e){}
-  if(!SANDBOX) fetch(`${SUPA_URL}/storage/v1/object/proofbox-photos/${pid}.jpg`,
-    {method:'DELETE',headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY}}).catch(()=>{});
-  saveSess(); renderSess(); closePhoto(); showToast('Photo removed');
+  undoLabel('Remove a photo from “'+s.name+'”');
+  saveSess(); renderSess(); closePhoto(); showToast('Photo removed — ↶ brings it back');
 }
 // Primero aquí, que es instantáneo; si la sacó el otro aparato, de Storage, y
 // se queda guardada para no volver a pedirla.
@@ -4504,6 +4702,7 @@ function fromCanon(p,a){ return isWide(a)?{x:p.x,y:(p.y-CANON_Y0)/CANON_SPAN}:{x
 function boxConv(b,a,fn){ const p1=fn({x:b.x1,y:b.y1},a), p2=fn({x:b.x2,y:b.y2},a); return {...b,x1:p1.x,y1:p1.y,x2:p2.x,y2:p2.y}; }
 try{ visHint=JSON.parse(localStorage.getItem('pb-vis-hint')||'null'); }catch(e){}
 function saveHint(publish){
+  undoCheckpoint();
   try{ localStorage.setItem('pb-vis-hint',JSON.stringify(visHint)); }catch(e){}
   if(publish&&!SANDBOX&&mqttClient&&mqttClient.connected) mqttClient.publish(CAM_TOPIC+'/hint',JSON.stringify(visHint||{}),{retain:true});
 }
@@ -4903,6 +5102,7 @@ let visSetup=null, setupStep=0, setupShapes={}, setupDrag=null;
 try{ visSetup=JSON.parse(localStorage.getItem('pb-vis-setup')||'null'); }catch(e){}
 if(visSetup&&!visSetup.canon) visSetup=null;   // de antes del arreglo de formatos: se vuelve a marcar
 function saveSetup(publish){
+  undoCheckpoint();
   try{ localStorage.setItem('pb-vis-setup',JSON.stringify(visSetup)); }catch(e){}
   if(publish&&!SANDBOX&&mqttClient&&mqttClient.connected){
     const {ref,...light}=visSetup||{};   // la foto va aparte, a Storage
@@ -5157,33 +5357,69 @@ async function shotToStep(){
     closeShot();
   }catch(e){ showToast('Could not add that picture'); }
 }
-async function delShotFiles(names){
-  // Un solo DELETE con la lista: borrar de una en una con 50 fotos es lento.
-  const r=await fetch(`${SUPA_URL}/storage/v1/object/proofbox-photos`,{
-    method:'DELETE',
+// Borrar una captura es mandarla a la papelera (cam/…/trash/), no borrarla:
+// ↶ la devuelve. La papelera se vacía sola a los 7 días. El nombre en la
+// papelera lleva delante cuándo se tiró, que es lo que decide esa limpieza.
+const CAM_PREFIX='cam/proofbox-cam01/';
+async function moveObj(from,to){
+  const r=await fetch(`${SUPA_URL}/storage/v1/object/move`,{method:'POST',
     headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY,'Content-Type':'application/json'},
-    body:JSON.stringify({prefixes:names.map(n=>'cam/proofbox-cam01/shots/'+n)})});
+    body:JSON.stringify({bucketId:'proofbox-photos',sourceKey:from,destinationKey:to})});
   if(!r.ok) throw new Error('HTTP '+r.status);
 }
+// De seis en seis: cientos de una en una tardan, y todas a la vez saturan.
+async function movePairs(pairs,back){
+  for(let i=0;i<pairs.length;i+=6)
+    await Promise.all(pairs.slice(i,i+6).map(([shot,trash])=>back?moveObj(CAM_PREFIX+'trash/'+trash,CAM_PREFIX+'shots/'+shot):moveObj(CAM_PREFIX+'shots/'+shot,CAM_PREFIX+'trash/'+trash)));
+}
+async function trashShots(names,label){
+  if(SANDBOX){ showToast('Sandbox — nothing is deleted'); return false; }
+  const at=Math.floor(Date.now()/1000);
+  const pairs=names.map(n=>[n,at+'_'+n]);
+  await movePairs(pairs,false);
+  undoStack.push({shots:pairs,label,at:Date.now()});
+  if(undoStack.length>UNDO_MAX) undoStack.shift();
+  redoStack=[]; undoSave();
+  return true;
+}
+async function shotsUndo(e,back){
+  showToast(back?'↶ Bringing the pictures back…':'↷ Removing them again…',4000);
+  await movePairs(e.shots,back);
+  loadCamShots();
+}
+async function purgeCamTrash(){
+  if(SANDBOX) return;
+  try{
+    const r=await fetch(`${SUPA_URL}/storage/v1/object/list/proofbox-photos`,{method:'POST',
+      headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY,'Content-Type':'application/json'},
+      body:JSON.stringify({prefix:CAM_PREFIX+'trash',limit:1000})});
+    const rows=await r.json(); if(!Array.isArray(rows)) return;
+    const old=rows.map(o=>o.name).filter(n=>parseInt(n,10)*1000<Date.now()-7*86400000);
+    for(let i=0;i<old.length;i+=100)
+      await fetch(`${SUPA_URL}/storage/v1/object/proofbox-photos`,{method:'DELETE',
+        headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY,'Content-Type':'application/json'},
+        body:JSON.stringify({prefixes:old.slice(i,i+100).map(n=>CAM_PREFIX+'trash/'+n)})});
+  }catch(e){}
+}
+setTimeout(purgeCamTrash,20000);
 async function deleteShot(){
   if(!shotOpen)return;
   const o=shotOpen;
-  if(!confirm('Delete this picture?\n\nIt is removed for good. Copies you added to a step stay.'))return;
   try{
-    await delShotFiles([o.name]);
+    if(!await trashShots([o.name],'Delete a camera picture')) return;
     camShots=camShots.filter(x=>x.name!==o.name);
-    renderCamShots(); closeShot(); showToast('Picture deleted');
+    renderCamShots(); closeShot(); showToast('Picture deleted — ↶ brings it back');
   }catch(e){ showToast('Could not delete it: '+e.message); }
 }
 async function deleteAllShots(){
   if(!camShots.length)return;
-  if(!confirm(`Delete all ${camShots.length} saved pictures?\n\nThey are removed for good. Copies you added to a step stay, and the camera will start saving again every 10 minutes.`))return;
+  if(!confirm(`Delete all ${camShots.length} saved pictures?\n\nThey go to the bin for 7 days: ↶ Undo brings them back. Copies you added to a step stay.`))return;
   const names=camShots.map(o=>o.name);
   try{
-    // En tandas: una lista de cientos de nombres en una sola petición falla.
-    for(let i=0;i<names.length;i+=100) await delShotFiles(names.slice(i,i+100));
-    camShots=[]; renderCamShots(); showToast('All saved pictures deleted');
-  }catch(e){ showToast('Could not delete them: '+e.message); }
+    showToast('Deleting…',20000);
+    if(!await trashShots(names,`Delete ${names.length} camera pictures`)) return;
+    camShots=[]; renderCamShots(); showToast('All saved pictures deleted — ↶ brings them back');
+  }catch(e){ showToast('Could not delete them: '+e.message); loadCamShots(); }
 }
 function shotUrl(o){ return `${SUPA_URL}/storage/v1/object/public/proofbox-photos/cam/proofbox-cam01/shots/${o.name}`; }
 function renderCamShots(){
@@ -5288,8 +5524,8 @@ function hudHtml(k){
   const t=id=>{const e=document.getElementById(id); return e?e.textContent.trim():'--';};
   const a=activeStage();
   switch(k){
-    case 'name': return sess?`<div class="l">Sheet</div><b style="font-size:13px;color:#fff">${sess.name}</b>`:'';
-    case 'step': return a?`<div class="l">Step</div><b style="font-size:13px;color:#fff">${a.name}</b>`:'';
+    case 'name': return sess?`<div class="l">Sheet</div><b style="font-size:13px;color:#fff">${esc(sess.name)}</b>`:'';
+    case 'step': return a?`<div class="l">Step</div><b style="font-size:13px;color:#fff">${esc(a.name)}</b>`:'';
     case 'progress': return `<div class="l">Progress</div><b>${t('meta-pct')}</b> <span style="opacity:.75">${t('meta-ratio-now')} / ${t('meta-ratio-goal')}</span>`;
     case 'growth': return `<div class="l">Growth · 3 h</div>${sparkSvg('rise','#f0a832')||'<span style="opacity:.6">no data yet</span>'}`;
     case 'temp': return `<div class="l">Temperature</div><b>${t('temp-big')}°C</b>`;
@@ -5458,23 +5694,76 @@ function startCam(){
 addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') refreshCam(true); });
 
 // ─── Informes guardados ───────────────────────────────────────────────────
-// Van a IndexedDB, no a localStorage: un informe con fotos pesa megas. Se
-// guardan al generarlos, así que cerrar la vista ya no pierde nada.
+// Cada informe pesa cientos de KB (fotos incrustadas). Antes viajaban enteros
+// dentro de la fila compartida: con dos informes, cada toque en la app subía
+// 431 KB, y con cuarenta habrían sido megas. Ahora la hoja solo lleva el índice
+// (id, hoja, título); el contenido va a su tabla (proofbox_reports) y a
+// IndexedDB, y se baja al abrirlo. Borrar es quitarlo del índice: el contenido
+// se queda, así que ↶ lo devuelve.
 let reports=[];
+const REP_TABLE=`${SUPA_URL}/rest/v1/proofbox_reports`;
+const repIndex=r=>({id:r.id,sess:r.sess,title:r.title,meta:r.meta});
+// Qué informes ya están en la tabla. Los que no, se reintentan al abrir la
+// app: si la subida falló, el contenido sigue en IndexedDB de este aparato.
+let repUp=new Set();
+try{ repUp=new Set(JSON.parse(localStorage.getItem('pb-rep-up')||'[]')); }catch(e){}
+function markRepUp(id){ repUp.add(id); try{localStorage.setItem('pb-rep-up',JSON.stringify([...repUp]));}catch(e){} }
+async function storeReportBody(r){
+  try{ await idbDo('readwrite',st=>st.put(r,'report-'+r.id)); }catch(e){}
+  if(SANDBOX||repUp.has(r.id)) return;
+  try{
+    const res=await fetch(REP_TABLE+'?on_conflict=id',{method:'POST',
+      headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY,'Content-Type':'application/json',Prefer:'resolution=ignore-duplicates,return=minimal'},
+      body:JSON.stringify({id:r.id,device_id:DEVICE_ID,sess:r.sess,title:r.title,meta:r.meta,html:r.html,chart:r.chart||''})});
+    if(res.ok) markRepUp(r.id);
+  }catch(e){}
+}
+async function retryReportUploads(){
+  for(const r of reports){
+    if(repUp.has(r.id)) continue;
+    let b=null; try{ b=await idbDo('readonly',st=>st.get('report-'+r.id)); }catch(e){}
+    if(b&&b.html!=null) await storeReportBody(b);
+  }
+}
+async function reportBody(id){
+  try{ const r=await idbDo('readonly',st=>st.get('report-'+id)); if(r&&r.html!=null) return r; }catch(e){}
+  try{
+    const res=await fetch(`${REP_TABLE}?id=eq.${id}&select=id,sess,title,meta,html,chart`,{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY}});
+    const rows=await res.json(); const r=rows&&rows[0];
+    if(r){ try{ await idbDo('readwrite',st=>st.put(r,'report-'+id)); }catch(e){} return r; }
+  }catch(e){}
+  return null;
+}
+// Los que llegan en el formato viejo (con el contenido dentro) se guardan
+// aparte y se quedan en índice. Devuelve true si hubo que mudar alguno.
+async function adoptReports(list){
+  let moved=false;
+  const out=[];
+  for(const r of (list||[])){
+    if(r&&r.html!=null){ await storeReportBody(r); moved=true; }
+    if(r&&r.id) out.push(repIndex(r));
+  }
+  return {list:out,moved};
+}
+async function saveReportIndex(){ undoCheckpoint(); try{ await idbDo('readwrite',st=>st.put(reports,'reports')); }catch(e){} }
 async function loadReports(){
-  try{ reports=(await idbDo('readonly',st=>st.get('reports')))||[]; }catch(e){ reports=[]; }
+  let raw=[]; try{ raw=(await idbDo('readonly',st=>st.get('reports')))||[]; }catch(e){}
+  const a=await adoptReports(raw);
+  reports=a.list; if(a.moved) saveReportIndex();
   renderReports();
+  setTimeout(retryReportUploads,5000);
 }
 async function saveReport(rec){
-  reports.push(rec);
-  reports=reports.slice(-40);
-  try{ await idbDo('readwrite',st=>st.put(reports,'reports')); }catch(e){}
-  queueSync(); renderReports();
+  await storeReportBody(rec);
+  reports.push(repIndex(rec));
+  saveReportIndex(); queueSync(); renderReports();
 }
 async function deleteReport(id){
-  if(!confirm('Delete this report?'))return;
-  reports=reports.filter(r=>r.id!==id);
-  try{ await idbDo('readwrite',st=>st.put(reports,'reports')); }catch(e){}
+  const r=reports.find(x=>x.id===id); if(!r) return;
+  if(!confirm(`Remove the report “${r.title}”?\n\n↶ Undo brings it back.`))return;
+  reports=reports.filter(x=>x.id!==id);
+  undoLabel('Remove report “'+r.title+'”');
+  saveReportIndex(); queueSync();    // sin esto el otro aparato lo devolvía al sincronizar
   renderReports();
 }
 function renderReports(){
@@ -5489,7 +5778,7 @@ function renderReports(){
     mine.slice().reverse().map(r=>`
       <div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);font-size:11px">
         <span style="color:var(--muted);min-width:64px">${new Date(r.id).toLocaleDateString('en-GB',{day:'2-digit',month:'short'})}</span>
-        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.title}</span>
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.title)}</span>
         <button class="mark-btn" style="padding:5px 9px;font-size:10px" onclick="reopenReport(${r.id})">Open</button>
         <button class="mark-btn" style="padding:5px 8px;font-size:10px;color:var(--muted)" onclick="deleteReport(${r.id})">✕</button>
       </div>`).join('');
@@ -5510,19 +5799,20 @@ function renderAllReports(){
   let out='';
   for(const [k,list] of byS){
     const name=(sessions.find(s=>s.id===k)||{}).name||'Closed sheet';
-    out+=`<div style="color:var(--amber-l);margin:10px 0 2px;font-size:10px;letter-spacing:.08em;text-transform:uppercase">${name}</div>`;
+    out+=`<div style="color:var(--amber-l);margin:10px 0 2px;font-size:10px;letter-spacing:.08em;text-transform:uppercase">${esc(name)}</div>`;
     out+=list.slice().reverse().map(r=>
       `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
          <span style="color:var(--muted);min-width:60px">${new Date(r.id).toLocaleDateString('en-GB',{day:'2-digit',month:'short'})}</span>
-         <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.title}</span>
+         <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.title)}</span>
          <button class="mark-btn" style="padding:4px 8px;font-size:10px" onclick="reopenReport(${r.id})">Open</button>
          <button class="mark-btn" style="padding:4px 7px;font-size:10px;color:var(--muted)" onclick="deleteReport(${r.id})">✕</button>
        </div>`).join('');
   }
   box.innerHTML=out;
 }
-function reopenReport(id){
-  const r=reports.find(x=>x.id===id); if(!r)return;
+async function reopenReport(id){
+  const r=await reportBody(id);
+  if(!r){ showToast('Could not load that report'); return; }
   showReportView(r.title,r.meta,r.html,r.chart);
 }
 
@@ -5975,6 +6265,9 @@ loadSess();
 startCam();
 loadReports();
 setTimeout(()=>pullState(),1200);
+// El deshacer empieza cuando ya está todo cargado (hojas, informes, marcas):
+// antes, la propia carga parecería un cambio.
+setTimeout(()=>{ undoRebase(); undoReady=true; paintUndo(); },2500);
 initReadout();
 loadAlarms();
 connect();
