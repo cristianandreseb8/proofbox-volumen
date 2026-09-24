@@ -674,6 +674,18 @@ Lo que queda abierto: el broker MQTT público (órdenes al sensor —el secreto
 está en el HTML— y a la cámara). Se cierra con un broker con usuario y
 contraseña (p. ej. HiveMQ Cloud), que tiene que crear el usuario.
 
+**Tema claro/oscuro y acabado (2026-09-24).** Todo color de la interfaz sale de
+los tokens de `:root` y `:root[data-theme="light"]`; el tema se decide en un
+script del `<head>` antes de pintar (sin destello). Auto sigue al sistema. La
+cámara, su pantalla completa y las cajas encima de la imagen se quedan oscuras
+a propósito. Inter para la interfaz, Syne para marca y cifras grandes. Iconos
+de línea (`ICONS`, `<i data-ic>`, `hydrateIcons`) en lugar de emojis: cambian
+con el tema. El bloque "Acabado" va al final del `<style>` y pisa lo anterior.
+
+**Minimizar tarjetas**: "–" en cada una (`wireCardTools`), fichas arriba en
+`#dock` (`pb-min`, por aparato); en el móvil un desplegable. Una minimizada
+queda fuera de `applyVisibility` igual que una oculta en Ajustes.
+
 ## Pendiente
 
 - **Los electrodos nunca se han verificado en líquido.** Marcan 4.7 kΩ clavado,

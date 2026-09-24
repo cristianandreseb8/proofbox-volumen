@@ -18,11 +18,29 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="ProofBox">
-<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@500;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Inter:wght@400;500;600;700&family=Syne:wght@500;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/mqtt@4.3.7/dist/mqtt.min.js"></script>
+<script>
+// El tema se decide antes de pintar nada: si no, al abrir en claro se veía un
+// destello oscuro. 'auto' sigue al sistema.
+(function(){ try{
+  const t=localStorage.getItem('pb-theme')||'auto';
+  const dark=t==='dark'||(t==='auto'&&matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.dataset.theme=dark?'dark':'light';
+}catch(e){} })();
+</script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-:root{--bg:#0f0e0c;--surface:#1a1815;--border:#2e2b26;--amber:#d4820e;--amber-l:#f0a832;--amber-d:#7a4a08;--red:#c0392b;--green:#27ae60;--text:#e8e2d6;--muted:#7a7268}
+/* Tema. Todo color de la interfaz sale de aquí; la cámara, su pantalla completa y
+   las cajas encima de la imagen se quedan oscuras a propósito (van sobre foto). */
+:root{--bg:#0f0e0c;--surface:#181613;--surface-2:#201d19;--border:#2b2823;--border-strong:#3a352e;
+  --amber:#d4820e;--amber-l:#f0a832;--amber-d:#7a4a08;--accent-soft:rgba(240,168,50,.12);--on-accent:#1a1206;
+  --red:#d0473a;--green:#2fb36b;--text:#ece6da;--muted:#8a8276;--bar-bg:#0b0a09;
+  --shadow:0 1px 2px rgba(0,0,0,.35),0 10px 30px rgba(0,0,0,.22);--radius:14px;color-scheme:dark}
+:root[data-theme="light"]{--bg:#f4f2ee;--surface:#ffffff;--surface-2:#f7f5f1;--border:#e5e0d7;--border-strong:#d3ccbf;
+  --amber:#b8690c;--amber-l:#c2700c;--amber-d:#f1dcc0;--accent-soft:rgba(194,112,12,.10);--on-accent:#ffffff;
+  --red:#c0392b;--green:#1d8a50;--text:#1c1916;--muted:#766e63;--bar-bg:#ebe7df;
+  --shadow:0 1px 2px rgba(28,25,22,.05),0 8px 24px rgba(28,25,22,.06);color-scheme:light}
 body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;min-height:100vh}
 .app{max-width:400px;margin:0 auto;padding:16px 12px 48px}
 .header{display:flex;align-items:center;justify-content:space-between;padding:8px 0 18px}
@@ -296,6 +314,80 @@ body.board .app{max-width:none;padding:16px 22px 80px}
 .new-dough:active{background:var(--amber-d);color:var(--text)}
 .interval-row{display:flex;gap:8px;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}
 #interval-sel{color:var(--text);font-family:'DM Mono',monospace;font-size:13px;outline:none}
+
+/* ═══ Acabado ═══════════════════════════════════════════════════════════════
+   Inter para la interfaz (cifras tabulares, se lee mejor que la mono en frases),
+   Syne para la marca y las cifras grandes. Todos los controles comparten alto,
+   radio y estados. Va al final a propósito: pisa lo anterior sin reescribirlo. */
+body{font-family:'Inter',system-ui,-apple-system,sans-serif;font-feature-settings:'tnum' 1,'cv11' 1;-webkit-font-smoothing:antialiased;letter-spacing:-.005em}
+button,select,input,textarea{font-family:inherit!important}
+.card{border-radius:var(--radius);padding:18px;box-shadow:var(--shadow);border-color:var(--border)}
+.card-label{font-size:11px;font-weight:600;letter-spacing:.09em;color:var(--muted)}
+.header{padding:10px 0 16px}
+.logo{font-size:21px}
+.mark-btn,.reset-btn,.reset-small,.new-dough,.undo-btn,.cam-btns button,.cam-btns select,.chart-full-head button,.log-btns button{
+  border-radius:9px;border:1px solid var(--border-strong);background:var(--surface-2);color:var(--text);
+  font-size:12px;font-weight:500;transition:border-color .15s,background .15s,color .15s}
+.mark-btn{min-height:34px;padding:7px 12px}
+.mark-btn:hover,.cam-btns button:hover,.undo-btn:not(:disabled):hover,.chart-full-head button:hover,.reset-btn:hover{border-color:var(--amber)}
+.mark-btn:active{background:var(--accent-soft);border-color:var(--amber)}
+.cal-btn{background:var(--amber);color:var(--on-accent);font-weight:600;border-radius:10px;min-height:38px;box-shadow:0 1px 0 rgba(0,0,0,.08)}
+.cal-btn:hover{filter:brightness(1.06)}
+.cal-btn:disabled{opacity:.5}
+.cam-btns button{min-height:30px;display:inline-flex;align-items:center;gap:5px}
+.cam-btns button.on,.chart-full-head button.on{background:var(--accent-soft);border-color:var(--amber);color:var(--amber-l)}
+.new-dough{border-color:var(--amber);color:var(--amber-l);background:var(--accent-soft);min-height:32px;padding:6px 12px;font-weight:600}
+.num-input{background:var(--surface-2);border-color:var(--border-strong);border-radius:9px}
+.num-input:focus{border-color:var(--amber);box-shadow:0 0 0 3px var(--accent-soft)}
+.track{height:8px;background:var(--surface-2);border-color:var(--border)}
+.gtab{background:var(--surface-2);border-color:var(--border-strong);border-radius:8px}
+.gtab.active{background:var(--accent-soft)}
+.sheet-bar{background:var(--bar-bg)}
+.sess-bar{background:var(--bar-bg)}
+.sheet{background:transparent;border-color:transparent;color:var(--muted);font-weight:500}
+.sheet:hover{color:var(--text)}
+.sess-bar .sheet.active,.sheet.active{background:var(--bg);color:var(--text);border-color:var(--border)}
+.view-bar .sheet.active{color:var(--amber-l);box-shadow:inset 0 -2px 0 var(--amber)}
+.sheet.add{color:var(--amber-l)}
+.modal-box{border-color:var(--border-strong);border-radius:16px}
+.pop{border-color:var(--border-strong)}
+.warn{border-radius:10px}
+.vis-row{border-color:var(--border)}
+.meta-big{letter-spacing:-.02em}
+/* Iconos de línea en lugar de emojis: se pintan con el color del texto y
+   cambian con el tema. */
+.ic{width:15px;height:15px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;vertical-align:-3px}
+.view-bar .sheet .ic{width:16px;height:16px}
+/* Tarjetas minimizadas: arriba, como fichas; en el móvil, en un desplegable. */
+.card-tools{position:absolute;top:8px;right:8px;display:flex;gap:2px;z-index:2}
+.card-tools .drag-handle{position:static;padding:6px 7px}
+.min-btn{background:transparent;border:none;color:var(--muted);cursor:pointer;padding:4px 7px;border-radius:7px;line-height:0;opacity:.6}
+.min-btn:hover{opacity:1;background:var(--surface-2);color:var(--text)}
+#dock{display:none;flex-wrap:wrap;gap:6px;margin:0 0 12px}
+#dock.show{display:flex}
+.dock-chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border-strong);background:var(--surface);color:var(--text);
+  border-radius:999px;padding:6px 12px 6px 10px;font-size:12px;font-weight:500;cursor:pointer;box-shadow:var(--shadow)}
+.dock-chip:hover{border-color:var(--amber)}
+.dock-chip .ic{width:13px;height:13px;color:var(--amber-l)}
+.dock-menu-btn{display:none}
+@media (max-width:560px){
+  #dock .dock-chip{display:none}
+  #dock .dock-menu-btn{display:inline-flex}
+}
+.meta-jar .jar-body{fill:var(--surface-2)}
+.meta-jar .jar-glass{stroke:var(--border-strong)}
+:root[data-theme="dark"] .meta-jar .jar-glass{stroke:#e8e2d6}
+:root[data-theme="dark"] .meta-jar .jar-body{fill:#1a1815}
+.logo{white-space:nowrap}
+.header>div:last-child{gap:8px!important}
+/* El título de cada tarjeta deja sitio a sus botones de la esquina. */
+.card>.big-row,.card>.rise-head{padding-right:54px}
+.undo-btn{display:inline-flex;align-items:center;gap:3px;line-height:1}
+.undo-btn .ic{width:15px;height:15px}
+@media (max-width:420px){ .header .logo{font-size:18px} #status-txt{display:none} }
+.chart-full-head b{flex:1 1 260px;min-width:0}
+.theme-btn{background:transparent;border:1px solid var(--border-strong);color:var(--muted);border-radius:9px;padding:6px 8px;cursor:pointer;line-height:0}
+.theme-btn:hover{color:var(--text);border-color:var(--amber)}
 </style>
 </head>
 <body>
@@ -343,19 +435,19 @@ body.board .app{max-width:none;padding:16px 22px 80px}
     <button class="zb" onclick="zoomStep(-1)" title="Zoom out">−</button>
     <button class="zp" id="cam-zoom-pct" onclick="setZoom(1)" title="Back to 100%">100%</button>
     <button class="zb" onclick="zoomStep(1)" title="Zoom in">+</button>
-    <button id="btn-frame-full" onclick="toggleFrameMode()" title="Set up jar, dough and target">🎯</button>
-    <button onclick="clearHint()" title="Delete the marks">🗑</button>
-    <button id="btn-vis-eye-full" onclick="toggleVisShow()" title="Show or hide what the AI sees">👁</button>
-    <button id="btn-contrast-full" onclick="toggleContrast()" title="High-contrast view">◐</button>
-    <button onclick="openHudCfg()" title="What to show over the picture">⚙</button>
-    <button onclick="closeCamFull()" title="Close">✕</button>
+    <button id="btn-frame-full" onclick="toggleFrameMode()" title="Mark jar, dough and target"><i data-ic="frame"></i></button>
+    <button onclick="clearHint()" title="Delete the marks"><i data-ic="trash"></i></button>
+    <button id="btn-vis-eye-full" onclick="toggleVisShow()" title="Show or hide the marks"><i data-ic="eye"></i></button>
+    <button id="btn-contrast-full" onclick="toggleContrast()" title="High-contrast view"><i data-ic="contrast"></i></button>
+    <button onclick="openHudCfg()" title="What to show over the picture"><i data-ic="gear"></i></button>
+    <button onclick="closeCamFull()" title="Close"><i data-ic="close"></i></button>
   </div>
   <div class="cam-full-bar">
     <span class="who" id="cam-full-txt"></span>
-    <button onclick="askShot()">📸 Picture</button>
-    <button onclick="straightenWithClaude()" title="Claude levels the image">✨ Straighten</button>
-    <button id="btn-live-full" onclick="toggleLive()">▶ Live</button>
-    <button onclick="closeCamFull()">✕ Close</button>
+    <button onclick="askShot()"><i data-ic="camera"></i> Picture</button>
+    <button onclick="straightenWithClaude()" title="Claude levels the image"><i data-ic="ai"></i> Straighten</button>
+    <button id="btn-live-full" onclick="toggleLive()"><i data-ic="play"></i> Live</button>
+    <button onclick="closeCamFull()"><i data-ic="close"></i> Close</button>
   </div>
 </div>
 <div class="modal" id="hud-modal" onclick="if(event.target===this)closeHudCfg()" style="z-index:1600">
@@ -512,10 +604,10 @@ body.board .app{max-width:none;padding:16px 22px 80px}
       <option value="1800">Very strong · 30 min</option>
     </select>
     <button id="btn-erase-undo" hidden onclick="undoErase()" title="Bring back the last stretch you hid">↶ Undo erase</button>
-    <button id="btn-section" onclick="toggleSection()" title="Mark steps on the chart: tap to split, drag to make a section, drag a line to move it">⎸⎸ Steps</button>
-    <button id="btn-eraser" onclick="toggleEraser()" title="Drag across the chart to hide a stretch">🧽 Erase</button>
-    <button id="btn-compare" onclick="openCompare()" title="Put steps from any sheet on top of each other">⧉ Compare</button>
-    <button onclick="closeChartFull()">✕</button>
+    <button id="btn-section" onclick="toggleSection()" title="Mark steps on the chart: tap to split, drag to make a section, drag a line to move it"><i data-ic="steps"></i> Steps</button>
+    <button id="btn-eraser" onclick="toggleEraser()" title="Drag across the chart to hide a stretch"><i data-ic="eraser"></i> Erase</button>
+    <button id="btn-compare" onclick="openCompare()" title="Put steps from any sheet on top of each other"><i data-ic="compare"></i> Compare</button>
+    <button onclick="closeChartFull()" title="Close"><i data-ic="close"></i></button>
   </div>
   <div id="section-hint" style="display:none;font-size:11px;color:var(--amber-l);padding:4px 2px">Tap to split a step there · drag across to make a new step from start to end · drag a dotted line to move it · tap a step's name to rename it.</div>
   <div id="eraser-hint" style="display:none;font-size:11px;color:var(--amber-l);padding:4px 2px">Drag across the stretch you want to hide — a knock, the sensor moved. Nothing is deleted: ↶ Undo erase brings it back.</div>
@@ -543,13 +635,13 @@ body.board .app{max-width:none;padding:16px 22px 80px}
 </div>
 <div class="sheet-bar sess-bar" id="sess-bar"></div>
 <div class="sheet-bar view-bar">
-    <button class="sheet active" id="mode-meta" onclick="setDMode('meta')" title="Target">🎯<span class="tl"> Target</span></button>
-    <button class="sheet" id="mode-chart" onclick="setDMode('chart')" title="Chart">📊<span class="tl"> Chart</span></button>
-    <button class="sheet" id="mode-report" onclick="setDMode('report')" title="Report">📄<span class="tl"> Report</span></button>
-    <button class="sheet" id="mode-settings" onclick="setDMode('settings')" title="Settings">⚙<span class="tl"> Settings</span></button>
+    <button class="sheet active" id="mode-meta" onclick="setDMode('meta')" title="Target"><i data-ic="target"></i><span class="tl"> Target</span></button>
+    <button class="sheet" id="mode-chart" onclick="setDMode('chart')" title="Chart"><i data-ic="chart"></i><span class="tl"> Chart</span></button>
+    <button class="sheet" id="mode-report" onclick="setDMode('report')" title="Report"><i data-ic="report"></i><span class="tl"> Report</span></button>
+    <button class="sheet" id="mode-settings" onclick="setDMode('settings')" title="Settings"><i data-ic="settings"></i><span class="tl"> Settings</span></button>
     <span style="flex:1"></span>
-    <button class="undo-btn" id="btn-undo-g" onclick="undo()" disabled title="Nothing to undo">↶<span></span></button>
-    <button class="undo-btn" id="btn-redo-g" onclick="redo()" disabled title="Nothing to redo">↷</button>
+    <button class="undo-btn" id="btn-undo-g" onclick="undo()" disabled title="Nothing to undo"><i data-ic="undo"></i><span></span></button>
+    <button class="undo-btn" id="btn-redo-g" onclick="redo()" disabled title="Nothing to redo"><i data-ic="redo"></i></button>
     <button class="sheet tidy" id="btn-board" onclick="toggleBoard()" title="Free board or single column">⊞ Board</button>
     <button class="sheet tidy" id="btn-tidy" onclick="tidyLayout()" title="Align the boxes where they are">⌗ Tidy</button>
 </div>
@@ -558,6 +650,7 @@ body.board .app{max-width:none;padding:16px 22px 80px}
   <div class="header">
     <div class="logo">Proof<span>Box</span> Vol</div>
     <div style="display:flex;align-items:center;gap:10px">
+      <button class="theme-btn" id="btn-theme" onclick="cycleTheme()" title="Theme"></button>
       <button class="new-dough" id="btn-next-top" onclick="openNext()">▶ Start reading</button>
       <div class="status-row" onclick="forceReconnect()" style="cursor:pointer" title="Tap to reconnect">
         <div class="dot" id="dot"></div>
@@ -570,6 +663,7 @@ body.board .app{max-width:none;padding:16px 22px 80px}
   <div class="warn" id="warn-pair" style="margin-bottom:10px;cursor:pointer" onclick="setDMode('settings')">🔒 This device is not paired, so changes here are not being saved. Tap to pair it (Settings → This device).</div>
   <div class="warn" id="warn-link" style="margin-bottom:10px">📡 No signal from the ProofBox — <span id="warn-link-txt">last reading <b id="warn-age">--</b> ago</span>. Everything else keeps working.</div>
   <div id="sensor-note" class="warn show" style="display:none;background:rgba(122,143,168,.10);border-color:#7a8fa8;color:#9db4c9"></div>
+  <div id="dock"></div>
   <div id="stack">
 
   <div class="card sortable" id="panel-meta">
@@ -579,9 +673,9 @@ body.board .app{max-width:none;padding:16px 22px 80px}
              línea de meta al 100%. Es el mismo dibujo que el icono de la app. -->
         <svg id="meta-jar" class="meta-jar empty" viewBox="100 76 312 350" width="58" height="66" aria-hidden="true">
           <defs><clipPath id="jar-inside"><rect x="145" y="129" width="222" height="282" rx="26"/></clipPath></defs>
-          <rect x="136" y="120" width="240" height="300" rx="34" fill="#1a1815"/>
+          <rect class="jar-body" x="136" y="120" width="240" height="300" rx="34"/>
           <g clip-path="url(#jar-inside)"><path id="meta-jar-dough" d="M148 700V300Q256 196 364 300V700Z" fill="#f0a832"/></g>
-          <rect x="136" y="120" width="240" height="300" rx="34" fill="none" stroke="#e8e2d6" stroke-width="18"/>
+          <rect class="jar-glass" x="136" y="120" width="240" height="300" rx="34" fill="none" stroke-width="18"/>
           <rect x="120" y="86" width="272" height="46" rx="14" fill="#d4820e"/>
           <path id="meta-jar-line" d="M104 214H408" stroke="#e8867a" stroke-width="14" stroke-dasharray="26 18" stroke-linecap="round"/>
         </svg>
@@ -640,34 +734,34 @@ body.board .app{max-width:none;padding:16px 22px 80px}
     </div>
     <div class="warn" id="warn-cam" style="margin:10px 0 0">📷 No new picture for a while — is the camera plugged in and on WiFi?</div>
     <div class="cam-btns">
-      <button id="btn-live" onclick="toggleLive()" title="Live video">▶ Live</button>
-      <button id="btn-shot" onclick="askShot()" title="Take a picture now">📸</button>
-      <button onclick="camToStep()" title="Add this picture to the open step">📌</button>
-      <button onclick="openCamFull()" title="Full screen">⛶</button>
-      <button id="btn-vflip" onclick="camFlip('flip')" title="Upside down — for a camera hanging above">⇅</button>
-      <button id="btn-hmirror" onclick="camFlip('mirror')" title="Mirror left to right">⇄</button>
-      <button id="btn-rot" onclick="toggleRot()" title="Turn the image by any angle">⟳ <span id="cam-rot-n">0°</span></button>
-      <button id="btn-vis" onclick="toggleVisBox()" title="Camera measurement: mark the jar, the dough and your target">🤖</button>
-      <button id="btn-vis-eye" onclick="toggleVisShow()" title="Show or hide what the AI sees — it keeps watching either way">👁</button>
-      <button id="btn-contrast" onclick="toggleContrast()" title="High-contrast view: the dough in amber, as the measurement sees it">◐</button>
+      <button id="btn-live" onclick="toggleLive()" title="Live video"><i data-ic="play"></i>Live</button>
+      <button id="btn-shot" onclick="askShot()" title="Take a picture now"><i data-ic="camera"></i></button>
+      <button onclick="camToStep()" title="Add this picture to the open step"><i data-ic="pin"></i></button>
+      <button onclick="openCamFull()" title="Full screen"><i data-ic="expand"></i></button>
+      <button id="btn-vflip" onclick="camFlip('flip')" title="Upside down — for a camera hanging above"><i data-ic="flipv"></i></button>
+      <button id="btn-hmirror" onclick="camFlip('mirror')" title="Mirror left to right"><i data-ic="fliph"></i></button>
+      <button id="btn-rot" onclick="toggleRot()" title="Turn the image by any angle"><i data-ic="rotate"></i><span id="cam-rot-n">0°</span></button>
+      <button id="btn-vis" onclick="toggleVisBox()" title="Camera measurement: mark the jar, the dough and your target"><i data-ic="frame"></i></button>
+      <button id="btn-vis-eye" onclick="toggleVisShow()" title="Show or hide the marks — the camera keeps measuring either way"><i data-ic="eye"></i></button>
+      <button id="btn-contrast" onclick="toggleContrast()" title="High-contrast view: the dough in amber, as the measurement sees it"><i data-ic="contrast"></i></button>
       <select id="cam-quality" onchange="setCamQuality(this.value)" title="Live picture quality — sharper means fewer frames per second"
         style="background:transparent;border:1px solid var(--border);border-radius:7px;color:var(--text);font-family:'DM Mono',monospace;font-size:12px;padding:3px 4px">
         <option value="0">Fluid</option><option value="1">Balanced</option><option value="2">Sharp</option>
       </select>
       <select id="cam-light" onchange="setCamLight(this.value)" title="Light for the dough (needs the LED on D1 — see the guide)"
         style="background:transparent;border:1px solid var(--border);border-radius:7px;color:var(--text);font-family:'DM Mono',monospace;font-size:12px;padding:3px 4px">
-        <option value="0">💡 Off</option><option value="1">💡 Photos</option><option value="2">💡 Always</option>
+        <option value="0">Light off</option><option value="1">Light · photos</option><option value="2">Light · always</option>
       </select>
       <span style="flex:1"></span>
-      <button id="btn-shots" onclick="toggleShots()" title="Pictures saved every 10 minutes">🗂️ <span id="cam-shots-n">0</span></button>
+      <button id="btn-shots" onclick="toggleShots()" title="Pictures saved every 10 minutes"><i data-ic="folder"></i><span id="cam-shots-n">0</span></button>
     </div>
     <div id="cam-vis-box" style="display:none;margin-top:8px">
       <div class="cam-btns" style="margin:0">
-        <button id="btn-vis-now" onclick="calibrateAI()" title="One call to Claude to check the camera's reading and correct it">✨ Calibrate with AI</button>
+        <button id="btn-vis-now" onclick="calibrateAI()" title="One call to Claude to check the camera's reading and correct it"><i data-ic="ai"></i>Calibrate with AI</button>
       </div>
       <div class="cam-btns" style="margin-top:4px">
-        <button id="btn-frame" onclick="toggleFrameMode()" title="Show the AI the jar, the dough and your target">🎯 Set up jar · dough · target</button>
-        <button onclick="clearHint()" title="Delete the marks">🗑 Delete marks</button>
+        <button id="btn-frame" onclick="toggleFrameMode()" title="Mark the jar, the dough and your target"><i data-ic="frame"></i>Mark jar · dough · target</button>
+        <button onclick="clearHint()" title="Delete the marks"><i data-ic="trash"></i>Delete marks</button>
       </div>
       <div style="font-size:10px;color:var(--muted);margin-top:6px;line-height:1.45" id="vis-note">The camera measures the dough by itself every 2 seconds, for free, inside the jar you marked, and warns you when it reaches your line. The sensor still leads: the camera sees at an angle. If the camera reading looks off, Calibrate with AI makes one call to Claude (a few cents) and corrects it.</div>
     </div>
@@ -839,6 +933,16 @@ body.board .app{max-width:none;padding:16px 22px 80px}
       <button class="mark-btn" onclick="sendCmd({cmd:'update'});showToast('Asked the sensor to look for an update')">⟳ Check for update</button>
     </div>
     <button class="reset-btn" onclick="if(confirm('Reset WiFi?'))sendCmd({cmd:'resetwifi'})">⚙ Change WiFi network</button>
+  </div>
+
+  <div class="card">
+    <div class="card-label">Appearance</div>
+    <div class="goal-tabs" style="margin:0">
+      <button class="gtab" data-theme-opt="auto" onclick="setTheme('auto')">Auto</button>
+      <button class="gtab" data-theme-opt="light" onclick="setTheme('light')">Light</button>
+      <button class="gtab" data-theme-opt="dark" onclick="setTheme('dark')">Dark</button>
+    </div>
+    <div style="font-size:10px;color:var(--muted);margin-top:8px;line-height:1.45">Auto follows your phone or computer. The camera and full screen stay dark either way — they sit on the picture.</div>
   </div>
 
   <div class="card">
@@ -2148,7 +2252,7 @@ function toggleEraser(){
   eraser=!eraser;
   if(eraser&&sectionMode) toggleSection();
   document.getElementById('btn-eraser').classList.toggle('on',eraser);
-  document.getElementById('btn-eraser').textContent=eraser?'🧽 Erasing — done':'🧽 Erase';
+  document.getElementById('btn-eraser').innerHTML=ic('eraser')+(eraser?' Erasing — done':' Erase');
   document.getElementById('chart-full-box').classList.toggle('erasing',eraser);
   document.getElementById('eraser-hint').style.display=eraser?'block':'none';
   eraseFrom=null; eraseShade(null,null);
@@ -3116,7 +3220,7 @@ function blankMeta(){
 function applyVisibility(){
   for(const el of document.getElementById('stack').children){
     const only=MODE_ONLY[el.id];
-    el.style.display=((!only||only===currentMode)&&!hiddenBlocks[el.id])?'block':'none';
+    el.style.display=((!only||only===currentMode)&&!hiddenBlocks[el.id]&&!minimized[el.id])?'block':'none';
   }
   const n=document.getElementById('sensor-note');
   if(n){
@@ -3734,6 +3838,106 @@ Return clean semantic HTML for the report body: h1, h2, p, ul, table. No CSS, no
                    : 'Could not write it: '+m;
     st.style.color='var(--red)';
   }finally{ btn.disabled=false; }
+}
+
+// ═══ ICONOS ═════════════════════════════════════════════════════════════
+// Iconos de línea en vez de emojis: los emojis cambian de aspecto según el
+// sistema y no siguen el color del tema. En el HTML van como <i data-ic="x">.
+const ICONS={
+  undo:'<path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>',
+  redo:'<path d="M15 14l5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/>',
+  target:'<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/>',
+  chart:'<path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/>',
+  report:'<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>',
+  settings:'<path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/>',
+  camera:'<path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.5"/>',
+  pin:'<path d="M12 16v6M8 3h8l-1.5 6L18 12.5H6L9.5 9z"/>',
+  expand:'<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+  flipv:'<path d="M3 12h18M8 8l4-4 4 4M8 16l4 4 4-4"/>',
+  fliph:'<path d="M12 3v18M8 8l-4 4 4 4M16 8l4 4-4 4"/>',
+  rotate:'<path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v4h-4"/>',
+  ai:'<path d="M12 3l1.7 4.5L18 9.3l-4.3 1.8L12 15.5l-1.7-4.4L6 9.3l4.3-1.8z"/><path d="M18.5 15l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z"/>',
+  eye:'<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+  contrast:'<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/>',
+  folder:'<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  trash:'<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>',
+  close:'<path d="M6 6l12 12M18 6L6 18"/>',
+  frame:'<circle cx="12" cy="12" r="7"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>',
+  minus:'<path d="M6 12h12"/>',
+  sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  moon:'<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>',
+  auto:'<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/>',
+  play:'<path d="M7 5v14l11-7z" fill="currentColor"/>',
+  pause:'<path d="M8 5v14M16 5v14"/>',
+  steps:'<path d="M8 4v16M16 4v16"/>',
+  eraser:'<path d="M7 21h12"/><path d="M4.5 15.5l9-9 5 5-9 9H8z"/>',
+  compare:'<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/>',
+  down:'<path d="M6 9l6 6 6-6"/>',
+  bulb:'<path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-4 10.5c.8.7 1 1.5 1 2.5h6c0-1 .2-1.8 1-2.5A6 6 0 0 0 12 3z"/>',
+  gear:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+  timer:'<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M9 2h6"/>',
+  temp:'<path d="M14 14.8V4a2 2 0 0 0-4 0v10.8a4 4 0 1 0 4 0z"/>',
+  bolt:'<path d="M13 2L4 14h7l-1 8 9-12h-7z"/>',
+  scale:'<path d="M5 20h14l-2-11H7z"/><circle cx="12" cy="6" r="2.5"/>',
+  list:'<path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/>',
+  jar:'<rect x="6" y="7" width="12" height="14" rx="2"/><path d="M5 4h14v3H5z"/>'
+};
+function ic(name){ return `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]||''}</svg>`; }
+function hydrateIcons(root){ (root||document).querySelectorAll('i[data-ic]').forEach(el=>{ el.outerHTML=ic(el.dataset.ic); }); }
+
+// ═══ TEMA: claro, oscuro o el del sistema ═══════════════════════════════
+function themePref(){ try{ return localStorage.getItem('pb-theme')||'auto'; }catch(e){ return 'auto'; } }
+function applyTheme(){
+  const t=themePref();
+  const dark=t==='dark'||(t==='auto'&&matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.dataset.theme=dark?'dark':'light';
+  const m=document.querySelector('meta[name="theme-color"]'); if(m) m.content=dark?'#0f0e0c':'#f4f2ee';
+  const b=document.getElementById('btn-theme');
+  if(b){ b.innerHTML=ic(t==='auto'?'auto':(t==='dark'?'moon':'sun')); b.title='Theme: '+(t==='auto'?'same as the system':t)+' — tap to change'; }
+  document.querySelectorAll('[data-theme-opt]').forEach(x=>x.classList.toggle('active',x.dataset.themeOpt===t));
+  // Los gráficos llevan los colores dentro del SVG: se repintan.
+  if(typeof renderHistory==='function'&&typeof history!=='undefined') try{ renderHistory(); }catch(e){}
+}
+function setTheme(t){ try{ localStorage.setItem('pb-theme',t); }catch(e){} applyTheme(); }
+function cycleTheme(){ const o=['auto','light','dark']; setTheme(o[(o.indexOf(themePref())+1)%3]); showToast({auto:'Theme follows the system',light:'Light theme',dark:'Dark theme'}[themePref()]); }
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{ if(themePref()==='auto') applyTheme(); });
+
+// ═══ MINIMIZAR TARJETAS ═════════════════════════════════════════════════
+// Cada tarjeta tiene un "–": se va de la columna (o del tablero) y queda como
+// ficha arriba; en el móvil, en un desplegable para no llenar la pantalla de
+// fichas. Tocarla la devuelve a su sitio. Es de este aparato.
+const CARD_ICON={'panel-meta':'target','panel-timer':'timer','panel-cam':'camera','panel-temp':'temp','panel-cond':'bolt',
+  'panel-grams':'scale','panel-session':'list','panel-report':'report','panel-history':'chart'};
+let minimized={};
+try{ minimized=JSON.parse(localStorage.getItem('pb-min')||'{}')||{}; }catch(e){ minimized={}; }
+function saveMin(){ try{ localStorage.setItem('pb-min',JSON.stringify(minimized)); }catch(e){} }
+function cardName(id){ const b=BLOCKS.find(x=>x[0]===id); return b?b[1]:id; }
+function minimizeCard(id){ minimized[id]=true; saveMin(); applyVisibility(); renderDock(); if(typeof fitStack==='function') fitStack(); }
+function restoreCard(id){
+  delete minimized[id]; saveMin(); applyVisibility(); renderDock(); if(typeof fitStack==='function') fitStack();
+  const el=document.getElementById(id); if(el) setTimeout(()=>el.scrollIntoView({behavior:'smooth',block:'nearest'}),30);
+}
+function wireCardTools(){
+  document.querySelectorAll('#stack>.card').forEach(card=>{
+    if(card.querySelector(':scope>.card-tools')) return;
+    const h=card.querySelector(':scope>.drag-handle');
+    const t=document.createElement('div'); t.className='card-tools';
+    t.innerHTML=`<button class="min-btn" title="Minimize" onclick="minimizeCard('${card.id}')">${ic('minus')}</button>`;
+    if(h) t.appendChild(h);
+    card.appendChild(t);
+  });
+}
+function renderDock(){
+  const d=document.getElementById('dock'); if(!d) return;
+  const ids=Object.keys(minimized).filter(id=>document.getElementById(id));
+  d.classList.toggle('show',ids.length>0);
+  d.innerHTML=ids.map(id=>`<button class="dock-chip" onclick="restoreCard('${id}')" title="Show ${esc(cardName(id))}">${ic(CARD_ICON[id]||'list')}${esc(cardName(id))}</button>`).join('')
+    +`<button class="dock-chip dock-menu-btn" onclick="dockMenu(this)">${ic('down')}${ids.length} minimized</button>`;
+}
+function dockMenu(btn){
+  const ids=Object.keys(minimized).filter(id=>document.getElementById(id));
+  openPop(btn,ids.map(id=>({label:`${ic(CARD_ICON[id]||'list')} ${esc(cardName(id))}`,fn:()=>restoreCard(id)}))
+    .concat(ids.length>1?[{label:'Show them all',fn:()=>{ minimized={}; saveMin(); applyVisibility(); renderDock(); }}]:[]));
 }
 
 // ═══ AVISOS AL MÓVIL (ntfy) ═════════════════════════════════════════════
@@ -4415,7 +4619,7 @@ function startLive(){
   };
   beat(); liveBeat=setInterval(beat,5000);
   const lb=document.getElementById('btn-live');
-  lb.textContent='⏸ Pause'; lb.classList.add('on');
+  lb.innerHTML=ic('pause')+'Pause'; lb.classList.add('on');
   paintCamFullTxt();
   document.getElementById('cam-state').textContent='Live: starting the camera…';
 }
@@ -4423,7 +4627,7 @@ function stopLive(){
   liveOn=false;
   if(liveBeat){ clearInterval(liveBeat); liveBeat=null; }
   if(mqttClient&&mqttClient.connected) mqttClient.unsubscribe(CAM_TOPIC+'/live');
-  const b=document.getElementById('btn-live'); if(b){ b.textContent='▶ Live'; b.classList.remove('on'); }
+  const b=document.getElementById('btn-live'); if(b){ b.innerHTML=ic('play')+'Live'; b.classList.remove('on'); }
   paintCamFullTxt();
   const g=document.getElementById('cam-live-badge'); if(g) g.style.display='none';
   const st=document.getElementById('cam-state'); if(st) st.textContent='';
@@ -4964,9 +5168,9 @@ async function calibrateAI(){
   if(!visSetup){ showToast('First mark the jar, the dough and the target with 🎯'); return; }
   if(calibrating||visBusy) return;
   calibrating=true;
-  const b=document.getElementById('btn-vis-now'); if(b){ b.disabled=true; b.textContent='✨ Calibrating…'; }
+  const b=document.getElementById('btn-vis-now'); if(b){ b.disabled=true; b.innerHTML=ic('ai')+'Calibrating…'; }
   try{ await runVision(true); }
-  finally{ calibrating=false; if(b){ b.disabled=false; b.textContent='✨ Calibrate with AI'; } }
+  finally{ calibrating=false; if(b){ b.disabled=false; b.innerHTML=ic('ai')+'Calibrate with AI'; } }
 }
 function applyCalibration(o){
   const sure=o&&o.found&&(o.confidence==null||o.confidence>=0.45)&&o.dough_fraction!=null&&isFinite(o.dough_fraction);
@@ -6036,7 +6240,7 @@ function paintCamFullTxt(){
   if(camFullSrc){ t.textContent='Saved picture'; return; }
   t.textContent=liveOn?'Live':'Last picture · press Live to watch';
   const b=document.getElementById('btn-live-full');
-  if(b) b.textContent=liveOn?'⏸ Pause':'▶ Live';
+  if(b) b.innerHTML=liveOn?ic('pause')+' Pause':ic('play')+' Live';
 }
 function fullShot(){
   if(!shotOpen)return;
@@ -6632,6 +6836,9 @@ function forceReconnect(){
   mqttClient=null;
   connect();
 }
+hydrateIcons();
+wireCardTools();
+applyTheme();
 fitBars();
 loadBoard();
 applyOrder();
@@ -6651,6 +6858,7 @@ startCam();
 loadReports();
 renderNotify();
 renderPair();
+renderDock();
 setTimeout(()=>pullState(),1200);
 // El deshacer empieza cuando ya está todo cargado (hojas, informes, marcas):
 // antes, la propia carga parecería un cambio.
