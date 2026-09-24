@@ -278,7 +278,8 @@ body.board .app{max-width:none;padding:16px 22px 80px}
    parecían un número y ocupaban media tarjeta. */
 /* El bote pequeño del progreso: la masa se desliza hacia arriba (transform, que
    sí se anima) recortada por el interior del bote. */
-.meta-jar{flex:none;overflow:visible}
+.meta-jar{position:absolute;top:34px;right:22px;overflow:visible;pointer-events:none}
+@media (max-width:420px){ .meta-jar{width:44px;height:50px;top:32px;right:16px} }
 .meta-jar #meta-jar-dough{transition:transform 1.2s ease;transform-box:view-box}
 .meta-jar.empty{opacity:.35}
 .meta-jar.done #meta-jar-line{stroke-dasharray:none}
@@ -574,20 +575,9 @@ body.board .app{max-width:none;padding:16px 22px 80px}
   <div class="card sortable" id="panel-meta">
       <div class="drag-handle" title="Drag to reorder">⠿</div>
       <div class="card-label">Progress</div>
-      <div class="meta-big" id="meta-pct">--<span>%</span></div>
-      <div class="meta-ratio-row">
-        <span style="color:var(--text)">Now: <b id="meta-ratio-now">--×</b></span>
-        <span style="color:var(--muted)">Target: <b id="meta-ratio-goal">--×</b></span>
-      </div>
-      <div class="cm-grown">Grown: <b id="cm-grown">--cm</b><span id="myratio-line"></span></div>
-      <div style="display:flex;align-items:center;gap:10px">
-        <div style="flex:1;min-width:0">
-          <div class="track"><div class="fill" id="bar-meta" style="width:0%"></div></div>
-          <div class="marks"><span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span></div>
-        </div>
-        <!-- El logo, pero vivo: la masa sube en el bote con el progreso y toca la
+      <!-- Arriba a la derecha, en el hueco junto al porcentaje. El logo, pero vivo: la masa sube en el bote con el progreso y toca la
              línea de meta al 100%. Es el mismo dibujo que el icono de la app. -->
-        <svg id="meta-jar" class="meta-jar empty" viewBox="100 76 312 350" width="30" height="34" aria-hidden="true">
+        <svg id="meta-jar" class="meta-jar empty" viewBox="100 76 312 350" width="58" height="66" aria-hidden="true">
           <defs><clipPath id="jar-inside"><rect x="145" y="129" width="222" height="282" rx="26"/></clipPath></defs>
           <rect x="136" y="120" width="240" height="300" rx="34" fill="#1a1815"/>
           <g clip-path="url(#jar-inside)"><path id="meta-jar-dough" d="M148 700V300Q256 196 364 300V700Z" fill="#f0a832"/></g>
@@ -595,7 +585,14 @@ body.board .app{max-width:none;padding:16px 22px 80px}
           <rect x="120" y="86" width="272" height="46" rx="14" fill="#d4820e"/>
           <path id="meta-jar-line" d="M104 214H408" stroke="#e8867a" stroke-width="14" stroke-dasharray="26 18" stroke-linecap="round"/>
         </svg>
+      <div class="meta-big" id="meta-pct">--<span>%</span></div>
+      <div class="meta-ratio-row">
+        <span style="color:var(--text)">Now: <b id="meta-ratio-now">--×</b></span>
+        <span style="color:var(--muted)">Target: <b id="meta-ratio-goal">--×</b></span>
       </div>
+      <div class="cm-grown">Grown: <b id="cm-grown">--cm</b><span id="myratio-line"></span></div>
+      <div class="track"><div class="fill" id="bar-meta" style="width:0%"></div></div>
+      <div class="marks"><span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span></div>
       <div id="start-row" style="display:none;align-items:center;gap:8px;margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
         <span style="flex:1;font-size:11px;color:var(--muted);line-height:1.4" id="start-row-txt"></span>
         <button class="mark-btn" style="flex:none;white-space:nowrap" onclick="openStartEdit()">✎ Edit</button>
