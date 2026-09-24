@@ -610,6 +610,70 @@ entonces la migración no corre si el aparato ya sincronizó alguna vez
 `proofbox_state_history` (las 500 últimas por aparato, sin acceso para `anon`).
 Si una sobrescritura se lleva algo, está ahí. Nunca limpiar esa tabla.
 
+---
+
+## Revisión completa (2026-09-24)
+
+**Deshacer global** (↶ ↷ en la barra de pestañas, Ctrl/⌘ Z, lista en Ajustes).
+Cada guardado (`saveSessions`, `saveSetup`, `saveHint`, índice de informes)
+compara el estado con el anterior y, si cambió, el anterior entra en la pila
+(30, en localStorage `pb-undo`). Los cambios automáticos (`UNDO_VOLATILE`:
+alarmas ya sonadas, `pixStart`, `trkScore`…) no cuentan. Por eso nada se borra
+de verdad al instante: quitar una foto o un informe quita la referencia; las
+capturas de la cámara van a `cam/…/trash/` y se vacían solas a los 7 días; el ✕
+de una hoja la archiva. Lo que llega de otro aparato es el nuevo punto de
+partida (`undoRebase`), no un cambio.
+
+**Alarmas por hoja, no por pantalla.** `checkSheetAlarms` recorre todas las
+hojas con inicio y paso medido abierto; los temporizadores de todas se vigilan
+en el mismo intervalo. Antes solo sonaba la hoja que se estaba mirando, y la del
+100% dependía de que el aparato tuviera meta (empezar otra hoja se la borraba).
+
+**Informes fuera de la fila compartida**: tabla `proofbox_reports` (solo
+lectura e inserción). La fila lleva el índice (431 KB → 5 KB por cambio).
+
+**Historial incremental**: solo las columnas de `HIST_COLS` y solo lo posterior
+a la última fila; cambiar de hoja lo vuelve a bajar entero.
+
+**Avisos al móvil**: función `proofbox-watch` (pg_cron cada minuto) con ntfy.
+Canal en Ajustes, viaja en `proofbox_state.data.notify`. Cada aviso una vez
+(tabla `proofbox_notified`). Mismas cuentas que `sheetProgress` de la app.
+
+**Comparar pasos** (⧉ en el gráfico grande): cada curva con el cero, objetivo,
+bote y goma de SU hoja (`stepRows`), no de la abierta.
+
+**Firmware**: sensor v5 con OTA (`fw/vol.json`, `fw/publish-vol.sh`) y ToF en
+alta precisión (una medida de 200 ms; `setTimeout(500)` — con 100 ms toda
+medida daba timeout). La primera instalación del v5 es por USB. Cámara v6:
+luz en D1/GPIO2 (`light:0|1|2`, retenido en `.../light`).
+
+**Escrituras protegidas** (función `proofbox-write`, cabecera `x-pb-key`,
+código de emparejamiento en `proofbox_pairing`, solo su sha256). Cada acción
+tiene su lista cerrada de rutas. Un aparato emparejado ya escribe por ahí; uno
+sin emparejar sigue por el camino viejo HASTA el bloqueo. El bloqueo, cuando
+todos los aparatos estén emparejados:
+
+```sql
+update proofbox_pairing set enforce = true;             -- el proxy de Claude pide el código
+drop policy proofbox_state_public_write on proofbox_state;
+drop policy proofbox_state_public_update on proofbox_state;
+drop policy proofbox_config_public_update on proofbox_config;
+drop policy proofbox_reports_public_insert on proofbox_reports;
+drop policy "proofbox photos remove" on storage.objects;
+drop policy "proofbox photos write" on storage.objects;
+drop policy "proofbox cam overwrite" on storage.objects;
+-- La cámara sigue subiendo sus fotos con la clave pública, solo a lo suyo:
+create policy "proofbox cam upload" on storage.objects for insert to anon, authenticated
+  with check (bucket_id = 'proofbox-photos' and (name ~ '^cam/proofbox-cam01/shots/[0-9]+\.jpg$' or name = 'cam/proofbox-cam01/latest.jpg'));
+create policy "proofbox cam latest" on storage.objects for update to anon, authenticated
+  using (bucket_id = 'proofbox-photos' and name = 'cam/proofbox-cam01/latest.jpg')
+  with check (bucket_id = 'proofbox-photos' and name = 'cam/proofbox-cam01/latest.jpg');
+```
+
+Lo que queda abierto: el broker MQTT público (órdenes al sensor —el secreto
+está en el HTML— y a la cámara). Se cierra con un broker con usuario y
+contraseña (p. ej. HiveMQ Cloud), que tiene que crear el usuario.
+
 ## Pendiente
 
 - **Los electrodos nunca se han verificado en líquido.** Marcan 4.7 kΩ clavado,
@@ -617,8 +681,8 @@ Si una sobrescritura se lleva algo, está ahí. Nunca limpiar esa tabla.
   puede no estar haciendo contacto. Con los electrodos al aire debería decir
   "sin contacto". La prueba es un vaso de agua: si el número no se mueve, revisar
   ese cable.
-- **Firmware v1.4 compilado pero sin grabar** (deshacer, `metaSetStartAt`,
-  alarmas de una sola vez). Sin él, el botón Undo y Restore no hacen nada.
+- **Firmware del sensor v5 compilado pero sin grabar**: necesita una vez el USB
+  (`fw/publish-vol.sh` imprime la orden); desde ahí se actualiza por el aire.
 - La sonda de temperatura está al aire, no en la masa. Da saltos de grados en
   segundos porque el aire no tiene inercia. Lo correcto es una vaina de inox
   clavada en la masa, o la sonda pegada a la pared del bote bajo aislante.

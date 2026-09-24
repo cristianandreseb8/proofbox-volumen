@@ -560,6 +560,7 @@ body.board .app{max-width:none;padding:16px 22px 80px}
   </div>
 
 
+  <div class="warn" id="warn-pair" style="margin-bottom:10px;cursor:pointer" onclick="setDMode('settings')">🔒 This device is not paired, so changes here are not being saved. Tap to pair it (Settings → This device).</div>
   <div class="warn" id="warn-link" style="margin-bottom:10px">📡 No signal from the ProofBox — <span id="warn-link-txt">last reading <b id="warn-age">--</b> ago</span>. Everything else keeps working.</div>
   <div id="sensor-note" class="warn show" style="display:none;background:rgba(122,143,168,.10);border-color:#7a8fa8;color:#9db4c9"></div>
   <div id="stack">
@@ -824,6 +825,12 @@ body.board .app{max-width:none;padding:16px 22px 80px}
   </div>
 
   <div class="card">
+    <div class="card-label">This device</div>
+    <div style="font-size:10px;color:var(--muted);margin-bottom:8px;line-height:1.5">Saving changes needs the pairing code, typed once on each phone or computer. Without it anyone reading this page could overwrite your sheets or spend your Claude credit.</div>
+    <div id="pair-box" style="font-size:11px"></div>
+  </div>
+
+  <div class="card">
     <div class="card-label">Phone notifications</div>
     <div style="font-size:10px;color:var(--muted);margin-bottom:8px;line-height:1.5">The alarms in the app only ring with it open and on screen. With this on, the cloud checks every sheet each minute and sends a notification to your phone — target reached, your % alarm, a timer finished, the sensor gone silent — even with the app closed and the phone locked. It uses the free <b>ntfy</b> app.</div>
     <div id="notify-box" style="font-size:11px"></div>
@@ -1003,6 +1010,66 @@ const SUPA_URL='https://blqcppmjejtnvoqlhshp.supabase.co';
 const SUPA_KEY='sb_publishable_7AiXScdSAxipUu_Mi8Fulg_jFCZoKYJ';
 // Anon (public) JWT, used to call the edge function in fast mode.
 const SUPA_JWT='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJscWNwcG1qZWp0bnZvcWxoc2hwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM0MDc3NTIsImV4cCI6MjA5ODk4Mzc1Mn0.uxFYd7kTc7tl1v6C7e3OzBgSdlFNxx8scGrD6MzQw8U';
+// ═══ ESCRITURAS PROTEGIDAS ═══════════════════════════════════════════════
+// La clave pública de Supabase está en este HTML, publicado. Con ella cualquiera
+// podía sobrescribir las hojas, borrar fotos o gastar el saldo de Claude. Ahora
+// escribir pasa por la función proofbox-write, que pide además el código de
+// emparejamiento: cada aparato lo escribe una vez (Ajustes → This device) y se
+// queda en su localStorage. Sin código se sigue escribiendo por el camino de
+// antes hasta que se active el bloqueo; desde ahí, un aparato sin emparejar lo
+// dice arriba en rojo.
+let pbKey=null;
+try{ pbKey=localStorage.getItem('pb-key')||null; }catch(e){}
+const WRITE_URL=`${SUPA_URL}/functions/v1/proofbox-write`;
+let pairWarned=false;
+async function pbWrite(action,payload){
+  const r=await fetch(WRITE_URL,{method:'POST',
+    headers:{Authorization:'Bearer '+SUPA_JWT,'Content-Type':'application/json','x-pb-key':pbKey||''},
+    body:JSON.stringify({action,...payload})});
+  if(r.status===401) notPaired();
+  return r;
+}
+function notPaired(){
+  const w=document.getElementById('warn-pair'); if(w) w.classList.add('show');
+  if(!pairWarned){ pairWarned=true; showToast('🔒 This device is not paired — changes are not being saved',6000); }
+}
+function blobB64(blob){
+  return new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(String(fr.result).split(',')[1]); fr.onerror=rej; fr.readAsDataURL(blob); });
+}
+// El código también va al proxy de Claude, que lo pide desde el bloqueo.
+{
+  const f0=window.fetch.bind(window);
+  window.fetch=(url,opt={})=>{
+    if(String(url).includes('/functions/v1/claude-proxy')&&pbKey){
+      opt={...opt,headers:{...(opt.headers||{}),'x-pb-key':pbKey}};
+    }
+    return f0(url,opt).then(r=>{ if(r.status===401&&String(url).includes('/functions/v1/')) notPaired(); return r; });
+  };
+}
+async function pairDevice(){
+  const v=(document.getElementById('pair-code').value||'').trim().toLowerCase();
+  if(!v){ showToast('Type the pairing code'); return; }
+  const prev=pbKey; pbKey=v;
+  try{
+    const r=await pbWrite('check',{});
+    if(r.ok){ try{localStorage.setItem('pb-key',v);}catch(e){} document.getElementById('warn-pair').classList.remove('show'); pairWarned=false; showToast('🔒 This device is paired'); queueSync(); }
+    else{ pbKey=prev; showToast('That code is not right',4000); }
+  }catch(e){ pbKey=prev; showToast('Could not reach the server'); }
+  renderPair();
+}
+function unpairDevice(){
+  if(!confirm('Forget the pairing code on this device?'))return;
+  pbKey=null; try{localStorage.removeItem('pb-key');}catch(e){} renderPair();
+}
+function renderPair(){
+  const box=document.getElementById('pair-box'); if(!box) return;
+  box.innerHTML=pbKey
+    ? `<div style="color:var(--green)">🔒 Paired — this device can save changes.</div>
+       <div style="font-size:10px;color:var(--muted);margin-top:6px"><span style="cursor:pointer;text-decoration:underline" onclick="unpairDevice()">Forget the code on this device</span></div>`
+    : `<div class="input-row" style="margin:0"><input class="num-input" id="pair-code" placeholder="xxxx-xxxx-xxxx" autocomplete="off" autocapitalize="off" spellcheck="false" style="flex:1;font-size:13px">
+       <button class="mark-btn" onclick="pairDevice()">Pair</button></div>`;
+}
+
 let history=[];
 let fastTimer=null;
 let sessionStart=null;   // only data logged since the current dough started is charted
@@ -1027,13 +1094,16 @@ function applyInterval(sec){
   }
   updateFastTimer(+sec);
 }
-function setInterval2(sec){
-  sec=+sec;
-  fetch(`${SUPA_URL}/rest/v1/proofbox_config?device_id=eq.${DEVICE_ID}`,{
+function configPatch(o){
+  if(pbKey) return pbWrite('config',o);
+  return fetch(`${SUPA_URL}/rest/v1/proofbox_config?device_id=eq.${DEVICE_ID}`,{
     method:'PATCH',
     headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY,'Content-Type':'application/json',Prefer:'return=minimal'},
-    body:JSON.stringify({log_interval_seconds:sec,updated_at:new Date().toISOString()})
-  }).then(r=>{ if(r.ok) showToast('Interval updated'); else showToast('Could not save the interval'); })
+    body:JSON.stringify({...o,updated_at:new Date().toISOString()})});
+}
+function setInterval2(sec){
+  sec=+sec;
+  configPatch({log_interval_seconds:sec}).then(r=>{ if(r.ok) showToast('Interval updated'); else showToast('Could not save the interval'); })
     .catch(()=>showToast('Could not save the interval'));
   applyInterval(sec);
 }
@@ -1041,11 +1111,7 @@ function zeroForNewSheet(){
   sendCmd({cmd:'metaReset'});
   sendCmd({cmd:'calibrate'});
   const now=new Date().toISOString();
-  fetch(`${SUPA_URL}/rest/v1/proofbox_config?device_id=eq.${DEVICE_ID}`,{
-    method:'PATCH',
-    headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY,'Content-Type':'application/json',Prefer:'return=minimal'},
-    body:JSON.stringify({session_start:now})
-  }).catch(()=>{});
+  configPatch({session_start:now}).catch(()=>{});
   sessionStart=now; history=[];
   if(pctAlarm.pct){pctAlarm.fired=false; savePct();}
   metaFired=false; mpReset(); if(sess){sess.metaFired=false; sess.baseDist=0; sess.baseAt=0; saveSessions();}
@@ -1293,7 +1359,8 @@ async function pushState(){
   if(syncing) return;
   syncing=true;
   try{
-    const r=await fetch(`${SUPA_URL}/rest/v1/proofbox_state?device_id=eq.${DEVICE_ID}`,{
+    const r=pbKey?await pbWrite('state',{data:syncState()})
+      :await fetch(`${SUPA_URL}/rest/v1/proofbox_state?device_id=eq.${DEVICE_ID}`,{
       method:'PATCH',
       headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY,'Content-Type':'application/json',Prefer:'return=minimal'},
       body:JSON.stringify({data:syncState(),updated_at:new Date().toISOString()})});
@@ -4156,7 +4223,8 @@ const PHOTO_URL=id=>`${SUPA_URL}/storage/v1/object/public/proofbox-photos/${id}.
 async function uploadPhoto(id,blob){
   if(SANDBOX) return;
   try{
-    const r=await fetch(`${SUPA_URL}/storage/v1/object/proofbox-photos/${id}.jpg`,{
+    const r=pbKey?await pbWrite('upload',{path:id+'.jpg',b64:await blobB64(blob)})
+      :await fetch(`${SUPA_URL}/storage/v1/object/proofbox-photos/${id}.jpg`,{
       method:'POST',
       headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY,'Content-Type':'image/jpeg','x-upsert':'true'},
       body:blob});
@@ -5486,8 +5554,9 @@ async function finishSetup(img){
   if(ref&&!SANDBOX){
     // A Storage, para que el otro aparato también la tenga al analizar.
     const blob=await (await fetch(ref)).blob();
-    fetch(`${SUPA_URL}/storage/v1/object/proofbox-photos/cam/proofbox-cam01/ref.jpg`,{method:'POST',
-      headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY,'Content-Type':'image/jpeg','x-upsert':'true'},body:blob}).catch(()=>{});
+    (pbKey?blobB64(blob).then(b64=>pbWrite('upload',{path:'cam/proofbox-cam01/ref.jpg',b64}))
+      :fetch(`${SUPA_URL}/storage/v1/object/proofbox-photos/cam/proofbox-cam01/ref.jpg`,{method:'POST',
+      headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY,'Content-Type':'image/jpeg','x-upsert':'true'},body:blob})).catch(()=>{});
   }
   saveSetup(true);
   // El recuadro de búsqueda arranca en el frasco y luego lo sigue solo.
@@ -5626,6 +5695,7 @@ async function shotToStep(){
 // papelera lleva delante cuándo se tiró, que es lo que decide esa limpieza.
 const CAM_PREFIX='cam/proofbox-cam01/';
 async function moveObj(from,to){
+  if(pbKey){ const r=await pbWrite('move',{from,to}); if(!r.ok) throw new Error('HTTP '+r.status); return; }
   const r=await fetch(`${SUPA_URL}/storage/v1/object/move`,{method:'POST',
     headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY,'Content-Type':'application/json'},
     body:JSON.stringify({bucketId:'proofbox-photos',sourceKey:from,destinationKey:to})});
@@ -5660,7 +5730,8 @@ async function purgeCamTrash(){
     const rows=await r.json(); if(!Array.isArray(rows)) return;
     const old=rows.map(o=>o.name).filter(n=>parseInt(n,10)*1000<Date.now()-7*86400000);
     for(let i=0;i<old.length;i+=100)
-      await fetch(`${SUPA_URL}/storage/v1/object/proofbox-photos`,{method:'DELETE',
+      if(pbKey) await pbWrite('delete',{paths:old.slice(i,i+100).map(n=>CAM_PREFIX+'trash/'+n)});
+      else await fetch(`${SUPA_URL}/storage/v1/object/proofbox-photos`,{method:'DELETE',
         headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY,'Content-Type':'application/json'},
         body:JSON.stringify({prefixes:old.slice(i,i+100).map(n=>CAM_PREFIX+'trash/'+n)})});
   }catch(e){}
@@ -5989,7 +6060,8 @@ async function storeReportBody(r){
   try{ await idbDo('readwrite',st=>st.put(r,'report-'+r.id)); }catch(e){}
   if(SANDBOX||repUp.has(r.id)) return;
   try{
-    const res=await fetch(REP_TABLE+'?on_conflict=id',{method:'POST',
+    const res=pbKey?await pbWrite('report',{row:{id:r.id,sess:r.sess,title:r.title,meta:r.meta,html:r.html,chart:r.chart||''}})
+      :await fetch(REP_TABLE+'?on_conflict=id',{method:'POST',
       headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY,'Content-Type':'application/json',Prefer:'resolution=ignore-duplicates,return=minimal'},
       body:JSON.stringify({id:r.id,device_id:DEVICE_ID,sess:r.sess,title:r.title,meta:r.meta,html:r.html,chart:r.chart||''})});
     if(res.ok) markRepUp(r.id);
@@ -6548,6 +6620,7 @@ loadSess();
 startCam();
 loadReports();
 renderNotify();
+renderPair();
 setTimeout(()=>pullState(),1200);
 // El deshacer empieza cuando ya está todo cargado (hojas, informes, marcas):
 // antes, la propia carga parecería un cambio.
