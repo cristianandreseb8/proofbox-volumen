@@ -497,7 +497,6 @@ body.board .app{max-width:none;padding:16px 22px 80px}
 <div class="sheet-bar sess-bar" id="sess-bar"></div>
 <div class="sheet-bar view-bar">
     <button class="sheet active" id="mode-meta" onclick="setDMode('meta')">🎯 Target</button>
-    <button class="sheet" id="mode-ratio" onclick="setDMode('ratio')">📈 Rise ×</button>
     <button class="sheet" id="mode-chart" onclick="setDMode('chart')">📊 Chart</button>
     <button class="sheet" id="mode-report" onclick="setDMode('report')">📄 Report</button>
     <button class="sheet" id="mode-settings" onclick="setDMode('settings')">⚙ Settings</button>
@@ -523,16 +522,6 @@ body.board .app{max-width:none;padding:16px 22px 80px}
   <div id="sensor-note" class="warn show" style="display:none;background:rgba(122,143,168,.10);border-color:#7a8fa8;color:#9db4c9"></div>
   <div id="stack">
 
-  <div class="card sortable" id="panel-ratio" style="display:none">
-    <div class="drag-handle" title="Drag to reorder">⠿</div>
-    <div class="rise-head">
-      <div class="card-label" style="margin:0">Rise</div>
-      <div><span class="rise-val" id="rise">--</span><span class="rise-x">×</span></div>
-    </div>
-    <div class="track"><div class="fill" id="bar-ratio" style="width:0%"></div></div>
-    <div class="marks"><span>1×</span><span>1.5×</span><span>2×</span><span>2.5×</span><span>3×</span></div>
-    <button class="cal-btn" onclick="sendCmd({cmd:'calibrate'})">⬛ Calibrate zero point</button>
-  </div>
   <div class="card sortable" id="panel-meta">
       <div class="drag-handle" title="Drag to reorder">⠿</div>
       <div class="card-label">Progress</div>
@@ -683,44 +672,6 @@ body.board .app{max-width:none;padding:16px 22px 80px}
       <div style="font-size:10px;color:var(--muted);margin-top:8px;line-height:1.4">Saved with the dough when you mark the start.</div>
   </div>
 
-  <div class="card sortable" id="panel-goal">
-      <div class="drag-handle" title="Drag to reorder">⠿</div>
-      <div class="card-label">Start & target</div>
-      <button class="mark-btn" id="btn-start" onclick="markStart()" style="width:100%">📏 Mark start</button>
-      <div id="start-status" style="font-size:11px;color:var(--muted);margin:8px 0 12px;text-align:center"></div>
-      <div class="goal-tabs">
-        <button class="gtab active" id="gtab-cm" onclick="setGoalTab('cm')">📐 cm</button>
-        <button class="gtab" id="gtab-finger" onclick="setGoalTab('finger')">🖐 Hand</button>
-        <button class="gtab" id="gtab-ratio" onclick="setGoalTab('ratio')">✖️ Ratio</button>
-      </div>
-      <div id="goal-cm">
-        <div class="input-row">
-          <input class="num-input" type="number" id="input-cm" placeholder="5" step="0.5" min="0.5">
-          <span class="unit-lbl">cm</span>
-          <button class="mark-btn" onclick="setGoalCm()">Apply</button>
-        </div>
-        <div class="input-row" style="margin-bottom:0">
-          <span style="font-size:11px;color:var(--muted);flex:1">You know that is</span>
-          <input class="num-input" type="number" id="input-myratio" placeholder="2.7" step="0.1" min="1" style="width:70px;flex:none">
-          <span class="unit-lbl">×</span>
-          <button class="mark-btn" onclick="setMyRatio()">Set</button>
-        </div>
-        <div style="font-size:10px;color:var(--muted);margin-top:6px;line-height:1.4">Read off your graduated jar. Yours, not the app's — it is what the progress and the report will use.</div>
-      </div>
-      <div id="goal-finger" style="display:none">
-        <button class="mark-btn" id="btn-goal-finger" onclick="setGoalFinger()" style="width:100%">🖐 Mark target with your hand</button>
-      </div>
-      <div id="goal-ratio" style="display:none">
-        <div class="input-row">
-          <input class="num-input" type="number" id="input-ratio" placeholder="2.7" step="0.1" min="1.1" max="5">
-          <span class="unit-lbl">×</span>
-          <button class="mark-btn" onclick="setGoalRatio()">Apply</button>
-        </div>
-      </div>
-      <div id="goal-status" style="font-size:11px;color:var(--muted);margin-top:8px;text-align:center"></div>
-      <button class="mark-btn" id="btn-undo" onclick="undoLast()" style="width:100%;margin-top:10px">↶ Undo last change</button>
-      <button class="reset-small" onclick="resetMeta()">↺ Reset target</button>
-  </div>
 
   <div class="card sortable" id="panel-session">
     <div class="drag-handle" title="Drag to reorder">⠿</div>
@@ -764,12 +715,6 @@ body.board .app{max-width:none;padding:16px 22px 80px}
     <div id="rep-list"></div>
   </div>
 
-  <div class="card sortable" id="panel-log">
-    <div class="drag-handle" title="Drag to reorder">⠿</div>
-    <div class="card-label">Session history</div>
-    <div id="log-list" style="font-size:11px"></div>
-    <div style="font-size:10px;color:var(--muted);margin-top:8px;line-height:1.4">Saved on this phone every time the start, the target or the weight changes. Independent of the ProofBox, so it survives even if the device forgets.</div>
-  </div>
 
   <div class="card sortable" id="panel-history">
     <div class="drag-handle" title="Drag to reorder">⠿</div>
@@ -795,7 +740,6 @@ body.board .app{max-width:none;padding:16px 22px 80px}
       <button class="mark-btn" onclick="downloadCsv()" style="flex:1">⬇ CSV</button>
       <button class="mark-btn" onclick="openChartFull()" style="flex:1">⛶ Full</button>
     </div>
-    <button class="cal-btn" onclick="newChart()">📊 Start a new chart from now</button>
     <div class="interval-row">
       <span style="font-size:11px;color:var(--muted)">Save every</span>
       <select class="num-input" id="interval-sel" onchange="setInterval2(this.value)" style="flex:1;padding:8px 10px">
@@ -842,7 +786,7 @@ body.board .app{max-width:none;padding:16px 22px 80px}
   <div class="card">
     <div class="card-label">Sync</div>
     <div id="sync-note" style="font-size:11px;color:var(--muted)">—</div>
-    <div style="font-size:10px;color:var(--muted);margin-top:8px;line-height:1.5">Sessions, stages, goals, notes and written reports travel through Supabase, so the phone and the computer open the same bake. Readings were always there. Photos stay on the device that took them.</div>
+    <div style="font-size:10px;color:var(--muted);margin-top:8px;line-height:1.5">Sessions, stages, goals, notes and written reports travel through Supabase, so the phone and the computer open the same bake. Readings were always there. Photos go to cloud storage, so they show up on every device.</div>
     <div class="log-btns" style="margin-top:10px">
       <button class="mark-btn" onclick="pushState()" style="flex:1">↑ Send now</button>
       <button class="mark-btn" onclick="pullState(true)" style="flex:1">↓ Pull now</button>
@@ -949,7 +893,7 @@ const BROKER_URL  = 'wss://broker.hivemq.com:8884/mqtt';
 const TOPIC_STATUS = `proofboxvol/${DEVICE_ID}/status`;
 const TOPIC_CMD    = `proofboxvol/${DEVICE_ID}/cmd`;
 const TOPIC_NOTIFY = `proofboxvol/${DEVICE_ID}/notify`;
-let mqttClient=null, lastMeta=0;
+let mqttClient=null;
 // The ESP32 publishes status every 1s. If STALE_MS goes by without a new one, what
 // is on screen is frozen: it may be the broker's retained message, or a crash.
 // 5s was too tight — a single hiccup on the public broker flashed "No signal" on
@@ -957,19 +901,21 @@ let mqttClient=null, lastMeta=0;
 const STALE_MS=12000;
 let lastStatusMs=0, brokerUp=false, laserOk=true, condOk=false, tempOk=false;
 let lastStatus=null;   // el último status entero, para poder repintar sin esperar al siguiente
-let lastStart={set:false};
 let metaFired=false;   // por hoja: vive en sess.metaFired
 
 // El progreso tiembla con el ruido del ToF. Disparar con el valor instantáneo
 // hacía sonar la alarma en un pico y otra vez al siguiente. Se exige que la
 // MEDIA de los últimos 15 s cruce el umbral: un pico suelto ya no basta.
-let mpBuf=[];
-function mpAverage(v){
+// Uno por hoja: cada hoja con su inicio vigila su propia subida.
+const mpBufs=new Map();
+function mpReset(){ mpBufs.clear(); }
+function mpAverage(v,id){
   const now=Date.now();
-  mpBuf.push({t:now,v});
-  while(mpBuf.length&&now-mpBuf[0].t>15000) mpBuf.shift();
-  if(mpBuf.length<5) return null;          // todavía no hay con qué decidir
-  return mpBuf.reduce((a,b)=>a+b.v,0)/mpBuf.length;
+  let buf=mpBufs.get(id); if(!buf) mpBufs.set(id,buf=[]);
+  buf.push({t:now,v});
+  while(buf.length&&now-buf[0].t>15000) buf.shift();
+  if(buf.length<5) return null;          // todavía no hay con qué decidir
+  return buf.reduce((a,b)=>a+b.v,0)/buf.length;
 }
 
 // Distance is shown raw (fast). The rise (ratio/%/cm) is averaged over a moving
@@ -1026,31 +972,6 @@ function setInterval2(sec){
     .catch(()=>showToast('Could not save the interval'));
   applyInterval(sec);
 }
-// Start a new dough: resets the rise to 1×, clears the previous target and starts
-// the chart from zero (the old data stays saved in the cloud).
-// Distinto de "New dough": esto NO recalibra ni resetea la meta, solo mueve el
-// punto de partida del registro. Sirve para empezar a graficar a mitad de una
-// fermentación sin perder el cero del volumen.
-function newChart(){
-  if(!confirm('Start a new chart?\n\nLogging starts from now. The dough measurement, the target and the conductivity base are left untouched.'))return;
-  const now=new Date().toISOString();
-  fetch(`${SUPA_URL}/rest/v1/proofbox_config?device_id=eq.${DEVICE_ID}`,{
-    method:'PATCH',
-    headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY,'Content-Type':'application/json',Prefer:'return=minimal'},
-    body:JSON.stringify({session_start:now})
-  }).then(r=>{
-    if(!r.ok)throw new Error(r.status);
-    sessionStart=now; history=[]; renderHistory();
-    showToast('📊 New chart — logging from now');
-    setTimeout(()=>{
-      fetch(LOGGER_URL,{method:'POST',headers:{Authorization:'Bearer '+SUPA_JWT}})
-        .then(()=>fetchHistory()).catch(()=>{});
-    },2000);
-  }).catch(()=>showToast('Could not start the new chart'));
-}
-// Lo que antes hacía "New dough": poner el aparato a cero y abrir una ventana
-// de registro limpia. Ya no es un botón aparte — pasó a ser lo que ocurre al
-// arrancar la primera etapa de una hoja, que es cuando de verdad hace falta.
 function zeroForNewSheet(){
   sendCmd({cmd:'metaReset'});
   sendCmd({cmd:'calibrate'});
@@ -1062,7 +983,7 @@ function zeroForNewSheet(){
   }).catch(()=>{});
   sessionStart=now; history=[];
   if(pctAlarm.pct){pctAlarm.fired=false; savePct();}
-  metaFired=false; mpBuf=[]; if(sess){sess.metaFired=false; sess.baseDist=0; sess.baseAt=0; saveSessions();}
+  metaFired=false; mpReset(); if(sess){sess.metaFired=false; sess.baseDist=0; sess.baseAt=0; saveSessions();}
   // Un punto de referencia en cuanto el ESP32 haya recalibrado.
   setTimeout(()=>{
     fetch(LOGGER_URL,{method:'POST',headers:{Authorization:'Bearer '+SUPA_JWT}})
@@ -1371,7 +1292,7 @@ Fill only what the text actually says. Everything not stated must be null — ne
   try{
     const r=await fetch(`${SUPA_URL}/functions/v1/claude-proxy`,{
       method:'POST',headers:{Authorization:'Bearer '+SUPA_JWT,'Content-Type':'application/json'},
-      body:JSON.stringify({model:'claude-opus-5',max_tokens:2000,system:sys,
+      body:JSON.stringify({model:'claude-sonnet-5',max_tokens:2000,system:sys,
         messages:[{role:'user',content:txt}],
         output_config:{format:{type:'json_schema',schema:{
           type:'object',additionalProperties:false,
@@ -1616,7 +1537,7 @@ function doNextStage(){
   if(mark){
     // Sin preguntar: el diálogo YA es la confirmación. Preguntar otra vez a
     // mitad de camino es exactamente lo que confundía antes.
-    metaFired=false; mpBuf=[];
+    metaFired=false; mpReset();
     if(sess){
       sess.metaFired=false;
       if(lastSmoothDist){ sess.baseDist=lastSmoothDist; sess.baseAt=Date.now(); }
@@ -2310,32 +2231,28 @@ function closeChartFull(){ setDMode(currentMode); }
 addEventListener('resize',()=>{ if(fullOpen()) drawChartFull(); });
 addEventListener('keydown',e=>{ if(e.key==='Escape'&&document.getElementById('next-modal').classList.contains('show')){closeNext();return;} if(e.key==='Escape'&&(fullOpen()||document.getElementById('report-view').classList.contains('show'))) setDMode(currentMode); });
 
-async function downloadCsv(){
-  showToast('Preparing CSV...');
-  // The server returns at most 1000 rows per query: paginate until the whole
-  // session is in (only from the start of the current dough).
-  const flt = sessionStart ? `&logged_at=gte.${encodeURIComponent(sessionStart)}` : '';
-  let all=[], from=0;
-  try{
-    while(true){
-      const r=await fetch(`${SUPA_URL}/rest/v1/proofbox_readings?device_id=eq.${DEVICE_ID}${flt}&order=logged_at.asc&limit=1000&offset=${from}`,
-        {headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY}});
-      const page=await r.json();
-      all=all.concat(page);
-      if(page.length<1000) break;
-      from+=1000;
-      if(from>100000) break;  // safety cap
-    }
-  }catch(e){ showToast('Could not download the CSV'); return; }
-  if(!all.length){showToast('No saved data yet');return;}
-  const head='date,ratio,progress_%,grown_cm,distance_mm,grams,temp_c,cond_uS,cond_%';
-  const rows=all.map(r=>[r.logged_at,r.rise,r.meta_progress,r.cm_grown,r.dist_mm,r.grams,
-                         r.temp_c??'',r.cond_us??'',r.cond_rel??''].join(','));
-  const blob=new Blob([head+'\n'+rows.join('\n')],{type:'text/csv'});
+// El CSV es lo que enseña la hoja: sus pasos medidos, con la goma aplicada y el
+// × de su bote. Antes sacaba todo el histórico del aparato desde su último
+// "nuevo gráfico", con el × de distancias del firmware — ni la misma masa ni
+// los mismos números que el gráfico.
+function downloadCsv(){
+  const rows=sensorRows();
+  if(!rows.length){ showToast('Nothing measured in this sheet yet'); return; }
+  const t0=chartT0()||new Date(rows[0].logged_at).getTime();
+  const q=v=>/[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;
+  const head='date,step,elapsed_h,growth_x,grown_cm,distance_mm,temp_c,cond_pct';
+  const lines=rows.map(r=>{
+    const t=new Date(r.logged_at).getTime(), st=stageOfTime(t);
+    return [r.logged_at,q(st?st.name:''),((t-t0)/3600000).toFixed(3),r.rise??'',r.cm_step??'',
+            r.dist_mm??'',r.temp_c??'',r.cond_rel??''].join(',');
+  });
+  const blob=new Blob([head+'\n'+lines.join('\n')],{type:'text/csv'});
   const url=URL.createObjectURL(blob), link=document.createElement('a');
-  link.href=url; link.download='proofbox-'+new Date().toISOString().slice(0,16).replace(/[:T]/g,'-')+'.csv';
+  const name=(sess?sess.name:'proofbox').replace(/[^\w\-]+/g,'-').replace(/^-|-$/g,'')||'proofbox';
+  link.href=url; link.download=name+'-'+new Date().toISOString().slice(0,10)+'.csv';
   document.body.appendChild(link); link.click(); link.remove();
   setTimeout(()=>URL.revokeObjectURL(url),1000);
+  showToast(`⬇ ${rows.length} readings from “${sess?sess.name:''}”`);
 }
 function fmt(n,d=1){return parseFloat(n).toFixed(d);}
 
@@ -2602,8 +2519,7 @@ function bindSessionState(){
     metaFired=!!sess.metaFired;
   }
   const a=document.getElementById('input-pct-alarm'); if(a) a.value=pctAlarm.pct||'';
-  const m=document.getElementById('input-myratio');   if(m) m.value=myRatio||'';
-  mpBuf=[];
+  mpReset();
   renderTimer();
 }
 function saveTimer(){ saveSessions(); }
@@ -2825,8 +2741,7 @@ async function clearAlarmFile(){
 const BLOCKS=[
   ['panel-meta','Progress'],['panel-timer','Timer'],['panel-cam','Camera'],['panel-temp','Temperature'],
   ['panel-cond','Conductivity'],['panel-grams','Dough weight'],
-  ['panel-goal','Start & target'],['panel-session','Session & stages'],['panel-report','Fermentation report'],['panel-log','Session history'],['panel-history','Cloud history'],
-  ['panel-ratio','Rise × (on the Rise tab)']
+  ['panel-session','Session & stages'],['panel-report','Fermentation report'],['panel-history','Cloud history']
 ];
 let hiddenBlocks={};
 function saveVis(){try{localStorage.setItem('pb-hidden',JSON.stringify(hiddenBlocks));}catch(e){}}
@@ -2841,10 +2756,19 @@ function buildVisList(){
   }));
 }
 
+// Los relojes de todas las hojas, no solo el de la que está en pantalla: con
+// otra hoja abierta, el de "Panettone" terminaba sin que sonara nada.
 setInterval(()=>{
-  if(timer.running&&timerLeft()<=0&&!timer.fired){
+  for(const sh of sessions){
+    const t=sh.timer;
+    if(!t||!t.running||!t.endAt||t.fired||sh.archived) continue;
+    if(Date.now()<t.endAt) continue;
+    t.fired=true; t.running=false; t.leftMs=0; t.endAt=null;
+    saveSessions();
+    fireAlarm('⏰ '+(sh===sess?'Timer finished':`“${sh.name}”: timer finished`));
+  }
+  if(!sess&&timer.running&&timerLeft()<=0&&!timer.fired){
     timer.fired=true; timer.running=false; timer.leftMs=0; timer.endAt=null;
-    saveTimer();
     fireAlarm('⏰ Timer finished');
   }
   renderTimer();
@@ -2859,7 +2783,7 @@ function showToast(msg,dur=2200){
   setTimeout(()=>t.classList.remove('show'),dur);
 }
 // Qué tarjetas pertenecen solo a un modo. Las que no están aquí se ven en los dos.
-const MODE_ONLY={'panel-meta':'meta','panel-grams':'meta','panel-goal':'meta','panel-session':'meta','panel-report':'meta','panel-log':'meta','panel-ratio':'ratio'};
+const MODE_ONLY={};
 let currentMode='meta';
 // Pinta qué bloques se ven, sin tocar la pestaña activa. Separado de setDMode a
 // propósito: marcar una casilla en Ajustes no debe cambiarte de pantalla.
@@ -2870,10 +2794,11 @@ let currentMode='meta';
 // si solo tiene el ×, de la última hoja con los dos puestos (suele ser el mismo
 // bote): con su equivalencia se pasa el × a cm, y la tarjeta dice de dónde salió.
 // Sin ninguna, null: no hay manera honesta de dar un porcentaje.
-function jarEquivalence(tgt){
-  if(sess&&sess.goalCm>0) return {cm:sess.goalCm, x:tgt>1?tgt:null};
+function jarEquivalence(tgt,sh){
+  sh=sh||sess;
+  if(sh&&sh.goalCm>0) return {cm:sh.goalCm, x:tgt>1?tgt:null};
   if(!(tgt>1)) return null;
-  const others=sessions.filter(x=>x!==sess&&x.goalCm>0&&x.myRatio>1)
+  const others=sessions.filter(x=>x!==sh&&x.goalCm>0&&x.myRatio>1)
     .sort((a,b)=>(b.baseAt||b.startedAt||0)-(a.baseAt||a.startedAt||0));
   const o=others[0]; if(!o) return null;
   const cmPerX=o.goalCm/(o.myRatio-1);
@@ -2881,9 +2806,7 @@ function jarEquivalence(tgt){
 }
 function blankMeta(){
   const g=id=>document.getElementById(id);
-  if(!g('rise'))return;
-  g('rise').textContent='--';
-  g('bar-ratio').style.width='0%';
+  if(!g('meta-pct'))return;
   g('meta-pct').innerHTML='--<span>%</span>';
   g('bar-meta').style.width='0%';
   g('bar-meta').className='fill';
@@ -2930,10 +2853,10 @@ function applyVisibility(){
 // Hojas, como las de una hoja de cálculo. Cambiar de hoja no destruye nada:
 // el gráfico grande y el informe dejan de ser ventanas que hay que cerrar y
 // pasan a ser sitios a los que se vuelve.
-const SHEETS=['meta','ratio','chart','report','settings'];
+const SHEETS=['meta','chart','report','settings'];
 function setDMode(mode){
   if(!SHEETS.includes(mode)) mode='meta';
-  const isBoard = mode==='meta'||mode==='ratio';
+  const isBoard = mode==='meta';
   if(isBoard) currentMode=mode;
   document.getElementById('stack').style.display          = isBoard?'block':'none';
   document.getElementById('panel-settings').style.display = mode==='settings'?'block':'none';
@@ -2948,11 +2871,54 @@ function setDMode(mode){
   try{localStorage.setItem('pb-mode',mode);}catch(e){}
 }
 
-function setGoalTab(tab){
-  ['finger','ratio','cm'].forEach(t=>{
-    document.getElementById('goal-'+t).style.display=t===tab?'block':'none';
-    document.getElementById('gtab-'+t).className='gtab'+(t===tab?' active':'');
-  });
+// El progreso de UNA hoja con la distancia de ahora. Lo mismo que enseña la
+// tarjeta, para que las alarmas de las hojas que no se miran decidan igual.
+function sheetProgress(sh,ds){
+  if(!sh||!(sh.baseDist>0)) return null;
+  const base=sh.baseDist;
+  let ratio=Math.min(10,Math.max(1,base/ds));
+  const cm=(base-ds)/10;
+  // El objetivo que manda es el tuyo: el 2,7× que leés en el bote graduado.
+  // Si lo pusiste en cm, se mide en cm — es lo que marcaste en el bote.
+  const tgt=sh.myRatio>1?sh.myRatio:0;
+  const eq=jarEquivalence(tgt,sh);
+  const goalCm=eq?eq.cm:0;
+  // El porcentaje SOLO sale de centímetros. La razón de distancias
+  // (inicio÷ahora) no es el × del bote —se dispara cerca del sensor— y usarla
+  // para un objetivo en × daba números sin relación con la masa. Sin cm
+  // conocidos no se inventa: '--' y se piden.
+  const mp=goalCm?Math.min(100,Math.max(0,cm/goalCm*100)):0;
+  // Con los dos puestos, el × se lee de la equivalencia: 0 cm es 1×, el
+  // objetivo en cm es tu ×, y en medio se interpola.
+  if(goalCm&&tgt>1) ratio=1+(cm/goalCm)*(tgt-1);
+  return {mp,cm,tgt,goalCm,eq,ratio};
+}
+// Una hoja se vigila si tiene inicio y su paso abierto se mide (no es a mano).
+function sheetWatched(sh){
+  if(!sh||sh.archived||!(sh.baseDist>0)) return false;
+  const st=sh.stages||[]; let open=null;
+  for(let i=st.length-1;i>=0;i--) if(!st[i].endedAt){ open=st[i]; break; }
+  return !!open&&!open.manual;
+}
+function checkSheetAlarms(ds){
+  const many=sessions.filter(sheetWatched).length>1;
+  for(const sh of sessions){
+    if(!sheetWatched(sh)) continue;
+    const P=sheetProgress(sh,ds); if(!P||!P.goalCm) continue;
+    const avg=mpAverage(P.mp,sh.id); if(avg==null) continue;
+    const who=many||sh!==sess?`“${sh.name}”: `:'';
+    // Las dos alarmas suenan UNA vez. Solo se rearman al volver a armarlas, al
+    // marcar un inicio nuevo, al cambiar la meta o al empezar otra masa.
+    const pa=sh.pctAlarm;
+    if(pa&&pa.pct&&!pa.fired&&avg>=pa.pct){
+      pa.fired=true; saveSessions();
+      fireAlarm(`🎯 ${who}the dough reached ${pa.pct}%`);
+    }
+    if(!sh.metaFired&&avg>=100){
+      sh.metaFired=true; if(sh===sess) metaFired=true; saveSessions();
+      fireAlarm(`🎉 ${who}the dough hit the target! ${fmt(P.ratio)}×`);
+    }
+  }
 }
 function updateUI(d){
   // Distance: raw, exact and fast.
@@ -2964,38 +2930,17 @@ function updateUI(d){
   const s=Math.floor(d.uptime),h=Math.floor(s/3600),m=Math.floor((s%3600)/60);
   document.getElementById('uptime').textContent=h+'h'+String(m).padStart(2,'0');
 
-  // Rise: re-derived from the smoothed distance. Since ratio ∝ 1/distance, it is
-  // enough to scale the firmware's values by (raw/smoothed).
+  // El crecimiento sale de la distancia suavizada: un segundo de ruido del ToF
+  // no mueve el porcentaje.
   const ds=Math.max(1,smoothDist(raw)); lastSmoothDist=ds;
-  const scale=raw/ds;
-  const riseS=d.rise*scale;
   // El cero es de la hoja, no del aparato. El ESP32 guarda uno solo, así que
   // mientras dependiéramos de él marcar el inicio en una hoja borraba el de la
   // otra. Cada hoja se queda su distancia de partida y calcula con ella, con la
   // misma fórmula del firmware (ratio = d0/d), así que se pueden llevar varias
   // lecturas a la vez del mismo bote desde ángulos distintos.
-  const base = (sess&&sess.baseDist>0)?sess.baseDist:0;
-  let mp=0, sheetRatio=1;
-  if(base){
-    const ratio=sheetRatio=Math.min(10,Math.max(1,base/ds));
-    const cm=(base-ds)/10;
-    // El objetivo que manda es el tuyo: el 2,7× que leés en el bote graduado
-    // gana al del sensor, que solo sabe de distancias. Si lo pusiste en cm, se
-    // mide en cm — es lo que marcaste en el bote, no hace falta traducirlo.
-    const tgt=(myRatio>1)?myRatio:(d.metaGoalSet&&+d.metaRatioGoal>1?+d.metaRatioGoal:0);
-    const eq=jarEquivalence(tgt);
-    const goalCm=eq?eq.cm:0;
-    // El porcentaje SOLO sale de centímetros. La razón de distancias
-    // (inicio÷ahora) no es el × del bote —se dispara cerca del sensor— y usarla
-    // para un objetivo en × daba números sin relación con la masa. Sin cm
-    // conocidos no se inventa: '--' y se piden.
-    mp=goalCm?Math.min(100,Math.max(0,cm/goalCm*100)):0;
-    // Con los dos puestos, el × se lee de la equivalencia: 0 cm es 1×, el
-    // objetivo en cm es tu ×, y en medio se interpola. Es tu bote el que manda,
-    // no la razón de distancias del sensor — que no sabe cómo de ancho es.
-    if(goalCm&&tgt>1) sheetRatio=1+(cm/goalCm)*(tgt-1);
-    document.getElementById('rise').textContent=fmt(riseS);
-    document.getElementById('bar-ratio').style.width=Math.min(100,Math.max(0,((riseS-1)/2)*100))+'%';
+  const P=sess?sheetProgress(sess,ds):null;
+  if(P){
+    const {mp,cm,tgt,goalCm,eq,ratio:sheetRatio}=P;
     document.getElementById('meta-pct').innerHTML=(goalCm?fmt(mp,0):'--')+'<span>%</span>';
     document.getElementById('bar-meta').style.width=mp+'%';
     document.getElementById('bar-meta').className='fill'+(mp>=100?' done':'');
@@ -3013,38 +2958,12 @@ function updateUI(d){
                          :goalCm?' · of your '+goalCm+'cm'
                          :(tgt>1?' · tell it how many cm your '+tgt+'× is (✎ Edit)':'');
   }else{ blankMeta(); }
-  lastStart.set=!!base;
-  lastGoalX=(myRatio>1)?myRatio:((d.metaGoalSet&&+d.metaRatioGoal>1)?+d.metaRatioGoal:0);
-  noteSession(d);
-  const avg=base?mpAverage(mp):null;
-  if(avg!=null){
-    // Las dos alarmas suenan UNA vez. Solo se rearman al volver a armarlas, al
-    // marcar un inicio nuevo, al resetear la meta o al empezar otra masa.
-    if(pctAlarm.pct&&!pctAlarm.fired&&avg>=pctAlarm.pct){
-      pctAlarm.fired=true; savePct();
-      fireAlarm(`🎯 The dough reached ${pctAlarm.pct}%`);
-    }
-    if(d.metaGoalSet&&!metaFired&&avg>=100){
-      metaFired=true; if(sess){sess.metaFired=true; saveSessions();}
-      fireAlarm('🎉 The dough hit the target! '+fmt(sheetRatio)+'×');
-    }
-  }
-  lastMeta=mp;
-  if(d.metaStartSet){
-    const g=d.metaGrams>0?` · ${d.metaGrams}g`:'';
-    document.getElementById('start-status').textContent='✓ Start marked'+g;
-    document.getElementById('btn-start').className='mark-btn done';
-  }else{
-    document.getElementById('start-status').textContent='';
-    document.getElementById('btn-start').className='mark-btn';
-  }
-  if(d.metaGoalSet){
-    document.getElementById('goal-status').textContent='✓ Target: '+fmt(d.metaRatioGoal)+'×';
-    document.getElementById('btn-goal-finger').className='mark-btn done';
-  }else{
-    document.getElementById('goal-status').textContent='';
-    document.getElementById('btn-goal-finger').className='mark-btn';
-  }
+  lastGoalX=(myRatio>1)?myRatio:0;
+  // Las alarmas de TODAS las hojas con inicio, no solo la que se mira. Antes,
+  // con "Panettone" midiendo y otra hoja abierta en pantalla, ni su 100% ni su
+  // alarma de % sonaban. Y la del 100% ya no pregunta al aparato si tiene meta:
+  // empezar una hoja nueva le borraba la suya y la otra hoja se quedaba muda.
+  checkSheetAlarms(ds);
   // Conductivity. The % only means anything once a base has been marked; without
   // one we just show the absolute values.
   condOk=d.condOk===true;
@@ -3057,8 +2976,6 @@ function updateUI(d){
       +(d.tempOk?' · at 25\u00b0':'')+(condBaseSet?'':' · no base marked')
     :'no reading';
 
-  const ub=document.getElementById('btn-undo');
-  if(ub){ ub.disabled=d.canUndo!==true; ub.style.opacity=d.canUndo===true?'1':'.4'; }
 
   lastStatusMs=Date.now(); lastStatus=d;
   laserOk=d.laserOk!==false;
@@ -3125,66 +3042,6 @@ function sendCmd(payload){
   if(mqttClient&&mqttClient.connected)
     mqttClient.publish(TOPIC_CMD,JSON.stringify({...payload,secret:CMD_SECRET}));
 }
-// ─── HISTORIAL DE SESIÓN, EN EL NAVEGADOR ─────────────────────────────────
-// Guardado aquí y no en el ESP32 a propósito: así existe aunque el aparato se
-// reinicie, se reflashee o se lo lleven, y se puede mirar atrás desde el móvil
-// sin depender de que el firmware recuerde nada.
-let sessionLog=[];
-function loadLog(){
-  try{sessionLog=JSON.parse(localStorage.getItem('pb-sessionlog')||'[]')||[];}catch(e){sessionLog=[];}
-  renderLog();
-}
-function saveLog(){
-  try{localStorage.setItem('pb-sessionlog',JSON.stringify(sessionLog.slice(-60)));}catch(e){}
-}
-// Se llama con cada status. Solo anota cuando algo REALMENTE cambia, si no
-// tendríamos una entrada por segundo.
-function noteSession(d){
-  const startD = d.metaStart!=null ? Math.round(d.metaStart)
-               : (d.metaStartSet ? Math.round((d.metaRatioCurr||1)*d.dist) : null);
-  const snap={
-    t:Date.now(),
-    start:startD,
-    goal:d.metaGoalSet?+(+d.metaRatioGoal).toFixed(2):null,
-    grams:+d.metaGrams||0,
-    base:d.condBaseSet===true
-  };
-  const last=sessionLog[sessionLog.length-1];
-  const same=last&&last.start===snap.start&&last.goal===snap.goal&&
-             last.grams===snap.grams&&last.base===snap.base;
-  if(same) return;
-  // Un cambio de 1 mm es el redondeo del sensor, no una decisión del usuario.
-  if(last&&last.goal===snap.goal&&last.grams===snap.grams&&last.base===snap.base&&
-     last.start!=null&&snap.start!=null&&Math.abs(last.start-snap.start)<=1) return;
-  sessionLog.push(snap); saveLog(); renderLog();
-}
-function renderLog(){
-  const box=document.getElementById('log-list'); if(!box)return;
-  if(!sessionLog.length){
-    box.innerHTML='<div style="color:var(--muted);padding:8px 0">Nothing recorded yet.</div>';
-    return;
-  }
-  box.innerHTML=sessionLog.slice().reverse().slice(0,12).map((e,i)=>{
-    const when=new Date(e.t).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
-    const bits=[e.start!=null?`start ${e.start}mm`:'no start',
-                e.goal?`target ${e.goal}×`:'no target',
-                e.grams?`${e.grams}g`:null].filter(Boolean).join(' · ');
-    return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border)">
-      <span style="color:var(--muted);min-width:38px">${when}</span>
-      <span style="flex:1">${bits}</span>
-      ${e.start!=null?`<button class="mark-btn" style="padding:5px 9px;font-size:10px" onclick="restoreSnap(${e.t})">Restore</button>`:''}
-    </div>`;
-  }).join('');
-}
-function restoreSnap(t){
-  const e=sessionLog.find(x=>x.t===t); if(!e)return;
-  if(!confirm(`Go back to this point?\n\nStart ${e.start}mm${e.goal?` · target ${e.goal}×`:''}${e.grams?` · ${e.grams}g`:''}\n\nThe ProofBox will recalculate the progress from there.`))return;
-  sendCmd({cmd:'metaSetStartAt',mm:e.start,grams:e.grams});
-  if(e.goal) setTimeout(()=>sendCmd({cmd:'metaSetGoalRatio',ratio:e.goal}),400);
-  metaFired=false; mpBuf=[]; if(sess){sess.metaFired=false; saveSessions();}
-  showToast('↩ Restored — check the progress in a second');
-}
-
 // ═══ INFORMES CON LA API DE CLAUDE ═══════════════════════════════════════
 // Ya no hay credencial en el navegador: la petición va al proxy y la clave vive
 // en el servidor. Ver la tarjeta Claude API en Ajustes.
@@ -4286,7 +4143,7 @@ Coordinates are normalised to the image AS SHOWN: x from 0 (left) to 1 (right), 
 - sees: a few words in Spanish on what you used.`;
   const rr=await fetch(`${SUPA_URL}/functions/v1/claude-proxy`,{
     method:'POST',headers:{Authorization:'Bearer '+SUPA_JWT,'Content-Type':'application/json'},
-    body:JSON.stringify({model:'claude-opus-5',max_tokens:6000,thinking:{type:'adaptive'},system:sys,
+    body:JSON.stringify({model:'claude-sonnet-5',max_tokens:6000,thinking:{type:'adaptive'},system:sys,
       messages:[{role:'user',content:[
         {type:'image',source:{type:'base64',media_type:'image/jpeg',data:dataUrl.split(',')[1]}},
         {type:'text',text:`Mark the straight edges of the ${camSubject} and of the surface it stands on.`}]}],
@@ -4542,38 +4399,6 @@ The baker set this up on Image 1: there the top of the dough was at ${Math.round
   }catch(e){ if(note) note.textContent='AI check failed: '+e.message; }
   finally{ visBusy=false; }
 }
-// Dónde vio la IA el frasco, como centro y tamaño en la foto.
-function detJar(o){
-  if(!o||!o.found||!o.base_center||!o.lid_center) return null;
-  const W=o.W||4, H=o.H||3;
-  const bx=o.base_center.x*W, by=o.base_center.y*H, lx=o.lid_center.x*W, ly=o.lid_center.y*H;
-  const len=Math.hypot(lx-bx,ly-by); if(len<5) return null;
-  return {cx:(bx+lx)/2/W, cy:(by+ly)/2/H, size:len/Math.hypot(W,H)};
-}
-// Lo marcado por el panadero se queda quieto. Solo se desplaza si la cámara se
-// movió DE VERDAD: dos lecturas seguidas y seguras coinciden en que el frasco
-// está en otro sitio (más de un 8% de la foto) o de otro tamaño (más de un 15%).
-// Se compara la IA consigo misma —su primera lectura tras configurar contra la
-// de ahora—, nunca su recuadro contra el del panadero, que siempre difieren un
-// poco; y el desplazamiento conserva las proporciones (traslación y escala).
-function trackCameraMove(o){
-  if(!visSetup) return;
-  // 0,4: con esta cámara la confianza ronda 0,4-0,7 aun viendo bien el frasco;
-  // la seguridad la dan las DOS lecturas seguidas que tienen que coincidir.
-  const d=detJar(o); if(!d||(o.confidence||0)<0.4) return;
-  if(!visSetup.detBase){ visSetup.detBase=d; saveSetup(true); return; }
-  const b=visSetup.detBase;
-  const moved=Math.hypot(d.cx-b.cx,d.cy-b.cy)>0.08||Math.abs(Math.log(d.size/b.size))>Math.log(1.15);
-  if(!moved){ if(visSetup.moveVotes){ visSetup.moveVotes=0; saveSetup(false); } return; }
-  visSetup.moveVotes=(visSetup.moveVotes||0)+1;
-  if(visSetup.moveVotes<2){ saveSetup(false); return; }
-  const k=d.size/b.size;
-  const mv=p=>({x:Math.max(0,Math.min(1,d.cx+(p.x-b.cx)*k)), y:Math.max(0,Math.min(1,d.cy+(p.y-b.cy)*k))});
-  visSetup.jar=visSetup.jar.map(mv); visSetup.dough=visSetup.dough.map(mv); visSetup.target=visSetup.target.map(mv);
-  visSetup.detBase=d; visSetup.moveVotes=0;
-  saveSetup(true);
-  showToast('📷 The camera moved — your marks followed the jar');
-}
 // ─── Calibrar con la IA ────────────────────────────────────────────────────
 // La IA ya no mira sola: cada análisis es una consulta de pago y la cima la
 // mide `measureDough` cada 2 s gratis. Solo se la llama con este botón, una vez:
@@ -4629,42 +4454,6 @@ function onVision(o,mine){
   const n=document.getElementById('vis-note'); if(n) n.textContent=visText(o)+(o.note?' · '+o.note:'');
   paintVisLine();
   drawVision();
-}
-// Dibujo: rectángulo del frasco orientado a su eje, rectángulo de la masa hasta
-// la cúpula, y la línea de plumón. En coordenadas de la foto; la capa lleva el
-// mismo transform que la imagen, así que acompaña al giro y al zoom.
-function visSvg(o){
-  if(!o||!o.found||!o.base_center||!o.lid_center) return null;
-  const W=1000, H=Math.round(1000*(o.H||3)/(o.W||4));
-  const P=p=>[p.x*W,p.y*H];
-  const [bx,by]=P(o.base_center), [lx,ly]=P(o.lid_center);
-  const len=Math.hypot(lx-bx,ly-by)||1, ux=(lx-bx)/len, uy=(ly-by)/len, nx=-uy, ny=ux;
-  const hw=(o.half_width||0.35)*len;
-  const rect=(h0,h1,w,col)=>{
-    const c=[[h0,-w],[h0,w],[h1,w],[h1,-w]].map(([h,k])=>`${(bx+ux*h+nx*k).toFixed(1)},${(by+uy*h+ny*k).toFixed(1)}`).join(' ');
-    return `<polygon points="${c}" fill="none" stroke="${col}" stroke-width="4" stroke-linejoin="round"/>`;
-  };
-  let out=rect(-len*0.02,len*1.04,hw*1.08,'#9be15d');                  // frasco
-  if(o.dough_top||o.dough_fraction!=null){
-    // Con configuración, la masa se dibuja a la altura juzgada contra la
-    // referencia — la misma que da el porcentaje, para que no digan cosas distintas.
-    const top=(visSetup&&o.dough_fraction!=null)?o.dough_fraction*len
-      :(o.dough_top?((P(o.dough_top)[0]-bx)*ux+(P(o.dough_top)[1]-by)*uy):o.dough_fraction*len);
-    out+=rect(len*0.02,top,hw*0.92,'#4fd3ff');                          // masa
-  }
-  // La línea del objetivo configurada, proyectada sobre el frasco donde esté
-  // AHORA: así vuelve a su sitio aunque la cámara se haya movido.
-  if(visSetup){
-    const h=visSetup.hTarget*len, px=bx+ux*h, py=by+uy*h, w=hw*1.2;
-    const topH=(o.dough_fraction!=null?o.dough_fraction*len:(o.dough_top?((o.dough_top.x*W-bx)*ux+(o.dough_top.y*H-by)*uy):0));
-    const hit=topH>=h&&(o.confidence==null||o.confidence>=0.45);
-    out+=`<line x1="${(px+nx*w).toFixed(1)}" y1="${(py+ny*w).toFixed(1)}" x2="${(px-nx*w).toFixed(1)}" y2="${(py-ny*w).toFixed(1)}" stroke="${hit?'#ff5c5c':'#a36bff'}" stroke-width="5" stroke-linecap="round" stroke-dasharray="${hit?'':'14 8'}"/>`;
-  }
-  if(o.marker_line&&!visSetup){
-    const a=P({x:o.marker_line.x1,y:o.marker_line.y1}), b=P({x:o.marker_line.x2,y:o.marker_line.y2});
-    out+=`<line x1="${a[0].toFixed(1)}" y1="${a[1].toFixed(1)}" x2="${b[0].toFixed(1)}" y2="${b[1].toFixed(1)}" stroke="${o.reached?'#ff5c5c':'#a36bff'}" stroke-width="5" stroke-linecap="round"/>`;
-  }
-  return {svg:out,W,H};
 }
 function drawVision(){
   for(const [svgId,imgId] of [['vis-card','cam-img'],['vis-full','cam-full-img']]){
@@ -5078,7 +4867,11 @@ function pixProgress(){
 // El aviso por la imagen: cinco medidas seguidas en la línea o por encima
 // (~10 s), una vez por paso.
 function checkPixAlarm(){
-  const p=pixProgress(), st=activeStage();
+  // La cámara mira un frasco: el de la hoja que tiene el aparato, aunque en
+  // pantalla haya otra.
+  const own=sessions.find(x=>x.owns&&!x.archived)||sess;
+  let st=null; if(own) for(let i=own.stages.length-1;i>=0;i--) if(!own.stages[i].endedAt){ st=own.stages[i]; break; }
+  const p=pixProgress();
   if(!p||!st) return;
   pixHits=p.pct>=100?pixHits+1:0;
   if(pixHits>=5&&!st.visionAlerted){
@@ -5416,7 +5209,7 @@ function renderCamShots(){
 const HUD_ITEMS=[
   ['name','Sheet name','L'],['step','Step','L'],
   ['progress','Progress','R'],['chart','Chart — same as the app\'s','R'],
-  ['temp','Temperature','R'],['timer','Timer','R'],['cond','Conductivity','R'],['vision','Camera','R'],
+  ['temp','Temperature','R'],['timer','Timer','R'],['cond','Conductivity','R'],['vision','Camera · growth','R'],
   ['growth','Growth · 3 h','R'],['tempchart','Temperature · 3 h','R']];
 let hudCfg={};
 try{ hudCfg=JSON.parse(localStorage.getItem('pb-hud')||'null')||null; }catch(e){ hudCfg=null; }
@@ -5505,7 +5298,7 @@ function hudHtml(k){
     case 'cond': return `<div class="l">Conductivity</div><b>${t('cond-rel')}%</b>`;
     case 'chart': return null;   // se pinta aparte, cada 20 s
     case 'vision': { const pv=pixProgress();
-      return `<div class="l">Camera AI</div><b style="color:#a36bff">${pv?Math.round(pv.pct)+'%':'--'}</b> <span style="opacity:.75">ToF ${t('meta-pct')}</span>`; }
+      return `<div class="l">Camera</div><b style="color:#4fd3ff">${pv&&pv.x!=null?pv.x.toFixed(2)+'×':'--'}</b> <span style="opacity:.75">${pv?Math.round(pv.pct)+'% of your goal':''}</span>`; }
   }
   return '';
 }
@@ -5794,7 +5587,7 @@ function reportedFig(s){
 }
 async function openReport(data,bodyHtml,photos){
   const when=new Date(data.started).toLocaleString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
-  const meta=`${data.dough} · ${when} · ${data.elapsed_h} h · ${data.readings} readings`;
+  const meta=`${data.dough} · ${when} · ${data.elapsed_h} h`+(data.measured_readings?` · ${data.measured_readings} readings`:' · recorded by hand');
   // Las fotos se incrustan como data URL: así el informe guardado es
   // autocontenido y sigue completo aunque después borres una etapa.
   // Las fotos se incrustan donde el texto habla de ellas, no en un cajón al
@@ -5905,7 +5698,7 @@ The baker is fixing a mistake, so only change what the text actually corrects. E
   try{
     const r=await fetch(`${SUPA_URL}/functions/v1/claude-proxy`,{
       method:'POST',headers:{Authorization:'Bearer '+SUPA_JWT,'Content-Type':'application/json'},
-      body:JSON.stringify({model:'claude-opus-5',max_tokens:1200,system:sys,
+      body:JSON.stringify({model:'claude-sonnet-5',max_tokens:1200,system:sys,
         messages:[{role:'user',content:txt}],
         output_config:{format:{type:'json_schema',schema:{
           type:'object',additionalProperties:false,
@@ -6007,7 +5800,7 @@ function applyStartTarget({whenMs,cm,x}){
   if(g||r) dicho.push('target '+(g&&r?`${g} cm = ${r}×`:(g?g+' cm':r+'×')));
   if(!dicho.length) return '';
   // La meta cambió: la alarma vuelve a estar por sonar.
-  metaFired=false; sess.metaFired=false; mpBuf=[];
+  metaFired=false; sess.metaFired=false; mpReset();
   if(pctAlarm.pct){pctAlarm.fired=false; savePct();}
   saveSessions(); applyVisibility(); renderSess(); renderHistory();
   repaint();
@@ -6046,7 +5839,7 @@ function markStart(){
     if(sess.myRatio>1&&!cur.myRatio) cur.myRatio=sess.myRatio;
   }
   sess.baseGrams=parseFloat(document.getElementById('input-grams').value)||0;
-  metaFired=false; mpBuf=[]; sess.metaFired=false;
+  metaFired=false; mpReset(); sess.metaFired=false;
   // El aparato guarda un cero solo: lo sigue la hoja que además registra, pero
   // ya no es de donde salen los números, así que marcar aquí no borra nada allá.
   sessions.forEach(x=>{ if(x!==sess) x.owns=false; }); sess.owns=true;
@@ -6054,41 +5847,10 @@ function markStart(){
   // Start reading con la lectura ya empezada.
   saveSessions(); renderSess(); renderHistory();
   sendCmd({cmd:'metaSetStart',grams:sess.baseGrams});
-  document.getElementById('start-status').textContent='◎ Start marked in “'+sess.name+'”';
 }
-function setGoalFinger(){sendCmd({cmd:'metaSetGoalFinger'});document.getElementById('goal-status').textContent='⏳ Reading...';}
-function setGoalRatio(){
-  const r=parseFloat(document.getElementById('input-ratio').value);
-  if(!r||r<=1||r>10){document.getElementById('goal-status').textContent='⚠️ Ratio between 1.1 and 10';return;}
-  sendCmd({cmd:'metaSetGoalRatio',ratio:r});document.getElementById('goal-status').textContent='⏳ Applying...';
-}
-// El usuario lee el ratio real en su bote graduado. Es un dato suyo, no una
+// El ratio que el panadero lee en su bote graduado. Es un dato suyo, no una
 // medida del aparato: la app no puede saberlo y no debe discutirlo.
 let myRatio=null;      // por hoja: vive en sess.myRatio
-function setMyRatio(){
-  if(!sess){showToast('Open a session first');return;}
-  const r=parseFloat(document.getElementById('input-myratio').value);
-  if(!r||r<=1){ myRatio=null; sess.myRatio=null; showToast('Your ratio cleared'); }
-  else{ myRatio=r; sess.myRatio=r; showToast(`Target set to ${r}× — yours`); }
-  saveSessions(); renderGoals(); renderHistory();
-}
-function setGoalCm(){
-  const cm=parseFloat(document.getElementById('input-cm').value);
-  if(!cm||cm<=0){document.getElementById('goal-status').textContent='⚠️ Enter the cm';return;}
-  // También en la hoja: el aparato guarda uno solo y el porcentaje sale de aquí.
-  if(sess){ sess.goalCm=cm; saveSessions(); }
-  sendCmd({cmd:'metaSetGoalCm',cm});document.getElementById('goal-status').textContent='⏳ Applying...';
-  applyVisibility();
-}
-// Un paso atrás, reversible: el firmware intercambia el estado actual con la
-// foto anterior, así que volver a pulsarlo rehace.
-function undoLast(){ sendCmd({cmd:'undo'}); showToast('↶ Undone — press again to redo'); }
-function resetMeta(){
-  if(!confirm('Reset start and target?'))return;
-  metaFired=false; mpBuf=[]; if(sess){sess.metaFired=false; saveSessions();}
-  if(pctAlarm.pct){pctAlarm.fired=false; savePct();}
-  sendCmd({cmd:'metaReset'});
-}
 function setOffset(){
   const o=parseFloat(document.getElementById('input-offset').value);
   if(isNaN(o)){return;}
@@ -6213,7 +5975,6 @@ loadSess();
 startCam();
 loadReports();
 setTimeout(()=>pullState(),1200);
-loadLog();
 initReadout();
 loadAlarms();
 connect();
