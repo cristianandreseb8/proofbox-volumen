@@ -276,6 +276,12 @@ body.board .app{max-width:none;padding:16px 22px 80px}
 .view-bar .undo-btn{align-self:center;margin:0 2px 4px;padding:5px 10px}
 /* Sin dato, el hueco se ve como hueco: los "--%" y "--:--" gigantes en ámbar
    parecían un número y ocupaban media tarjeta. */
+/* El bote pequeño del progreso: la masa se desliza hacia arriba (transform, que
+   sí se anima) recortada por el interior del bote. */
+.meta-jar{flex:none;overflow:visible}
+.meta-jar #meta-jar-dough{transition:transform 1.2s ease;transform-box:view-box}
+.meta-jar.empty{opacity:.35}
+.meta-jar.done #meta-jar-line{stroke-dasharray:none}
 .meta-big.empty,.big-val.empty{font-size:26px;color:var(--muted);opacity:.55}
 .meta-big.empty span{font-size:14px;color:var(--muted)}
 /* Menú de un paso: las acciones que no se usan a diario, a un toque. */
@@ -574,8 +580,22 @@ body.board .app{max-width:none;padding:16px 22px 80px}
         <span style="color:var(--muted)">Target: <b id="meta-ratio-goal">--×</b></span>
       </div>
       <div class="cm-grown">Grown: <b id="cm-grown">--cm</b><span id="myratio-line"></span></div>
-      <div class="track"><div class="fill" id="bar-meta" style="width:0%"></div></div>
-      <div class="marks"><span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span></div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="flex:1;min-width:0">
+          <div class="track"><div class="fill" id="bar-meta" style="width:0%"></div></div>
+          <div class="marks"><span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span></div>
+        </div>
+        <!-- El logo, pero vivo: la masa sube en el bote con el progreso y toca la
+             línea de meta al 100%. Es el mismo dibujo que el icono de la app. -->
+        <svg id="meta-jar" class="meta-jar empty" viewBox="100 76 312 350" width="30" height="34" aria-hidden="true">
+          <defs><clipPath id="jar-inside"><rect x="145" y="129" width="222" height="282" rx="26"/></clipPath></defs>
+          <rect x="136" y="120" width="240" height="300" rx="34" fill="#1a1815"/>
+          <g clip-path="url(#jar-inside)"><path id="meta-jar-dough" d="M148 700V300Q256 196 364 300V700Z" fill="#f0a832"/></g>
+          <rect x="136" y="120" width="240" height="300" rx="34" fill="none" stroke="#e8e2d6" stroke-width="18"/>
+          <rect x="120" y="86" width="272" height="46" rx="14" fill="#d4820e"/>
+          <path id="meta-jar-line" d="M104 214H408" stroke="#e8867a" stroke-width="14" stroke-dasharray="26 18" stroke-linecap="round"/>
+        </svg>
+      </div>
       <div id="start-row" style="display:none;align-items:center;gap:8px;margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
         <span style="flex:1;font-size:11px;color:var(--muted);line-height:1.4" id="start-row-txt"></span>
         <button class="mark-btn" style="flex:none;white-space:nowrap" onclick="openStartEdit()">✎ Edit</button>
@@ -3068,6 +3088,17 @@ function jarEquivalence(tgt,sh){
   const cmPerX=o.goalCm/(o.myRatio-1);
   return {cm:+(cmPerX*(tgt-1)).toFixed(2), x:tgt, from:o.name, base:{cm:o.goalCm,x:o.myRatio}};
 }
+// La masa del bote pequeño: al 0% su cúpula queda abajo (y≈372), al 100% toca
+// la línea de meta (y=214). El dibujo tiene la cúpula en y=248, así que se
+// desplaza lo que falta.
+function paintMetaJar(mp,empty){
+  const svg=document.getElementById('meta-jar'), d=document.getElementById('meta-jar-dough'); if(!svg||!d) return;
+  const p=Math.max(0,Math.min(100,mp||0))/100;
+  const top=372-(372-214)*p;
+  d.style.transform=`translateY(${(top-248).toFixed(1)}px)`;
+  svg.classList.toggle('empty',!!empty);
+  svg.classList.toggle('done',p>=1);
+}
 function blankMeta(){
   const g=id=>document.getElementById(id);
   if(!g('meta-pct'))return;
@@ -3075,6 +3106,7 @@ function blankMeta(){
   g('meta-pct').innerHTML='--<span>%</span>';
   g('bar-meta').style.width='0%';
   g('bar-meta').className='fill';
+  paintMetaJar(0,true);
   g('meta-ratio-now').textContent='--×';
   g('meta-ratio-goal').textContent='--×';
   g('cm-grown').textContent='--cm';
@@ -3210,6 +3242,7 @@ function updateUI(d){
     document.getElementById('meta-pct').classList.toggle('empty',!goalCm);
     document.getElementById('bar-meta').style.width=mp+'%';
     document.getElementById('bar-meta').className='fill'+(mp>=100?' done':'');
+    paintMetaJar(mp,!goalCm);
     document.getElementById('meta-ratio-now').textContent=(goalCm&&tgt>1)?fmt(sheetRatio)+'×':'--×';
     document.getElementById('meta-ratio-goal').textContent=
       (goalCm&&tgt>1)?`${fmt(goalCm)}cm = ${fmt(tgt)}×`
