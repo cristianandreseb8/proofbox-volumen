@@ -41,13 +41,14 @@ const char* TOPIC_CMD    = "proofboxcam/proofbox-cam01/cmd";
 const char* TOPIC_FLIP   = "proofboxcam/proofbox-cam01/flip";
 const char* TOPIC_QUAL   = "proofboxcam/proofbox-cam01/quality";
 const char* TOPIC_FW     = "proofboxcam/proofbox-cam01/fw";
+const char* TOPIC_LIGHT  = "proofboxcam/proofbox-cam01/light";
 
 // ── Actualización por el aire ────────────────────────────────────────────────
 // Sin cable: la placa mira un manifiesto en GitHub Pages y, si hay una versión
 // más nueva, se la descarga y se la instala. Solo de ESA dirección: quien puede
 // cambiar el firmware es quien puede hacer push al repositorio, no cualquiera
 // que escriba en el broker público. Subir FW_VERSION en cada publicación.
-const int   FW_VERSION  = 4;
+const int   FW_VERSION  = 5;
 const char* FW_MANIFEST = "https://cristianandreseb8.github.io/proofbox-volumen/fw/cam.json";
 const unsigned long FW_CHECK_MS = 6UL * 3600UL * 1000UL;   // cada 6 h, y al arrancar
 
@@ -94,6 +95,14 @@ void setLiveQ(int q) {
 #define HREF_GPIO_NUM   47
 #define PCLK_GPIO_NUM   13
 #define LED_PIN         21      // LED de usuario, activo en BAJO
+// Luz para la masa. De noche las fotos salían casi negras (brillo medio 8 de
+// 255) y la medida por píxeles se quedaba sin contraste. Un LED cálido en D1
+// (GPIO2) con su resistencia —o un transistor si es una tira— que se enciende
+// según lampMode: 0 nunca, 1 solo para la foto de archivo (por defecto: la masa
+// no pasa la noche iluminada), 2 siempre que el vivo está en marcha.
+#define LAMP_PIN        2
+int lampMode = 1;
+void lamp(bool on) { digitalWrite(LAMP_PIN, on ? HIGH : LOW); }
 
 WiFiClient   mqttNet;
 PubSubClient mqtt(mqttNet);
@@ -271,7 +280,8 @@ void archiveShot() {
   // entregaba un fotograma a medio cambiar. Todas las de archivo salían rotas y
   // Claude no encontraba el frasco en ellas. Reiniciar cuesta ~1 s cada 10 min.
   camStop();
-  if (!camStart()) return;   // camStart arranca en SIZE_SHOT y tira 3 fotogramas
+  if (lampMode >= 1) { lamp(true); delay(300); }   // antes de arrancar: la exposición se ajusta con la luz puesta
+  if (!camStart()) { if (lampMode < 2) lamp(false); return; }   // camStart arranca en SIZE_SHOT y tira 3 fotogramas
   camera_fb_t* fb = esp_camera_fb_get();
   if (fb && fb->width < 1000) {
     Serial.printf("⚠️ foto de archivo de %ux%u, se descarta\n", fb->width, fb->height);
@@ -291,8 +301,13 @@ void archiveShot() {
     esp_camera_fb_return(fb);
     digitalWrite(LED_PIN, HIGH);
   }
+  if (!(lampMode == 2 && wasLive)) lamp(false);
   if (wasLive) camMode(SIZE_LIVE, QUAL_LIVE);
   else camStop();
+}
+void publishLight() {
+  char b[4]; snprintf(b, sizeof(b), "%d", lampMode);
+  mqtt.publish(TOPIC_LIGHT, b, true);
 }
 
 // ── Vivo ─────────────────────────────────────────────────────────────────────
@@ -346,11 +361,20 @@ void onMqtt(char* topic, byte* payload, unsigned int len) {
     else if (c == "mirror") { hmirror = !hmirror; changed = true; }
     else if (c.startsWith("flip:"))   { vflip = c.endsWith("1"); changed = true; }
     else if (c.startsWith("mirror:")) { hmirror = c.endsWith("1"); changed = true; }
+    else if (c.startsWith("light:")) {
+      lampMode = constrain(c.substring(6).toInt(), 0, 2);
+      prefs.putInt("lamp", lampMode);
+      lamp(lampMode == 2 && camOn);
+      publishLight();
+      Serial.printf("💡 luz: %d\n", lampMode);
+      return;
+    }
     else if (c.startsWith("q:")) {
       setLiveQ(c.substring(2).toInt());
       prefs.putInt("liveq", liveQ);
       if (camOn) camMode(SIZE_LIVE, QUAL_LIVE);
       publishQuality();
+    publishLight();
       Serial.printf("🎚️ calidad del vivo: %s\n", LIVE_Q[liveQ].name);
       return;
     }
@@ -402,6 +426,8 @@ void setup() {
   vflip   = prefs.getBool("vflip", false);
   hmirror = prefs.getBool("hmirror", false);
   setLiveQ(prefs.getInt("liveq", 0));
+  lampMode = prefs.getInt("lamp", 1);
+  pinMode(LAMP_PIN, OUTPUT); lamp(false);
   Serial.printf("🔄 vflip=%d hmirror=%d\n", vflip, hmirror);
 
   if (camStart()) {
@@ -476,7 +502,7 @@ void loop() {
 
   if (viewerPresent()) {
     if (!camOn) {
-      if (camStart()) { camMode(SIZE_LIVE, QUAL_LIVE); WiFi.setSleep(false); publishState("live"); }
+      if (camStart()) { camMode(SIZE_LIVE, QUAL_LIVE); WiFi.setSleep(false); publishState("live"); if (lampMode == 2) lamp(true); }
     }
     if (camOn && millis() - lastFrameMs >= FRAME_MS) {
       lastFrameMs = millis();
@@ -486,6 +512,7 @@ void loop() {
     // Nadie mira: cámara apagada y radio a dormir, que es lo que evita el calor.
     Serial.printf("😴 sin espectadores, vivo apagado (%lu fotogramas)\n", framesSent);
     camStop();
+    lamp(false);
     WiFi.setSleep(true);
     publishState("idle");
   }

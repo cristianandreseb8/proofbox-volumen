@@ -1,5 +1,5 @@
 // ============================================================
-//  ProofBox — Módulo VOLUMEN v1.4
+//  ProofBox — Módulo VOLUMEN v1.5
 //  VL53L0X (volumen) + conductividad de 2 electrodos + WiFi + MQTT
 //  Modo Ratio × y Modo Meta (dedo / ratio / cm)
 //
@@ -20,6 +20,9 @@
 #include <VL53L0X.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
+#include <WiFiClientSecure.h>
+#include <HTTPClient.h>
+#include <HTTPUpdate.h>
 
 // ─── CONFIGURACIÓN ────────────────────────────────────────────
 #define DEVICE_ID    "proofbox-vol01"
@@ -29,6 +32,19 @@
 #define TOPIC_STATUS "proofboxvol/" DEVICE_ID "/status"
 #define TOPIC_CMD    "proofboxvol/" DEVICE_ID "/cmd"
 #define TOPIC_NOTIFY "proofboxvol/" DEVICE_ID "/notify"
+
+// ─── ACTUALIZACIÓN POR EL AIRE ───────────────────────────────
+// Como la cámara: la placa mira un manifiesto en GitHub Pages y, si hay una
+// versión más nueva, se la baja y se la instala. Solo de esa dirección: quien
+// puede cambiar el firmware es quien hace push al repositorio, no quien escribe
+// en el broker público. Subir FW_VERSION en cada publicación (fw/publish-vol.sh).
+// La primera instalación con esto tiene que ser por USB.
+const int   FW_VERSION  = 5;
+const char* FW_MANIFEST = "https://cristianandreseb8.github.io/proofbox-volumen/fw/vol.json";
+const unsigned long FW_CHECK_MS = 6UL * 3600UL * 1000UL;
+unsigned long lastFwCheck = 0;
+bool fwFirstDone = false;
+const char* fwState = "";   // "", "updating" o "failed": va en el status
 
 #define PIN_SDA  21
 #define PIN_SCL  22
@@ -114,8 +130,11 @@ const unsigned long COND_INTERVAL    = 2000;
 const unsigned long PUBLISH_INTERVAL = 1000;
 
 // ─── LECTURA VL53L0X ───────────────────────────────────────────
+// Una sola medida con presupuesto de 200 ms (el modo "alta precisión" de ST)
+// en vez de tres de 20 ms: la masa se mueve milímetros por hora, así que no se
+// pierde nada, y el ruido baja mucho más que con la mediana de tres rápidas.
 float readDistanceRaw() {
-  const int N = 3;
+  const int N = 1;
   uint16_t readings[N];
   int valid = 0;
 
@@ -138,7 +157,7 @@ float readDistanceRaw() {
       Wire.begin(PIN_SDA, PIN_SCL);
       laserInit = laser.init();
       if (laserInit) {
-        laser.setMeasurementTimingBudget(20000);
+        laser.setMeasurementTimingBudget(200000);
         Serial.println("✅ Sensor recuperado");
       }
     }
@@ -360,7 +379,7 @@ void checkMetaNotification() {
 
 // ─── MQTT PUBLICAR ──────────────────────────────────────────────
 void publishStatus() {
-  StaticJsonDocument<512> doc;
+  StaticJsonDocument<768> doc;
   doc["dist"]          = round(distanceMM);
   doc["rise"]          = round(riseRatio * 100) / 100.0;
   doc["uptime"]         = (millis()-startMillis)/1000;
@@ -384,7 +403,9 @@ void publishStatus() {
   doc["canUndo"]        = hasUndo;
   doc["metaStart"]      = round(metaStartDist);
   doc["condBaseSet"]    = condBaseUS > 0;
-  char buf[512]; serializeJson(doc, buf);
+  doc["fw"]             = FW_VERSION;
+  if (fwState[0]) doc["fwState"] = fwState;
+  char buf[700]; serializeJson(doc, buf);
   mqtt.publish(TOPIC_STATUS, buf, true);
 }
 
@@ -502,12 +523,50 @@ void onMqttMessage(char* topic, byte* payload, unsigned int length) {
     prefs.putFloat("offset", sensorOffset);
     Serial.printf("🔧 Offset ajustado: %.1fmm\n", sensorOffset);
   }
+  else if (cmd == "update") {
+    lastFwCheck = 0; fwFirstDone = false;   // el loop lo mira en la próxima vuelta
+  }
   else if (cmd == "resetwifi") {
     delay(500); WiFiManager wm; wm.resetSettings(); ESP.restart();
   }
 
   saveSession();
   publishStatus();
+}
+
+// ─── ACTUALIZACIÓN ─────────────────────────────────────────────
+int jsonInt(const String& j, const char* key) {
+  int i = j.indexOf(String("\"") + key + "\""); if (i < 0) return -1;
+  i = j.indexOf(':', i); if (i < 0) return -1;
+  return j.substring(i + 1).toInt();
+}
+String jsonStr(const String& j, const char* key) {
+  int i = j.indexOf(String("\"") + key + "\""); if (i < 0) return "";
+  i = j.indexOf(':', i); i = j.indexOf('"', i); if (i < 0) return "";
+  int e = j.indexOf('"', i + 1); return e < 0 ? "" : j.substring(i + 1, e);
+}
+void checkUpdate() {
+  WiFiClientSecure tls; tls.setInsecure();
+  HTTPClient http;
+  if (!http.begin(tls, String(FW_MANIFEST) + "?t=" + String(millis()))) return;
+  int code = http.GET();
+  if (code != 200) { Serial.printf("🔁 manifiesto HTTP %d\n", code); http.end(); return; }
+  String j = http.getString(); http.end();
+  int v = jsonInt(j, "version");
+  String url = jsonStr(j, "url");
+  Serial.printf("🔁 firmware %d, publicado %d\n", FW_VERSION, v);
+  if (v <= FW_VERSION || url.length() == 0) return;
+  if (!url.startsWith("http")) url = String("https://cristianandreseb8.github.io/proofbox-volumen/") + url;
+  // La sesión ya está en NVS: tras reiniciar sigue donde estaba.
+  saveSession();
+  fwState = "updating"; publishStatus(); mqtt.loop();
+  httpUpdate.rebootOnUpdate(true);
+  WiFiClientSecure tls2; tls2.setInsecure();
+  t_httpUpdate_return r = httpUpdate.update(tls2, url);
+  // Si llega aquí no se instaló: la imagen se comprueba antes de arrancarla,
+  // así que un fichero roto deja el firmware de siempre funcionando.
+  Serial.printf("🔁 actualización fallida (%d): %s\n", (int)r, httpUpdate.getLastErrorString().c_str());
+  fwState = "failed";
 }
 
 // ─── RED: RECONEXIÓN SIN BLOQUEAR ─────────────────────────────
@@ -551,7 +610,7 @@ void setup() {
   loadSession();
   loadUndo();
 
-  Serial.println("\n📏 ProofBox Volumen v1.4");
+  Serial.printf("\n📏 ProofBox Volumen · firmware %d\n", FW_VERSION);
 
   // Conductividad: los pines de excitación arrancan en alta impedancia para no
   // meter continua en el líquido antes de la primera medida.
@@ -569,10 +628,11 @@ void setup() {
   // VL53L0X
   delay(100);
   Wire.begin(PIN_SDA, PIN_SCL);
-  laser.setTimeout(100);
+  // Con 200 ms por medida, un tiempo de espera de 100 ms la daba siempre por fallida.
+  laser.setTimeout(500);
   for (int i = 0; i < 3; i++) {
     if (laser.init()) {
-      laser.setMeasurementTimingBudget(20000);
+      laser.setMeasurementTimingBudget(200000);
       laserInit = true;
       Serial.println("✅ VL53L0X listo");
       break;
@@ -629,6 +689,11 @@ void loop() {
     lastCondRead = now;
     readTemperature();     // primero: la compensación de abajo la necesita
     readConductivity();
+  }
+  if (WiFi.status() == WL_CONNECTED &&
+      ((!fwFirstDone && now > 60000) || (fwFirstDone && now - lastFwCheck >= FW_CHECK_MS))) {
+    fwFirstDone = true; lastFwCheck = now;
+    checkUpdate();
   }
   if (now - lastPublish >= PUBLISH_INTERVAL) {
     lastPublish = now;

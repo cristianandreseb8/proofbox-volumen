@@ -636,6 +636,10 @@ body.board .app{max-width:none;padding:16px 22px 80px}
         style="background:transparent;border:1px solid var(--border);border-radius:7px;color:var(--text);font-family:'DM Mono',monospace;font-size:12px;padding:3px 4px">
         <option value="0">Fluid</option><option value="1">Balanced</option><option value="2">Sharp</option>
       </select>
+      <select id="cam-light" onchange="setCamLight(this.value)" title="Light for the dough (needs the LED on D1 — see the guide)"
+        style="background:transparent;border:1px solid var(--border);border-radius:7px;color:var(--text);font-family:'DM Mono',monospace;font-size:12px;padding:3px 4px">
+        <option value="0">💡 Off</option><option value="1">💡 Photos</option><option value="2">💡 Always</option>
+      </select>
       <span style="flex:1"></span>
       <button id="btn-shots" onclick="toggleShots()" title="Pictures saved every 10 minutes">🗂️ <span id="cam-shots-n">0</span></button>
     </div>
@@ -811,6 +815,10 @@ body.board .app{max-width:none;padding:16px 22px 80px}
       <input class="num-input" type="number" id="input-offset" placeholder="49" style="width:60px;flex:none">
       <span class="unit-lbl">mm</span>
       <button class="mark-btn" onclick="setOffset()">Apply</button>
+    </div>
+    <div class="offset-row">
+      <span style="font-size:11px;color:var(--muted);flex:1" id="vol-fw">Firmware: —</span>
+      <button class="mark-btn" onclick="sendCmd({cmd:'update'});showToast('Asked the sensor to look for an update')">⟳ Check for update</button>
     </div>
     <button class="reset-btn" onclick="if(confirm('Reset WiFi?'))sendCmd({cmd:'resetwifi'})">⚙ Change WiFi network</button>
   </div>
@@ -3168,6 +3176,11 @@ function updateUI(d){
     :'no reading';
 
 
+  // Versión del firmware: desde la 5 la dice el propio sensor, y se actualiza
+  // por el aire. Sin campo, lleva una anterior y hay que grabarlo por USB una vez.
+  const vf=document.getElementById('vol-fw');
+  if(vf) vf.textContent=d.fw?`Firmware v${d.fw}`+(d.fwState==='updating'?' · updating…':d.fwState==='failed'?' · last update failed':'')
+                            :'Firmware older than v5 — needs one USB update to update itself';
   lastStatusMs=Date.now(); lastStatus=d;
   laserOk=d.laserOk!==false;
   refreshHealth();
@@ -5565,6 +5578,13 @@ function setCamQuality(v){
   showToast(['Fluid · ~6 fps','Balanced · ~3 fps, sharper','Sharp · ~1-2 fps, sharpest'][+v]);
   setTimeout(()=>{ if(camQualityAsked!=null){ showToast('The camera did not answer — it needs the new firmware (plug it into the Mac)',5000); camQualityAsked=null; } },6000);
 }
+// La luz la decide la placa (cmd light:N, en NVS) y contesta retenido en
+// .../light: 0 nunca, 1 solo para las fotos de archivo, 2 siempre con el vivo.
+function setCamLight(v){
+  if(!mqttClient||!mqttClient.connected){ showToast('Not connected to the camera'); return; }
+  mqttClient.publish(CAM_TOPIC+'/cmd','light:'+v);
+  showToast(['Light off','Light only for the pictures every 10 min','Light on while the live picture runs'][+v]);
+}
 function camFlip(which){
   if(!mqttClient||!mqttClient.connected){ showToast('Not connected to the camera'); return; }
   mqttClient.publish(CAM_TOPIC+'/cmd',which);
@@ -6415,6 +6435,7 @@ function connect(){
     mqttClient.subscribe(CAM_TOPIC+'/rot');
     mqttClient.subscribe(CAM_TOPIC+'/quality');
     mqttClient.subscribe(CAM_TOPIC+'/fw');
+    mqttClient.subscribe(CAM_TOPIC+'/light');
     mqttClient.subscribe(CAM_TOPIC+'/vision');
     mqttClient.subscribe(CAM_TOPIC+'/hint');
     mqttClient.subscribe(CAM_TOPIC+'/setup');
@@ -6456,6 +6477,11 @@ function connect(){
       const v=msg.toString(), el=document.getElementById('cam-fw');
       if(el) el.textContent=/updating/.test(v)?'⟳ updating the camera…':(/failed/.test(v)?'camera update failed — still on v'+parseInt(v):'camera v'+parseInt(v));
       if(/updating/.test(v)) showToast('📷 The camera is updating itself — back in about a minute',5000);
+      return;
+    }
+    if(t===CAM_TOPIC+'/light'){
+      const sel=document.getElementById('cam-light'), v=parseInt(msg.toString(),10);
+      if(sel&&v>=0&&v<=2) sel.value=String(v);
       return;
     }
     if(t===CAM_TOPIC+'/quality'){
