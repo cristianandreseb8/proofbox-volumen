@@ -259,6 +259,19 @@ body.board .app{max-width:none;padding:16px 22px 80px}
 .log-row{display:flex;justify-content:space-between;align-items:center;font-size:12px;margin-bottom:10px}
 .log-btns{display:flex;gap:8px}
 .new-dough{padding:5px 10px;background:transparent;border:1px solid var(--amber-d);border-radius:7px;color:var(--amber-l);font-family:'DM Mono',monospace;font-size:11px;cursor:pointer;white-space:nowrap}
+/* En el móvil las pestañas son solo el icono: con el texto, Ajustes quedaba
+   fuera de la pantalla y nada decía que la barra se podía deslizar. */
+@media (max-width:560px){ .view-bar .tl{display:none} .view-bar .sheet{padding:6px 14px;font-size:15px} #btn-board,#btn-tidy{display:none!important} }
+.view-bar .undo-btn{align-self:center;margin:0 2px 4px;padding:5px 10px}
+/* Sin dato, el hueco se ve como hueco: los "--%" y "--:--" gigantes en ámbar
+   parecían un número y ocupaban media tarjeta. */
+.meta-big.empty,.big-val.empty{font-size:26px;color:var(--muted);opacity:.55}
+.meta-big.empty span{font-size:14px;color:var(--muted)}
+/* Menú de un paso: las acciones que no se usan a diario, a un toque. */
+.pop{position:fixed;z-index:1700;background:var(--surface);border:1px solid var(--amber-d);border-radius:10px;padding:4px;box-shadow:0 12px 34px rgba(0,0,0,.6);min-width:170px}
+.pop button{display:block;width:100%;text-align:left;background:transparent;border:none;color:var(--text);font-family:'DM Mono',monospace;font-size:12px;padding:9px 12px;border-radius:7px;cursor:pointer}
+.pop button:hover{background:rgba(212,130,14,.12)}
+.pop button.danger{color:#e8867a}
 .undo-btn{background:transparent;border:1px solid var(--border);border-radius:7px;color:var(--text);font-family:'DM Mono',monospace;font-size:13px;padding:3px 8px;cursor:pointer;line-height:1.2}
 .undo-btn span{font-size:9px;color:var(--muted);margin-left:2px}
 .undo-btn:disabled{opacity:.3;cursor:default}
@@ -499,11 +512,13 @@ body.board .app{max-width:none;padding:16px 22px 80px}
 </div>
 <div class="sheet-bar sess-bar" id="sess-bar"></div>
 <div class="sheet-bar view-bar">
-    <button class="sheet active" id="mode-meta" onclick="setDMode('meta')">🎯 Target</button>
-    <button class="sheet" id="mode-chart" onclick="setDMode('chart')">📊 Chart</button>
-    <button class="sheet" id="mode-report" onclick="setDMode('report')">📄 Report</button>
-    <button class="sheet" id="mode-settings" onclick="setDMode('settings')">⚙ Settings</button>
+    <button class="sheet active" id="mode-meta" onclick="setDMode('meta')" title="Target">🎯<span class="tl"> Target</span></button>
+    <button class="sheet" id="mode-chart" onclick="setDMode('chart')" title="Chart">📊<span class="tl"> Chart</span></button>
+    <button class="sheet" id="mode-report" onclick="setDMode('report')" title="Report">📄<span class="tl"> Report</span></button>
+    <button class="sheet" id="mode-settings" onclick="setDMode('settings')" title="Settings">⚙<span class="tl"> Settings</span></button>
     <span style="flex:1"></span>
+    <button class="undo-btn" id="btn-undo-g" onclick="undo()" disabled title="Nothing to undo">↶<span></span></button>
+    <button class="undo-btn" id="btn-redo-g" onclick="redo()" disabled title="Nothing to redo">↷</button>
     <button class="sheet tidy" id="btn-board" onclick="toggleBoard()" title="Free board or single column">⊞ Board</button>
     <button class="sheet tidy" id="btn-tidy" onclick="tidyLayout()" title="Align the boxes where they are">⌗ Tidy</button>
 </div>
@@ -512,8 +527,6 @@ body.board .app{max-width:none;padding:16px 22px 80px}
   <div class="header">
     <div class="logo">Proof<span>Box</span> Vol</div>
     <div style="display:flex;align-items:center;gap:10px">
-      <button class="undo-btn" id="btn-undo-g" onclick="undo()" disabled title="Nothing to undo">↶<span></span></button>
-      <button class="undo-btn" id="btn-redo-g" onclick="redo()" disabled title="Nothing to redo">↷</button>
       <button class="new-dough" id="btn-next-top" onclick="openNext()">▶ Start reading</button>
       <div class="status-row" onclick="forceReconnect()" style="cursor:pointer" title="Tap to reconnect">
         <div class="dot" id="dot"></div>
@@ -554,15 +567,13 @@ body.board .app{max-width:none;padding:16px 22px 80px}
       <div><span class="big-val" id="timer-big">--:--</span></div>
     </div>
     <div class="track" style="margin-top:10px"><div class="fill timer" id="bar-timer" style="width:0%"></div></div>
-    <div class="input-row" style="margin-top:12px">
-      <input class="num-input" type="number" id="timer-h" placeholder="0" min="0" max="48">
+    <div class="input-row" style="margin-top:10px;margin-bottom:0">
+      <input class="num-input" type="number" id="timer-h" placeholder="0" min="0" max="48" style="width:52px;flex:none">
       <span class="unit-lbl">h</span>
-      <input class="num-input" type="number" id="timer-m" placeholder="30" min="0" max="59">
+      <input class="num-input" type="number" id="timer-m" placeholder="30" min="0" max="59" style="width:52px;flex:none">
       <span class="unit-lbl">min</span>
-    </div>
-    <div class="log-btns">
       <button class="mark-btn" id="btn-timer" onclick="timerToggle()" style="flex:1">▶ Start</button>
-      <button class="mark-btn" onclick="timerReset()" style="flex:1">↺ Reset</button>
+      <button class="mark-btn" onclick="timerReset()" title="Reset">↺</button>
     </div>
     <div class="offset-row">
       <span style="font-size:11px;color:var(--muted);flex:1">Also alert me at</span>
@@ -778,6 +789,11 @@ body.board .app{max-width:none;padding:16px 22px 80px}
       <button class="mark-btn" onclick="setOffset()">Apply</button>
     </div>
     <button class="reset-btn" onclick="if(confirm('Reset WiFi?'))sendCmd({cmd:'resetwifi'})">⚙ Change WiFi network</button>
+  </div>
+
+  <div class="card">
+    <div class="card-label">Archived sheets</div>
+    <div id="archived-list" style="font-size:11px"></div>
   </div>
 
   <div class="card">
@@ -1268,6 +1284,7 @@ async function pullState(force){
     if(!force&&syncTimer){ setSyncNote('Local changes pending'); return; }
     sessions=d.sessions||[];
     activeSess=d.activeSess||(sessions[0]&&sessions[0].id)||null;
+    if(!sessions.find(x=>x.id===activeSess&&!x.archived)){ const v=sessions.filter(x=>!x.archived); activeSess=v.length?v[0].id:null; }
     sess=sessions.find(s=>s.id===activeSess)||null;
     bindSessionState();
     if(Array.isArray(d.reports)){
@@ -2295,14 +2312,17 @@ function fmt(n,d=1){return parseFloat(n).toFixed(d);}
 // ─── ORDEN DE LOS BLOQUES ─────────────────────────────────────────────────
 // Arrastrar por el asa ⠿. Se usa Pointer Events y no el drag&drop de HTML5
 // porque este último no existe en móvil, que es donde se usa la app.
-const ORDER_KEY='pb-order';
+// v2: el orden por defecto cambió (lo importante arriba en el móvil); la clave
+// nueva hace que todos lo reciban una vez, y luego se puede volver a arrastrar.
+const ORDER_KEY='pb-order-v2';
+const DEFAULT_ORDER=['panel-meta','panel-cam','panel-temp','panel-timer','panel-session','panel-history','panel-report','panel-cond','panel-grams'];
 let dragEl=null;
 function stackKids(){return [...document.getElementById('stack').children].filter(e=>e.id);}
 function saveOrder(){try{localStorage.setItem(ORDER_KEY,JSON.stringify(stackKids().map(e=>e.id)));}catch(e){}}
 function applyOrder(){
   let order=null;
   try{order=JSON.parse(localStorage.getItem(ORDER_KEY)||'null');}catch(e){}
-  if(!Array.isArray(order))return;
+  if(!Array.isArray(order)) order=DEFAULT_ORDER;
   const stack=document.getElementById('stack');
   // Los ids que ya no existan se ignoran, y los nuevos se quedan donde estén:
   // así una versión futura con más tarjetas no rompe el orden guardado.
@@ -2581,7 +2601,9 @@ function fmtElapsed(ms){
 }
 function renderTimer(){
   const left=timerLeft();
-  document.getElementById('timer-big').textContent=(timer.totalMs||left)?fmtClock(left):'--:--';
+  const tb=document.getElementById('timer-big');
+  tb.textContent=(timer.totalMs||left)?fmtClock(left):'--:--';
+  tb.classList.toggle('empty',!(timer.totalMs||left));
   const done=timer.totalMs?(1-left/timer.totalMs)*100:0;
   const bar=document.getElementById('bar-timer');
   bar.style.width=Math.min(100,Math.max(0,done))+'%';
@@ -2843,6 +2865,7 @@ function jarEquivalence(tgt,sh){
 function blankMeta(){
   const g=id=>document.getElementById(id);
   if(!g('meta-pct'))return;
+  g('meta-pct').classList.add('empty');
   g('meta-pct').innerHTML='--<span>%</span>';
   g('bar-meta').style.width='0%';
   g('bar-meta').className='fill';
@@ -2978,6 +3001,7 @@ function updateUI(d){
   if(P){
     const {mp,cm,tgt,goalCm,eq,ratio:sheetRatio}=P;
     document.getElementById('meta-pct').innerHTML=(goalCm?fmt(mp,0):'--')+'<span>%</span>';
+    document.getElementById('meta-pct').classList.toggle('empty',!goalCm);
     document.getElementById('bar-meta').style.width=mp+'%';
     document.getElementById('bar-meta').className='fill'+(mp>=100?' done':'');
     document.getElementById('meta-ratio-now').textContent=(goalCm&&tgt>1)?fmt(sheetRatio)+'×':'--×';
@@ -3654,7 +3678,7 @@ function loadSess(){
     if(old){ old.id=old.startedAt||Date.now(); sessions=[old]; saveSessions(); }
   }
   try{activeSess=+localStorage.getItem(LS_ACTIVE)||null;}catch(e){}
-  if(!sessions.find(s=>s.id===activeSess)) activeSess=sessions.length?sessions[0].id:null;
+  if(!sessions.find(s=>s.id===activeSess&&!s.archived)){ const v=sessions.filter(s=>!s.archived); activeSess=v.length?v[0].id:null; }
   sess=sessions.find(s=>s.id===activeSess)||null;
   // Migración desde cuando todo esto era global: se adopta una sola vez en la
   // hoja activa en vez de perderse.
@@ -3680,10 +3704,11 @@ function saveSessions(){
 }
 function saveSess(){ saveSessions(); }
 function renderSessBar(){
+  renderArchived();
   const bar=document.getElementById('sess-bar'); if(!bar)return;
-  bar.innerHTML=sessions.map(s=>
+  bar.innerHTML=sessions.filter(s=>!s.archived).map(s=>
     `<button class="sheet${s.id===activeSess?' active':''}" onclick="pickSession(${s.id})">${esc(s.name)}`+
-    `<span class="x" onclick="event.stopPropagation();closeSession(${s.id})">✕</span></button>`).join('')+
+    `<span class="x" title="Archive this sheet" onclick="event.stopPropagation();closeSession(${s.id})">✕</span></button>`).join('')+
     `<button class="sheet add" onclick="newSession()" title="New session">＋</button>`;
   fitBars();
 }
@@ -3712,13 +3737,41 @@ function newSession(){
   const rn=document.getElementById('rep-name'); if(rn){ rn.value=''; rn.placeholder=n; }
   showToast('▶ Session: '+n);
 }
+// El ✕ de una hoja la ARCHIVA: se va de la barra con todo lo suyo y vuelve
+// desde Ajustes → Archived sheets, o con ↶. Antes la borraba entera —pasos,
+// fotos, objetivos— a un toque de distancia de perder un panettone.
 function closeSession(id){
   const s=sessions.find(x=>x.id===id); if(!s)return;
-  if(!confirm(`Close the sheet "${s.name}"?\n\nIts stages and photos go with it. Reports already written stay.`))return;
-  sessions=sessions.filter(x=>x.id!==id);
-  if(activeSess===id){ activeSess=sessions.length?sessions[0].id:null;
+  if(!confirm(`Archive the sheet “${s.name}”?\n\nIt leaves the bar with everything in it. Bring it back from Settings → Archived sheets, or with ↶ Undo.`))return;
+  s.archived=true; s.archivedAt=Date.now(); s.owns=false;
+  if(activeSess===id){ const v=sessions.filter(x=>!x.archived); activeSess=v.length?v[0].id:null;
                        sess=sessions.find(x=>x.id===activeSess)||null; stagePick='all'; bindSessionState(); }
-  saveSessions(); renderSessBar(); renderSess(); renderReports(); fetchHistory();
+  saveSessions(); renderSessBar(); renderSess(); renderReports(); renderArchived(); fetchHistory();
+  showToast('Archived “'+s.name+'” — ↶ brings it back');
+}
+function restoreSession(id){
+  const s=sessions.find(x=>x.id===id); if(!s)return;
+  delete s.archived; delete s.archivedAt;
+  saveSessions(); renderSessBar(); renderArchived();
+  pickSession(id); setDMode('meta');
+  showToast('“'+s.name+'” is back');
+}
+// Borrar de verdad solo desde el archivo, y avisando. Aun así ↶ la devuelve.
+function purgeSession(id){
+  const s=sessions.find(x=>x.id===id); if(!s)return;
+  if(!confirm(`Delete “${s.name}” for good?\n\nIts steps, photos and targets go. ↶ Undo can still bring it back on this device.`))return;
+  sessions=sessions.filter(x=>x.id!==id);
+  saveSessions(); renderArchived();
+}
+function renderArchived(){
+  const box=document.getElementById('archived-list'); if(!box) return;
+  const a=sessions.filter(x=>x.archived).sort((x,y)=>(y.archivedAt||0)-(x.archivedAt||0));
+  if(!a.length){ box.innerHTML='<div style="color:var(--muted);padding:6px 0">No archived sheets.</div>'; return; }
+  const f=t=>t?new Date(t).toLocaleDateString('en-GB',{day:'2-digit',month:'short'}):'';
+  box.innerHTML=a.map(x=>`<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+      <span style="flex:1">${esc(x.name)} <span style="color:var(--muted)">· ${(x.stages||[]).length} steps · archived ${f(x.archivedAt)}</span></span>
+      <button class="mark-btn" style="padding:4px 8px;font-size:10px" onclick="restoreSession(${x.id})">↺ Restore</button>
+      <button class="mark-btn" style="padding:4px 7px;font-size:10px;color:var(--muted)" onclick="purgeSession(${x.id})" title="Delete for good">✕</button></div>`).join('');
 }
 function renameSession(){
   if(!sess)return;
@@ -3742,6 +3795,33 @@ function addStage(preset){
   saveSess(); renderSess(); renderHistory();
   showToast('Stage: '+n);
 }
+// Las acciones de cada paso: siete botones sueltos se salían de la pantalla del
+// móvil. Quedan a la vista foto y terminar; el resto, aquí.
+function closePop(){ document.querySelectorAll('.pop').forEach(e=>e.remove()); }
+function openPop(anchor,items){
+  closePop();
+  const m=document.createElement('div'); m.className='pop';
+  m.innerHTML=items.map((it,i)=>`<button data-i="${i}" class="${it.danger?'danger':''}">${it.label}</button>`).join('');
+  (document.fullscreenElement||document.body).appendChild(m);
+  const r=anchor.getBoundingClientRect();
+  const w=m.offsetWidth, h=m.offsetHeight;
+  m.style.left=Math.max(6,Math.min(innerWidth-w-6,r.right-w))+'px';
+  m.style.top=(r.bottom+h+6<innerHeight?r.bottom+4:Math.max(6,r.top-h-4))+'px';
+  m.addEventListener('click',e=>{ const b=e.target.closest('button'); if(!b) return; closePop(); items[+b.dataset.i].fn(); });
+  setTimeout(()=>addEventListener('pointerdown',function f(e){ if(!m.contains(e.target)){ closePop(); removeEventListener('pointerdown',f,true); } },true),0);
+}
+function stageMenu(id,btn){
+  const i=sess?sess.stages.findIndex(x=>x.id===id):-1; if(i<0) return;
+  const st=sess.stages[i];
+  openPop(btn,[
+    {label:'✎ Note',fn:()=>noteStage(id)},
+    {label:'✎ Edit times and details',fn:()=>editStage(id)},
+    {label:'✎ Rename',fn:()=>renameStageEl(id,btn)},
+    ...(i>0?[{label:'↑ Move up',fn:()=>moveStage(id,-1)}]:[]),
+    ...(i<sess.stages.length-1?[{label:'↓ Move down',fn:()=>moveStage(id,1)}]:[]),
+    {label:'✕ Remove step',danger:true,fn:()=>delStage(id)}
+  ]);
+}
 function moveStage(id,dir){
   const i=sess.stages.findIndex(x=>x.id===id), j=i+dir;
   if(i<0||j<0||j>=sess.stages.length) return;
@@ -3754,7 +3834,8 @@ function endStage(id){
   s.endedAt=Date.now(); saveSess(); renderSess();
 }
 function delStage(id){
-  if(!confirm('Remove this stage?'))return;
+  const x=sess&&sess.stages.find(t=>t.id===id);
+  if(!confirm(`Remove the step “${x?x.name:''}”?\n\n↶ Undo brings it back.`))return;
   sess.stages=sess.stages.filter(x=>x.id!==id);
   if(String(stagePick)===String(id)) stagePick='all';
   saveSess(); renderSess(); renderHistory();
@@ -3831,13 +3912,9 @@ function renderSess(){
       ${s.note?`<div style="color:var(--muted);margin:4px 0 0 46px;font-style:italic">${esc(s.note)}</div>`:''}
       ${thumbs?`<div style="display:flex;gap:5px;margin:6px 0 0 46px">${thumbs}</div>`:''}
       <div style="display:flex;gap:5px;margin:6px 0 0 46px">
-        <button class="mark-btn" style="padding:4px 8px;font-size:10px" onclick="pickPhoto(${s.id})">📷</button>
-        <button class="mark-btn" style="padding:4px 8px;font-size:10px" onclick="noteStage(${s.id})">✎ note</button>
+        <button class="mark-btn" style="padding:4px 8px;font-size:10px" onclick="pickPhoto(${s.id})" title="Add photos">📷 photo</button>
         ${(s.endedAt||!dated)?'':`<button class="mark-btn" style="padding:4px 8px;font-size:10px" onclick="endStage(${s.id})">■ end</button>`}
-        <button class="mark-btn" style="padding:4px 8px;font-size:10px" onclick="editStage(${s.id})">✎ edit</button>
-        <button class="mark-btn" style="padding:4px 7px;font-size:10px;color:var(--muted)" onclick="moveStage(${s.id},-1)">↑</button>
-        <button class="mark-btn" style="padding:4px 7px;font-size:10px;color:var(--muted)" onclick="moveStage(${s.id},1)">↓</button>
-        <button class="mark-btn" style="padding:4px 8px;font-size:10px;color:var(--muted)" onclick="delStage(${s.id})">✕</button>
+        <button class="mark-btn" style="padding:4px 10px;font-size:11px" onclick="stageMenu(${s.id},this)" title="More">⋯</button>
       </div>
     </div>`;
   }).join('');
