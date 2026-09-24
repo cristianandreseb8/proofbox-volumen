@@ -699,6 +699,19 @@ por sus colores. Widgets sobre el gráfico (bote, progreso, cámara en vivo,
 reloj, temperatura; `pb-cw`) y pantalla completa real con los avisos mudados
 dentro.
 
+**Google Sheet de una hoja** (botón en la tarjeta de informe y en Exportar del
+gráfico). La arma un Apps Script en la cuenta del panadero
+(`sheets/ProofBoxSheets.gs`, se copia desde Ajustes → Google Sheets, se
+implementa como aplicación web "ejecutar como yo, cualquiera"). La app le manda
+por POST (text/plain, sin preflight) el paquete de `sheetPayload()`: resumen,
+fases, pasos, TODAS las lecturas de la hoja (con la goma aplicada), notas,
+tramos ocultos, fotos (URLs públicas → `=IMAGE()`) y el último informe en
+bloques. Crea en la carpeta "ProofBox" de su Drive: Resumen (cifras + gráfico ×
+y temperatura), Pasos, Gráficos (uno por paso), Lecturas (filtro, % con color),
+Notas y fotos, Informe. La URL del script vive solo en localStorage: la fila
+compartida es de lectura pública. Probado con un Google falso en Node
+(`gs-test.js` en el scratchpad); la API real no se pudo probar sin la cuenta.
+
 ## Pendiente
 
 - **Los electrodos nunca se han verificado en líquido.** Marcan 4.7 kΩ clavado,

@@ -940,6 +940,7 @@ button,select,input,textarea{font-family:inherit!important}
       <div id="rep-opts"></div>
     </details>
     <button class="cal-btn" onclick="makeReport()" id="btn-report">📄 Write the report</button>
+    <button class="mark-btn" onclick="makeGoogleSheet()" style="width:100%;margin-top:8px"><i data-ic="sheet"></i> Make a Google Sheet</button>
     <div id="rep-state" style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.4"></div>
     <div id="rep-list"></div>
   </div>
@@ -1022,6 +1023,12 @@ button,select,input,textarea{font-family:inherit!important}
     <div class="card-label">This device</div>
     <div style="font-size:10px;color:var(--muted);margin-bottom:8px;line-height:1.5">Saving changes needs the pairing code, typed once on each phone or computer. Without it anyone reading this page could overwrite your sheets or spend your Claude credit.</div>
     <div id="pair-box" style="font-size:11px"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-label">Google Sheets</div>
+    <div style="font-size:10px;color:var(--muted);margin-bottom:8px;line-height:1.5">One tap makes a complete Google Sheet of the open sheet in your Drive (folder “ProofBox”): summary with figures and chart, every step with its own chart, all readings, notes, photos and the last report. A small script in your own Google account builds it — set it up once per device.</div>
+    <div id="sheets-box" style="font-size:11px"></div>
   </div>
 
   <div class="card">
@@ -2764,7 +2771,7 @@ function exportChart(kind){
     c.toBlob(b=>downloadBlob(b,chartFileName('png')),'image/png'); };
   img.src=u;
 }
-function exportMenu(btn){ openPop(btn,[{label:ic('image')+' Picture (PNG)',fn:()=>exportChart('png')},{label:ic('image')+' Vector (SVG)',fn:()=>exportChart('svg')},{label:ic('report')+' Readings (CSV)',fn:()=>downloadCsv()}]); }
+function exportMenu(btn){ openPop(btn,[{label:ic('image')+' Picture (PNG)',fn:()=>exportChart('png')},{label:ic('image')+' Vector (SVG)',fn:()=>exportChart('svg')},{label:ic('report')+' Readings (CSV)',fn:()=>downloadCsv()},{label:ic('sheet')+' Google Sheet — everything',fn:()=>makeGoogleSheet()}]); }
 // ─── Widgets sobre el gráfico ───
 // Lo que se quiere tener a la vista mientras se mira la curva: el bote con su
 // masa, la cámara en vivo, el reloj, la temperatura, el progreso. Se eligen en
@@ -4361,6 +4368,7 @@ Return clean semantic HTML for the report body: h1, h2, p, ul, table. No CSS, no
 // Iconos de línea en vez de emojis: los emojis cambian de aspecto según el
 // sistema y no siguen el color del tema. En el HTML van como <i data-ic="x">.
 const ICONS={
+  sheet:'<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M4 9h16M4 15h16M10 9v12"/>',
   cursor:'<path d="M5 3l14 7-6 2-2 6z"/>',
   zoomin:'<circle cx="11" cy="11" r="7"/><path d="M21 21l-5-5M11 8v6M8 11h6"/>',
   zoomout:'<circle cx="11" cy="11" r="7"/><path d="M21 21l-5-5M8 11h6"/>',
@@ -4465,6 +4473,126 @@ function dockMenu(btn){
   const ids=Object.keys(minimized).filter(id=>document.getElementById(id));
   openPop(btn,ids.map(id=>({label:`${ic(CARD_ICON[id]||'list')} ${esc(cardName(id))}`,fn:()=>restoreCard(id)}))
     .concat(ids.length>1?[{label:'Show them all',fn:()=>{ minimized={}; saveMin(); applyVisibility(); renderDock(); }}]:[]));
+}
+
+// ═══ GOOGLE SHEETS ══════════════════════════════════════════════════════
+// Una Google Sheet completa de la hoja: resumen con cifras y gráfico, pasos, un
+// gráfico por paso, todas las lecturas, notas, fotos e informe. La arma un Apps
+// Script que vive en la cuenta del panadero (sheets/ProofBoxSheets.gs): así la
+// hoja es suya, en su Drive, sin darle a esta página acceso a nada. Aquí solo
+// se guarda la URL de ese script, en este aparato — la fila compartida es de
+// lectura pública y no debe llevarla.
+function sheetsUrl(){ try{ return localStorage.getItem('pb-sheets-url')||''; }catch(e){ return ''; } }
+function setSheetsUrl(){
+  const v=(document.getElementById('sheets-url').value||'').trim();
+  if(v&&!/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(v)){ showToast('That does not look like an Apps Script /exec link',4500); return; }
+  try{ v?localStorage.setItem('pb-sheets-url',v):localStorage.removeItem('pb-sheets-url'); }catch(e){}
+  renderSheetsCard(); if(v) testSheets();
+}
+async function testSheets(){
+  const u=sheetsUrl(); if(!u) return;
+  const el=document.getElementById('sheets-state'); if(el){ el.textContent='Checking…'; el.style.color='var(--muted)'; }
+  try{ const r=await fetch(u); const j=await r.json(); if(el){ el.textContent=j.ok?'✓ Connected — ready to make sheets':'The script answered, but not as expected'; el.style.color=j.ok?'var(--green)':'var(--red)'; } }
+  catch(e){ if(el){ el.textContent='Could not reach it — check the link and that access is "Anyone"'; el.style.color='var(--red)'; } }
+}
+async function copySheetsCode(){
+  try{ const r=await fetch('sheets/ProofBoxSheets.gs?t='+Date.now()); const t=await r.text(); await navigator.clipboard.writeText(t); showToast('Code copied — paste it in script.new'); }
+  catch(e){ window.open('sheets/ProofBoxSheets.gs','_blank'); }
+}
+function renderSheetsCard(){
+  const box=document.getElementById('sheets-box'); if(!box) return;
+  const u=sheetsUrl();
+  box.innerHTML=`<ol style="padding-left:18px;line-height:1.65;margin:0 0 8px">
+      <li><button class="mark-btn" style="padding:3px 9px;font-size:11px;min-height:0" onclick="copySheetsCode()">Copy the code</button> and open <a href="https://script.new" target="_blank" rel="noopener" style="color:var(--amber-l)">script.new</a> with your Google account.</li>
+      <li>Paste it over everything there and save.</li>
+      <li><b>Deploy → New deployment → Web app</b>: execute as <b>Me</b>, access <b>Anyone</b>. Authorise it.</li>
+      <li>Paste the link that ends in <b>/exec</b> here:</li></ol>
+    <div class="input-row" style="margin:0"><input class="num-input" id="sheets-url" value="${esc(u)}" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" spellcheck="false" style="flex:1;font-size:12px">
+      <button class="mark-btn" onclick="setSheetsUrl()">Save</button></div>
+    <div id="sheets-state" style="font-size:11px;margin-top:6px;color:var(--muted)">${u?'':'Not set up on this device yet.'}</div>`;
+  if(u) testSheets();
+}
+// El HTML del informe, en bloques de texto para la pestaña Informe.
+function reportBlocks(html){
+  const doc=new DOMParser().parseFromString('<div>'+html+'</div>','text/html'), out=[];
+  doc.body.firstChild.querySelectorAll('h1,h2,h3,p,li,tr').forEach(el=>{
+    if(el.tagName==='TR'){ const t=[...el.children].map(c=>c.textContent.trim()).join('  |  '); if(t) out.push({kind:'p',text:t}); return; }
+    if(el.tagName==='P'&&el.closest('li')) return;
+    const t=el.textContent.replace(/\s+/g,' ').trim(); if(!t) return;
+    out.push({kind:el.tagName==='H1'?'h1':(el.tagName==='LI'?'li':(el.tagName==='P'?'p':'h2')),text:t});
+  });
+  return out.slice(0,400);
+}
+async function sheetPayload(){
+  const rows=sensorRows(), t0=chartT0()||(rows[0]?new Date(rows[0].logged_at).getTime():Date.now());
+  const tz=Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const r2=(v,d)=>v==null||!isFinite(v)?null:+(+v).toFixed(d);
+  const readings=rows.map(r=>{ const t=new Date(r.logged_at).getTime(), st=stageOfTime(t), g=stageGoal(st);
+    return {t:new Date(t).toISOString(),h:r2((t-t0)/3600000,3),step:st?st.name:'',stepId:st?st.id:null,x:r2(r.rise,3),cm:r2(r.cm_step,2),
+      pct:(g.cm&&r.cm_step!=null)?r2(r.cm_step/g.cm*100,1):null,dist:r2(r.dist_mm,0),temp:r2(r.temp_c,1),cond:r2(r.cond_rel,0)}; });
+  const steps=(sess.stages||[]).map(s=>{
+    const end=s.endedAt||(s.startedAt?Date.now():null);
+    const rr=(s.manual||!s.startedAt)?[]:rowsIn({from:s.startedAt,to:end});
+    const xs=rr.map(r=>+r.rise).filter(isFinite), T=rr.map(r=>r.temp_c).filter(v=>v!=null).map(Number);
+    const g=stageGoal(s), hours=s.startedAt&&end?(end-s.startedAt)/3600000:(s.durMin?s.durMin/60:null);
+    const sx=xs.length?xs[0]:(s.manual?1:null), ex=xs.length?xs[xs.length-1]:(s.manualRise||null);
+    const photos=(s.photos||[]);
+    return {id:s.id,name:s.name,manual:!!s.manual,start:s.startedAt?new Date(s.startedAt).toISOString():null,end:s.endedAt?new Date(s.endedAt).toISOString():null,
+      hours:r2(hours,2),startX:r2(sx,2),endX:r2(ex,2),deltaX:(sx!=null&&ex!=null)?r2(ex-sx,2):null,rate:(sx!=null&&ex!=null&&hours)?r2((ex-sx)/hours,3):null,
+      cm:rr.length&&rr[rr.length-1].cm_step!=null?r2(rr[rr.length-1].cm_step,1):null,
+      goal:g.cm&&g.x?`${g.cm} cm = ${g.x}×`:(g.cm?g.cm+' cm':(g.x?g.x+'×':'')),
+      reached:(g.x&&ex!=null)?ex>=g.x:null,
+      tAvg:T.length?r2(T.reduce((a,b)=>a+b,0)/T.length,1):(s.manualTemp!=null?s.manualTemp:null),tMin:T.length?r2(Math.min(...T),1):null,tMax:T.length?r2(Math.max(...T),1):null,
+      readings:rr.length,photos:photos.length,note:[s.note,s.said].filter(Boolean).join(' · ')};
+  });
+  const xs=rows.map(r=>+r.rise).filter(isFinite), T=rows.map(r=>r.temp_c).filter(v=>v!=null).map(Number);
+  const last=rows[rows.length-1];
+  const ph=rows.length?analysePhases(rows,t0):null;
+  const g=stageGoal(activeStage());
+  const phases=ph?[
+    ...(ph.too_early_to_tell?[]:[[repLang==='es'?'Fin de la latencia':'Latency ends',fmtElapsed(ph.latency_h*3600000)]]),
+    [repLang==='es'?'Subida más rápida':'Fastest rise',fmtElapsed(ph.log_peak_h*3600000)],
+    [repLang==='es'?'Fin de la logarítmica':'Log phase ends',ph.log_end_h!=null?fmtElapsed(ph.log_end_h*3600000):(repLang==='es'?'no ha terminado':'not ended')],
+    [repLang==='es'?'Máximo':'Highest',`${ph.max_rise_x}× · ${fmtElapsed(ph.max_rise_at_h*3600000)}`]]:[];
+  const photos=[];
+  for(const s of (sess.stages||[])) for(const pid of (s.photos||[])){ const ms=pid>1e13?Math.floor(pid/1000):pid; photos.push({step:s.name,t:new Date(ms).toISOString(),url:PHOTO_URL(pid)}); }
+  let report=null;
+  const mine=reports.filter(r=>r.sess===activeSess);
+  if(mine.length){ const b=await reportBody(mine[mine.length-1].id); if(b&&b.html) report=reportBlocks(b.html); }
+  return {
+    lang:repLang==='es'?'es':'en', tz, exported:new Date().toISOString(),
+    sheet:{name:sess.name,started:new Date(t0).toISOString()},
+    summary:{durationH:rows.length?r2((new Date(last.logged_at).getTime()-t0)/3600000,2):null, readings:rows.length,
+      finalX:xs.length?r2(xs[xs.length-1],2):null, maxX:xs.length?r2(Math.max(...xs),2):null,
+      grownCm:last&&last.cm_step!=null?r2(last.cm_step,1):null,
+      target:g.cm&&g.x?`${g.cm} cm = ${g.x}×`:(g.cm?g.cm+' cm':(g.x?g.x+'×':'—')),
+      reached:(g.x&&xs.length)?xs[xs.length-1]>=g.x:null,
+      temp:T.length?`${Math.min(...T).toFixed(1)}–${Math.max(...T).toFixed(1)}° · avg ${(T.reduce((a,b)=>a+b,0)/T.length).toFixed(1)}°`:null},
+    phases, steps, readings,
+    notes:sheetNotes().map(n=>({t:new Date(n.t).toISOString(),text:n.text,step:(stageOfTime(n.t)||{}).name||''})),
+    erased:erasedWindows().map(w=>({from:new Date(w.from).toISOString(),to:new Date(w.to).toISOString()})),
+    photos, report
+  };
+}
+async function makeGoogleSheet(){
+  if(!sess){ showToast('Open a sheet first'); return; }
+  const u=sheetsUrl();
+  if(!u){ showToast('Set up Google Sheets once in Settings',4000); setDMode('settings'); setTimeout(()=>{ const c=document.getElementById('sheets-box'); if(c) c.scrollIntoView({behavior:'smooth',block:'center'}); },100); return; }
+  // La pestaña se abre ya: si se abre al volver la respuesta, el navegador la bloquea.
+  const win=window.open('about:blank','_blank');
+  if(win) win.document.write('<p style="font:15px system-ui;padding:24px">Building your Google Sheet…</p>');
+  showToast('Building the Google Sheet…',20000);
+  try{
+    const payload=await sheetPayload();
+    const r=await fetch(u,{method:'POST',body:JSON.stringify(payload)});
+    const j=await r.json();
+    if(!j.ok) throw new Error(j.error||'the script said no');
+    if(win) win.location=j.url; else window.open(j.url,'_blank');
+    showToast('✓ Google Sheet ready',3000);
+  }catch(e){
+    if(win) win.close();
+    showToast('Could not make it: '+(e.message||e),6000);
+  }
 }
 
 // ═══ AVISOS AL MÓVIL (ntfy) ═════════════════════════════════════════════
@@ -7387,6 +7515,7 @@ loadReports();
 renderNotify();
 renderPair();
 renderDock();
+renderSheetsCard();
 setTimeout(()=>pullState(),1200);
 // El deshacer empieza cuando ya está todo cargado (hojas, informes, marcas):
 // antes, la propia carga parecería un cambio.
