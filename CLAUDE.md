@@ -712,6 +712,25 @@ Notas y fotos, Informe. La URL del script vive solo en localStorage: la fila
 compartida es de lectura pública. Probado con un Google falso en Node
 (`gs-test.js` en el scratchpad); la API real no se pudo probar sin la cuenta.
 
+**Medida por píxeles robusta a luz y reflejos (2026-09-25).** `pixMeasure(blob,opt)`
+clasifica cada muestra con BRILLO y CALIDEZ ((R−B)/(R+G+B)): la calidez no
+depende de la cantidad de luz y separa masa (beige) de reflejo (blanco
+neutro); pesa solo con luz suficiente (de noche el color es ruido). Referencias
+por fotograma: masa = mitad baja de su recuadro, fondo = percentil 15 (con un
+fondo más oscuro el corte se acerca al ruido y la cima baila el doble — medido).
+Píxeles ≥235 fuera. Columnas de reflejo: parecen masa por ENCIMA de la cima
+reciente (`opt.prevTop`); se descartan si al menos ¼ de las columnas está limpia
+ahí, y entonces se repite la clasificación sin ellas (un reflejo ancho
+contaminaba la referencia de masa). En `measureDough`, un salto >8% del frasco
+no entra en la mediana hasta durar 3 min (`jumpBuf`). La vista ◐ pinta el mismo
+clasificador. Banco de pruebas: 99 fotos de archivo de una noche + reflejos y
+luces simulados (brillo ×3/×0,6, raya, mancha quemada, reflejo ancho, ventana,
+luz cálida/fría). Frente al método anterior: igual de estable en real (p90 de
+salto 0,042 vs 0,050, saltos grandes 1 vs 3), mancha quemada 0,8% vs 15% de
+error, ventana encima de la masa 1/12 perdidas vs 11/12. Límite: un reflejo que
+tapa medio frasco con la masa ya cerca de la tapa — ahí no queda frasco vacío
+donde reconocerlo; lo frena la retención de 3 min.
+
 ## Pendiente
 
 - **Los electrodos nunca se han verificado en líquido.** Marcan 4.7 kΩ clavado,

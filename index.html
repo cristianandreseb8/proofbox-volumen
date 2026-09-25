@@ -6112,7 +6112,7 @@ setInterval(trackJar,4000);
 // El frasco se recorre en SUS ejes (de su base a su tapa), no en los de la
 // imagen: así da igual cómo esté girada la cámara. De cada fila se toma la
 // mediana del centro del frasco, que ignora el reflejo vertical del cristal.
-let doughPix=null, doughHist=[], botHist=[], pixBusy=false, pixLastSrc=null, contrastOn=false, contrastUrl=null, pixHits=0;
+let doughPix=null, doughHist=[], botHist=[], jumpBuf=[], pixBusy=false, pixLastSrc=null, contrastOn=false, contrastUrl=null, pixHits=0;
 try{ contrastOn=localStorage.getItem('pb-contrast')==='1'; }catch(e){}
 function toggleContrast(){
   contrastOn=!contrastOn;
@@ -6136,98 +6136,164 @@ async function contrastOf(dataUrl,th){
     const W=Math.min(640,img.naturalWidth), H=Math.round(W*img.naturalHeight/img.naturalWidth);
     const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
     const g=cv.getContext('2d',{willReadFrequently:true}); g.drawImage(img,0,0,W,H);
-    return makeContrast(g.getImageData(0,0,W,H),W,H,th);
+    return makeContrast(g.getImageData(0,0,W,H),W,H,(doughPix&&doughPix.ref)||{Lb:th-10,Ld:th+10,Wb:0,Wd:0,wL:1,wW:0});
   }catch(e){ return null; }
 }
 // Mide una foto: cima y base de la masa (fracción del frasco, 0 abajo – 1
 // arriba) y cuánto fiarse. Sirve para el vivo y para las fotos del archivo.
-async function pixMeasure(blob){
+// ─── Medida por píxeles, robusta a la luz y a los reflejos ───────────────
+// La luz no es siempre la misma (día, noche, la lámpara) y el cristal hace
+// reflejos que cambian. Tres defensas:
+//  · Brillo Y COLOR. La masa es clara y cálida (beige); un reflejo es blanco
+//    neutro y el fondo oscuro. La calidez (R−B)/(R+G+B) no depende de cuánta
+//    luz haya, así que aguanta los cambios de luz; el brillo manda cuando el
+//    color no separa (poca luz: de noche el color es puro ruido).
+//  · Referencias de CADA fotograma: la masa es la mitad baja de su recuadro
+//    (la masa solo sube), el fondo lo más oscuro del frasco. Si la cámara
+//    ajusta la exposición, las dos se mueven juntas.
+//  · Reflejos fuera: píxeles quemados (≥235) no cuentan, y una columna que
+//    parece masa también arriba, donde el frasco está vacío, es una raya de
+//    reflejo del cristal y se descarta — salvo que lo estén casi todas (la masa
+//    llegó arriba de verdad).
+async function pixMeasure(blob,opt){
+    opt=opt||{};
     const img=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=URL.createObjectURL(blob);});
     const W=Math.min(480,img.naturalWidth), H=Math.round(W*img.naturalHeight/img.naturalWidth);
     const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
     const g=cv.getContext('2d',{willReadFrequently:true}); g.drawImage(img,0,0,W,H);
     URL.revokeObjectURL(img.src);
-    const px=g.getImageData(0,0,W,H);
-    const gray=i=>0.299*px.data[i]+0.587*px.data[i+1]+0.114*px.data[i+2];
-    const A=W/H;
+    const px=g.getImageData(0,0,W,H), D=px.data;
+    const A=W/H, setup=opt.setup||visSetup;
     // Esquinas del frasco en esta imagen: 0 arriba-izq, 1 arriba-der, 2 abajo-der, 3 abajo-izq.
-    const J=visSetup.jar.map(p=>fromCanon(p,A)).map(p=>({x:p.x*W,y:p.y*H}));
+    const J=setup.jar.map(p=>fromCanon(p,A)).map(p=>({x:p.x*W,y:p.y*H}));
     const at=(u,v)=>({x:J[3].x+(J[2].x-J[3].x)*u+(J[0].x-J[3].x)*v, y:J[3].y+(J[2].y-J[3].y)*u+(J[0].y-J[3].y)*v});
-    const ROWS=120, COLS=24, rows=[], all=[];
-    for(let r=0;r<ROWS;r++){
-      const v=r/(ROWS-1), row=[];
+    const ROWS=120, COLS=opt.cols||32, U0=opt.u0!=null?opt.u0:0.2, U1=opt.u1!=null?opt.u1:0.8;
+    // L: brillo; w: calidez. NaN = no se sabe (fuera de la foto o quemado).
+    const Ls=new Float32Array(ROWS*COLS).fill(NaN), Ws=new Float32Array(ROWS*COLS).fill(NaN);
+    let n=0;
+    for(let r=0;r<ROWS;r++){ const v=r/(ROWS-1);
       for(let c=0;c<COLS;c++){
-        const u=0.2+0.6*c/(COLS-1), q=at(u,v), x=Math.round(q.x), y=Math.round(q.y);
+        const q=at(U0+(U1-U0)*c/(COLS-1),v), x=Math.round(q.x), y=Math.round(q.y);
         if(x<0||y<0||x>=W||y>=H) continue;
-        const b=gray((y*W+x)*4); row.push(b); all.push(b);
+        const k=(y*W+x)*4, R=D[k], G=D[k+1], B=D[k+2], L=0.299*R+0.587*G+0.114*B;
+        if(L>=235) continue;                          // quemado: un reflejo, no masa
+        Ls[r*COLS+c]=L; Ws[r*COLS+c]=(R-B)/(R+G+B+3); n++;
       }
-      row.sort((a,b)=>a-b); rows.push(row.length?row:null);
     }
-    if(all.length<200) return null;
-    // El umbral NO sale de toda la imagen: en una foto oscura el reborde de la
-    // tapa, un reflejo o cualquier cosa clara se lo llevaban (Otsu daba 95 y la
-    // masa, a ~60, quedaba "oscura" entera). Sale de lo que el panadero marcó:
-    // la parte baja de su recuadro de masa es masa seguro —la masa solo sube—,
-    // y el fondo es lo más oscuro del frasco. El corte, a medio camino.
-    const pick=(a,b)=>{ const out=[]; for(let r=Math.max(0,a);r<=Math.min(ROWS-1,b);r++) if(rows[r]) out.push(...rows[r]); return out.sort((x,y)=>x-y); };
-    const rb=Math.round((visSetup.hDoughBottom||0)*(ROWS-1)), rt=Math.round(visSetup.hDough*(ROWS-1));
+    if(n<200) return null;
+    const med=a=>{ const b=a.filter(v=>!isNaN(v)).sort((x,y)=>x-y); return b.length?b[Math.floor(b.length/2)]:NaN; };
+    const rb=Math.round((setup.hDoughBottom||0)*(ROWS-1)), rt=Math.round(setup.hDough*(ROWS-1));
     const seed=Math.round(rb+(rt-rb)*0.5);
-    const dough=pick(rb+1,seed), sortedAll=[...all].sort((x,y)=>x-y);
-    if(dough.length<20) return null;
-    const Ld=dough[Math.floor(dough.length/2)], Lb=sortedAll[Math.floor(sortedAll.length*0.15)];
-    const th=Lb+(Ld-Lb)*0.5, sep=Ld-Lb;
-    // Fracción de cada fila por encima del umbral (claro = masa). Con 0,45 basta:
-    // la cúpula es más alta en el centro y la fila de su cima no es masa entera.
-    const bright=rows.map(row=>row?row.filter(b=>b>th).length/row.length:0);
+    const cl=v=>Math.max(0,Math.min(1,v));
+    // Referencias y clasificación, con las columnas permitidas. Se hace dos
+    // veces si hace falta: un reflejo ancho sobre el recuadro de masa sube la
+    // referencia de "cómo es la masa" y la masa real parece oscura; la segunda
+    // pasada, sin las columnas de reflejo, lo arregla.
+    const classify=ok=>{
+      const dL=[], dW=[];
+      for(let r=Math.max(0,rb+1);r<=Math.min(ROWS-1,seed);r++) for(let c=0;c<COLS;c++) if(ok[c]){ const i=r*COLS+c; if(!isNaN(Ls[i])){ dL.push(Ls[i]); dW.push(Ws[i]); } }
+      if(dL.length<20) return null;
+      const Ld=med(dL), Wd=med(dW);
+      // Fondo: el percentil 15 exacto, como siempre (un fondo más oscuro acerca
+      // el corte al ruido y la cima baila el doble), con su calidez.
+      const allL=[]; for(let i=0;i<Ls.length;i++) if(ok[i%COLS]&&!isNaN(Ls[i])) allL.push(Ls[i]);
+      allL.sort((a,b)=>a-b); const Lb=allL[Math.floor(allL.length*0.15)];
+      const bw=[]; for(let i=0;i<Ls.length;i++) if(ok[i%COLS]&&!isNaN(Ls[i])&&Ls[i]<=Lb) bw.push(Ws[i]);
+      const Wb=med(bw), sepL=Ld-Lb, sepW=Wd-Wb;
+      // Cuánto fiarse de cada rasgo: el brillo, por la separación en proporción;
+      // el color, por su separación y solo con luz suficiente.
+      const wL=cl((sepL-2)/4)*cl((Ld/(Lb+1)-1.1)/0.3);
+      const wW=opt.lumaOnly?0:cl((Math.abs(sepW)-0.02)/0.06)*cl((Ld-18)/25);
+      const isDough=new Uint8Array(ROWS*COLS), known=new Uint8Array(ROWS*COLS);
+      if(wL+wW>=0.05) for(let i=0;i<Ls.length;i++){
+        if(isNaN(Ls[i])) continue; known[i]=1;
+        const sL=sepL?(Ls[i]-Lb)/sepL:0, sW=sepW?(Ws[i]-Wb)/sepW:0;
+        isDough[i]=((wL*sL+wW*sW)/(wL+wW))>0.5?1:0;
+      }
+      return {Ld,Lb,Wd,Wb,wL,wW,sepL,isDough,known};
+    };
+    const all=new Array(COLS).fill(true);
+    let K=classify(all);
+    if(!K) return null;
+    if(K.wL+K.wW<0.05) return {h:null,bot:null,conf:0,th:(K.Lb+K.Ld)/2,px,W,H,why:'no contrast'};
+    // Columnas de reflejo: parecen masa arriba, donde el frasco está vacío.
+    // "Arriba" es por encima de donde estaba la cima hace un momento (la masa
+    // sube despacio): con eso, un reflejo ancho de arriba abajo —una ventana en
+    // el cristal— ya no se lee como masa hasta la tapa. Sin historia, por encima
+    // del objetivo; y si no queda sitio, la mitad alta del frasco.
+    let rUp0=Math.max(rt+Math.round(ROWS*0.12),Math.round(ROWS*0.55)), rUp1=ROWS-3;
+    const rPrev=opt.prevTop!=null?Math.round((opt.prevTop+0.08)*(ROWS-1)):null, rTg=Math.round(((setup.hTarget||1)+0.03)*(ROWS-1));
+    if(rPrev!=null&&rUp1-rPrev>=8) rUp0=rPrev; else if(rUp1-rTg>=8) rUp0=rTg;
+    const upFrac=[];
+    for(let c=0;c<COLS;c++){ let d=0,k=0; for(let r=rUp0;r<=rUp1;r++){ const i=r*COLS+c; if(K.known[i]){ k++; d+=K.isDough[i]; } } upFrac.push(k?d/k:0); }
+    // Reflejo si una cuarta parte de las columnas está limpia ahí arriba: la
+    // masa, cuando llega arriba de verdad, llena el frasco de lado a lado. (Con
+    // "si son minoría" un reflejo que tapaba dos tercios del cristal pasaba.)
+    const clean=upFrac.filter(f=>f<0.2).length;
+    const badCol=upFrac.map(f=>rUp0<rUp1&&clean>=COLS*0.25&&f>0.5);
+    const nBad=badCol.filter(Boolean).length;
+    if(nBad){ const K2=classify(badCol.map(b=>!b)); if(K2&&K2.wL+K2.wW>=0.05) K=K2; }
+    const {Ld,Lb,Wd,Wb,wL,wW,sepL,isDough,known}=K;
+    const bright=[];
+    for(let r=0;r<ROWS;r++){ let d=0,k=0; for(let c=0;c<COLS;c++){ if(badCol[c]) continue; const i=r*COLS+c; if(known[i]){ k++; d+=isDough[i]; } } bright.push(k>=4?d/k:0); }
     // Desde la mitad del recuadro de masa hacia arriba, mientras siga habiendo
-    // masa; un hueco de hasta 3 filas (una sombra, el reflejo del cristal) no la
-    // corta. Anclarse ahí evita confundirla con cualquier otra cosa clara del
-    // frasco — la tapa, un reflejo de arriba, el plato de abajo.
+    // masa; un hueco de hasta 3 filas (una sombra) no la corta. Anclarse ahí
+    // evita confundirla con cualquier otra cosa clara del frasco.
     let top=null, gap=0;
     let r0=seed; while(r0<Math.min(ROWS-1,seed+6)&&bright[r0]<0.45) r0++;
     if(bright[r0]>=0.45) for(let r=r0;r<ROWS;r++){
       if(bright[r]>=0.45){ top=r; gap=0; }
       else if(++gap>3) break;
     }
-    // Fiabilidad por la FORMA del perfil, no por niveles de gris absolutos.
-    // De noche la cámara da la masa a 12 y el fondo a 7: pedir 10 niveles de
-    // diferencia la descartaba con un perfil de libro (filas llenas hasta la
-    // cima y vacías encima), y el recuadro azul no se movía. Vale que dentro de
-    // la masa las filas estén llenas, que encima estén vacías, y que la masa sea
-    // claramente más clara que el fondo en proporción (no ruido de 1-2 niveles).
-    const cl=v=>Math.max(0,Math.min(1,v));
     let conf=0;
     if(top!=null){
-      const mean=(a,b)=>{ let t=0,n=0; for(let r=Math.max(0,a);r<=Math.min(ROWS-1,b);r++){ t+=bright[r]; n++; } return n?t/n:0; };
+      const mean=(a,b)=>{ let t=0,k=0; for(let r=Math.max(0,a);r<=Math.min(ROWS-1,b);r++){ t+=bright[r]; k++; } return k?t/k:0; };
       const inside=mean(r0,top), above=top>=ROWS-2?0:mean(top+1,top+15);
-      const shape=cl((inside-above-0.3)/0.4);
-      const level=cl((sep-2)/4)*cl((Ld/(Lb+1)-1.1)/0.3);
-      conf=Math.min(shape,level);
+      // Fiable si el perfil es limpio (lleno dentro, vacío encima) y algún rasgo
+      // separa de verdad; un poco menos si hubo que tirar muchas columnas.
+      conf=Math.min(cl((inside-above-0.3)/0.4),Math.max(wL,wW))*(1-0.5*nBad/COLS);
     }
-    // La base de la masa, bajando desde el mismo sitio: con ella el × sale de
-    // dos medidas del mismo método, no de un recuadro dibujado a mano.
     let bot=null; gap=0;
     if(top!=null) for(let r=r0;r>=0;r--){
       if(bright[r]>=0.45){ bot=r; gap=0; }
       else if(++gap>3) break;
     }
-    return {h:top!=null?top/(ROWS-1):null, bot:bot!=null?bot/(ROWS-1):null, conf, th, px, W, H};
+    return {h:top!=null?top/(ROWS-1):null, bot:bot!=null?bot/(ROWS-1):null, conf, th:Lb+sepL/2, px, W, H,
+      ref:{Ld,Lb,Wd,Wb,wL,wW}, badCols:nBad,
+      why:top==null?'dough not found':(conf<0.3?(nBad>COLS/3?'reflections':'weak contrast'):'')};
 }
 async function measureDough(){
   if(pixBusy||!visSetup||!camBlob||setupStep) return;
   if(camBlob===pixLastSrc) return;
   pixBusy=true; pixLastSrc=camBlob;
   try{
-    const m=await pixMeasure(camBlob); if(!m) return;
+    const prevTop=(doughPix&&doughPix.h!=null&&Date.now()-doughPix.at<10*60000)?doughPix.h:null;
+    const m=await pixMeasure(camBlob,{prevTop}); if(!m) return;
     const {h,bot,conf,th,px,W,H}=m;
+    const md=a=>a.length?[...a].sort((x,y)=>x-y)[Math.floor(a.length/2)]:null;
     // Mediana de las últimas medidas: un fotograma con un reflejo no mueve nada.
     // 30 medidas = un minuto: la masa tarda horas en subir, y con 7 el × bailaba
     // unas décimas cuando cambiaba la luz.
-    if(h!=null&&conf>0.3){ doughHist.push(h); if(doughHist.length>30) doughHist.shift(); }
-    if(bot!=null&&conf>0.3){ botHist.push(bot); if(botHist.length>30) botHist.shift(); }
-    const md=a=>a.length?[...a].sort((x,y)=>x-y)[Math.floor(a.length/2)]:null;
-    doughPix={h:md(doughHist), bot:md(botHist), raw:h, conf:+conf.toFixed(2), at:Date.now(), th};
-    if(contrastOn) contrastUrl=makeContrast(px,W,H,th);
+    // Y un salto de más del 8% del frasco no se cree hasta que dura 3 minutos:
+    // la masa no sube eso de golpe, un reflejo que aparece (el sol, una luz que
+    // se enciende) sí. Si de verdad cambió —se movió el frasco, otra masa—, a los
+    // 3 minutos se acepta y se sigue desde ahí.
+    let hold=false;
+    if(h!=null&&conf>0.3){
+      const cur=md(doughHist);
+      if(cur!=null&&doughHist.length>=10&&Math.abs(h-cur)>0.08){
+        jumpBuf.push(h); hold=true;
+        const spread=Math.max(...jumpBuf)-Math.min(...jumpBuf);
+        if(spread>0.06) jumpBuf=[h];
+        else if(jumpBuf.length>=90){ doughHist=jumpBuf.slice(-30); jumpBuf=[]; hold=false; }
+      }else{
+        jumpBuf=[];
+        doughHist.push(h); if(doughHist.length>30) doughHist.shift();
+        if(bot!=null){ botHist.push(bot); if(botHist.length>30) botHist.shift(); }
+      }
+    }
+    doughPix={h:md(doughHist), bot:md(botHist), raw:h, conf:+conf.toFixed(2), at:Date.now(), th, hold, why:m.why||'', badCols:m.badCols||0, ref:m.ref||null};
+    if(contrastOn) contrastUrl=makeContrast(px,W,H,m.ref||{Lb:th-10,Ld:th+10,Wb:0,Wd:0,wL:1,wW:0});
     ensurePixStart();
     checkPixAlarm();
     drawVision();
@@ -6238,12 +6304,17 @@ async function measureDough(){
 // La vista de alto contraste: la masa (claro) en ámbar vivo, el resto en azul
 // muy oscuro. Es lo que "ve" la medida; el panadero la puede mirar, pero la
 // imagen normal no desaparece — va encima, con transparencia.
-function makeContrast(px,W,H,th){
+function makeContrast(px,W,H,ref){
+  // Pinta exactamente lo que decide la medida: brillo y calidez con los mismos
+  // pesos. Masa en ámbar, fondo azul oscuro, quemado (reflejo) en blanco.
   const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
-  const g=cv.getContext('2d'); const out=g.createImageData(W,H);
+  const g=cv.getContext('2d'); const out=g.createImageData(W,H), D=px.data;
+  const {Ld,Lb,Wd,Wb,wL,wW}=ref, sL=(Ld-Lb)||1, sW=(Wd-Wb)||1, tw=(wL+wW)||1;
   for(let i=0;i<W*H*4;i+=4){
-    const b=0.299*px.data[i]+0.587*px.data[i+1]+0.114*px.data[i+2];
-    const on=b>th, k=Math.max(0,Math.min(1,(b-th+30)/60));
+    const R=D[i],G=D[i+1],B=D[i+2], L=0.299*R+0.587*G+0.114*B;
+    if(L>=235){ out.data[i]=out.data[i+1]=out.data[i+2]=235; out.data[i+3]=255; continue; }
+    const s=(wL*(L-Lb)/sL+wW*((R-B)/(R+G+B+3)-Wb)/sW)/tw;
+    const on=s>0.5, k=Math.max(0,Math.min(1,(s-0.2)/0.8));
     out.data[i]=on?255:10; out.data[i+1]=on?170+85*k:20+30*k; out.data[i+2]=on?30:60+60*k; out.data[i+3]=255;
   }
   g.putImageData(out,0,0);
@@ -6299,7 +6370,11 @@ function paintVisLine(){
   if(!visSetup){ n.textContent=visOn?'AI: mark the jar, the dough and the target with 🎯 to start':''; return; }
   const cal=visSetup.calAt?` · calibrated ${new Date(visSetup.calAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}`:'';
   if(camStale){ n.textContent=`Camera: no new picture — this one is from ${new Date(camShotAt).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}`; return; }
-  n.textContent=(p?`Camera: ${p.x!=null?p.x.toFixed(2)+'× since you marked it · ':''}${Math.round(p.pct)}% of your goal`:'Camera: not enough contrast to read the dough — try ✨ Calibrate with AI')+cal;
+  const why=doughPix&&doughPix.why==='reflections'?'too many reflections on the glass':(doughPix&&doughPix.why==='no contrast'?'too dark — the dough does not stand out':'not enough contrast to read the dough');
+  n.textContent=(p?`Camera: ${p.x!=null?p.x.toFixed(2)+'× since you marked it · ':''}${Math.round(p.pct)}% of your goal`
+      +(doughPix.hold?' · holding: the picture changed suddenly (a reflection?)':'')
+      +(doughPix.badCols?` · ignoring ${doughPix.badCols} reflection stripe${doughPix.badCols>1?'s':''}`:'')
+    :`Camera: ${why} — try the light, or ✨ Calibrate with AI`)+cal;
 }
 setInterval(measureDough,2000);
 
@@ -6419,7 +6494,7 @@ async function finishSetup(img){
     setupStep=3; setupBanner(); drawVision(); return;
   }
   setupStep=0; setupBanner();
-  doughHist=[]; botHist=[];   // lo medido con las marcas anteriores no vale
+  doughHist=[]; botHist=[]; jumpBuf=[];   // lo medido con las marcas anteriores no vale
   // La imagen sobre la que se marcó es la que manda: de ella salen la foto de
   // referencia y la plantilla, y su formato dice cómo pasar a canónico.
   const A=(img.naturalWidth||4)/(img.naturalHeight||3);
