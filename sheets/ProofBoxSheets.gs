@@ -96,7 +96,7 @@ function build(d) {
   // ── Resumen ──────────────────────────────────────────────────────────────
   const sm = ss.insertSheet(T.summary, 0);
   sm.setHiddenGridlines(true);
-  widths(sm, [24, 190, 170, 190, 170, 40, 40, 40]);
+  widths(sm, [24, 170, 250, 150, 200, 40, 40, 40]);
   sm.getRange('B2:E2').merge().setValue(d.sheet.name).setFontSize(22).setFontWeight('bold').setFontColor(INK);
   const sub = [`${T.started} ${fmtDate(d.sheet.started, d.tz)}`, `${T.duration} ${fmtH(d.summary.durationH, T)}`, `${T.exported} ${fmtDate(d.exported, d.tz)}`].join('   ·   ');
   sm.getRange('B3:E3').merge().setValue(sub).setFontColor(MUTED).setFontSize(10);
@@ -131,7 +131,7 @@ function build(d) {
   section(sm, row, T.growthChart); row++;
   if (rows.length > 1) {
     const cd = ss.insertSheet('_chart');
-    const cdRows = (d.readings || []).map(r => [r.h, num(r.x), num(r.temp)]);
+    const cdRows = withGaps(d.readings || [], r => r.h, r => [num(r.x), num(r.temp)]);
     cd.getRange(1, 1, 1, 3).setValues([[T.elapsed, T.growth, T.temp + ' °C']]);
     cd.getRange(2, 1, cdRows.length, 3).setValues(cdRows);
     const ch = sm.newChart().setChartType(Charts.ChartType.LINE)
@@ -193,7 +193,7 @@ function build(d) {
     const pts = (d.readings || []).filter(r => r.stepId === x.id);
     if (x.manual || pts.length < 3) continue;
     const t0 = new Date(x.start).getTime();
-    const block = pts.map(r => [+((new Date(r.t).getTime() - t0) / 3600000).toFixed(3), num(r.x), num(r.temp)]);
+    const block = withGaps(pts, r => +((new Date(r.t).getTime() - t0) / 3600000).toFixed(3), r => [num(r.x), num(r.temp)]);
     gd.getRange(1, gdCol, 1, 3).setValues([[T.hours, x.name, T.temp]]);
     gd.getRange(2, gdCol, block.length, 3).setValues(block);
     gc.getRange(gcRow + 1, 2).setValue(x.name).setFontSize(13).setFontWeight('bold').setFontColor(AMBER);
@@ -260,6 +260,20 @@ function build(d) {
 }
 
 // ── Ayudas ───────────────────────────────────────────────────────────────
+// Filas para un gráfico de líneas con los huecos CORTADOS: entre dos lecturas
+// separadas más de 10 min, o de pasos distintos, va una fila sin valores. Sin
+// eso Google une los dos lados con una recta que dibuja una subida (o caída)
+// que nadie midió.
+function withGaps(list, hOf, valsOf) {
+  const out = []; let prev = null;
+  for (const r of list) {
+    const h = hOf(r);
+    if (prev && (h - prev.h > 10 / 60 || r.stepId !== prev.stepId)) out.push([+((h + prev.h) / 2).toFixed(3), '', '']);
+    out.push([h].concat(valsOf(r)));
+    prev = { h, stepId: r.stepId };
+  }
+  return out;
+}
 function num(v) { return v == null || v === '' || !isFinite(v) ? '' : Number(v); }
 function header(sh, row, labels, col) {
   const r = sh.getRange(row, col || 1, 1, labels.length).setValues([labels]);
