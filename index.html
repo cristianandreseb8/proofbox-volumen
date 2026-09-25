@@ -4505,8 +4505,8 @@ function renderSheetsCard(){
   box.innerHTML=`<ol style="padding-left:18px;line-height:1.65;margin:0 0 8px">
       <li><button class="mark-btn" style="padding:3px 9px;font-size:11px;min-height:0" onclick="copySheetsCode()">Copy the code</button> and open <a href="https://script.new" target="_blank" rel="noopener" style="color:var(--amber-l)">script.new</a> with your Google account.</li>
       <li>Paste it over everything there and save.</li>
-      <li><b>Deploy → New deployment → Web app</b>: execute as <b>Me</b>, access <b>Anyone</b>. Authorise it.</li>
-      <li>Paste the link that ends in <b>/exec</b> here:</li></ol>
+      <li><b>Deploy → New deployment</b>, then the <b>⚙ gear next to “Select type” → Web app</b> (without it the Deploy button stays grey). Execute as <b>Me</b>, access <b>Anyone</b>. Authorise it — on “Google hasn’t verified this app”: Advanced → Go to… → Allow.</li>
+      <li>Paste the link that ends in <b>/exec</b> here — from <b>this</b> project (Deploy → Manage deployments shows it):</li></ol>
     <div class="input-row" style="margin:0"><input class="num-input" id="sheets-url" value="${esc(u)}" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" spellcheck="false" style="flex:1;font-size:12px">
       <button class="mark-btn" onclick="setSheetsUrl()">Save</button></div>
     <div id="sheets-state" style="font-size:11px;margin-top:6px;color:var(--muted)">${u?'':'Not set up on this device yet.'}</div>`;
