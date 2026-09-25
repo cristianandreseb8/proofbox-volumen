@@ -435,6 +435,28 @@ button,select,input,textarea{font-family:inherit!important}
 .cwidget.cam img{width:100%;height:100%;object-fit:contain;display:block}
 .cwidget .x{position:absolute;top:2px;right:4px;border:none;background:transparent;color:var(--muted);cursor:pointer;font-size:14px;line-height:1;padding:2px}
 #chart-full:fullscreen{padding:14px 18px}
+/* Galería de la cámara: todas las fotos, por días, en cuadrícula. */
+.shots-head{display:flex;align-items:center;gap:6px;margin:12px 0 8px}
+.shots-head .mark-btn{min-height:30px;padding:4px 10px;display:inline-flex;align-items:center;gap:5px}
+.shots-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(72px,1fr));gap:5px;max-height:340px;overflow-y:auto;padding:2px}
+.shots-grid .day{grid-column:1/-1;font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:6px 0 1px}
+.shots-grid .th{position:relative;aspect-ratio:4/3;border-radius:7px;overflow:hidden;border:1px solid var(--border);background:#000;cursor:pointer;padding:0}
+.shots-grid .th img{width:100%;height:100%;object-fit:cover;display:block}
+.shots-grid .th span{position:absolute;left:3px;bottom:2px;font-size:9px;color:#fff;text-shadow:0 1px 2px #000}
+.shots-grid .th:hover{border-color:var(--amber)}
+/* Visor: flechas, deslizar, contraste. */
+.shot-box{max-width:760px;text-align:center}
+.shot-stage{position:relative;overflow:hidden;border-radius:10px;background:#000;touch-action:pan-y;user-select:none}
+.shot-stage img{max-width:100%;max-height:62vh;display:block;margin:0 auto}
+.shot-nav{position:absolute;top:50%;transform:translateY(-50%);width:42px;height:42px;border-radius:50%;border:1px solid rgba(255,255,255,.35);
+  background:rgba(0,0,0,.5);color:#fff;font-size:24px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.shot-nav.prev{left:8px}.shot-nav.next{right:8px}
+.shot-nav:disabled{opacity:.25;cursor:default}
+.shot-cap{font-size:11px;color:var(--muted);margin:10px 0 12px}
+.tl-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:6px}
+.tl-grid label{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--muted)}
+.tl-grid select{padding:8px 10px;font-size:12px}
+@media (max-width:480px){ .tl-grid{grid-template-columns:1fr} }
 .theme-btn{background:transparent;border:1px solid var(--border-strong);color:var(--muted);border-radius:9px;padding:6px 8px;cursor:pointer;line-height:0}
 .theme-btn:hover{color:var(--text);border-color:var(--amber)}
 </style>
@@ -508,14 +530,44 @@ button,select,input,textarea{font-family:inherit!important}
   </div>
 </div>
 <div class="modal" id="cam-modal" onclick="if(event.target===this)closeShot()">
-  <div class="modal-box" style="max-width:640px;text-align:center">
-    <img id="cs-img" src="" style="max-width:100%;max-height:60vh;border-radius:10px;border:1px solid var(--border)">
-    <div id="cs-cap" style="font-size:10px;color:var(--muted);margin:10px 0 12px"></div>
-    <div class="log-btns">
+  <div class="modal-box shot-box">
+    <div class="shot-stage" id="cs-stage">
+      <img id="cs-img" src="" alt="Saved camera picture" draggable="false">
+      <button class="shot-nav prev" onclick="stepShot(-1)" aria-label="Earlier picture">‹</button>
+      <button class="shot-nav next" onclick="stepShot(1)" aria-label="Later picture">›</button>
+    </div>
+    <div id="cs-cap" class="shot-cap"></div>
+    <div class="log-btns" style="flex-wrap:wrap">
       <button class="mark-btn" onclick="closeShot()">Close</button>
-      <button class="mark-btn" onclick="fullShot()">⛶ Full screen</button>
-      <button class="mark-btn" onclick="shotToStep()">📌 Add to step</button>
-      <button class="mark-btn" style="color:var(--red);border-color:var(--red)" onclick="deleteShot()">✕ Delete</button>
+      <button class="mark-btn" id="cs-contrast" onclick="toggleShotContrast()" title="High-contrast view: the dough in amber"><i data-ic="contrast"></i> Contrast</button>
+      <button class="mark-btn" onclick="fullShot()" title="Full screen"><i data-ic="expand"></i></button>
+      <button class="mark-btn" onclick="shotToStep()" title="Add to the open step"><i data-ic="pin"></i> Add to step</button>
+      <button class="mark-btn" style="color:var(--red);border-color:var(--red)" onclick="deleteShot()" title="Delete — ↶ brings it back"><i data-ic="trash"></i></button>
+    </div>
+  </div>
+</div>
+<div class="modal" id="tl-modal" onclick="if(event.target===this&&!tlBusy)closeTimelapse()">
+  <div class="modal-box" style="max-width:560px">
+    <div class="card-label" style="margin-bottom:4px">Stop-motion</div>
+    <div style="font-size:10px;color:var(--muted);margin-bottom:12px;line-height:1.45">A short video from the pictures the camera saves every 10 minutes, with the time and the growth on each frame.</div>
+    <div class="tl-grid">
+      <label>Pictures<select class="num-input" id="tl-range" onchange="tlCount()">
+        <option value="sheet">This sheet</option><option value="step">The open step</option>
+        <option value="24">Last 24 hours</option><option value="72">Last 3 days</option><option value="all">All saved</option></select></label>
+      <label>Speed<select class="num-input" id="tl-fps" onchange="tlCount()">
+        <option value="6">Slow · 6 per second</option><option value="10" selected>Normal · 10 per second</option><option value="15">Fast · 15 per second</option><option value="24">Very fast · 24 per second</option></select></label>
+    </div>
+    <label class="vis-row"><input type="checkbox" id="tl-info" checked> Time and growth on each frame</label>
+    <label class="vis-row"><input type="checkbox" id="tl-contrast"> High contrast (the dough in amber)</label>
+    <label class="vis-row"><input type="checkbox" id="tl-bright" checked> Brighten dark pictures</label>
+    <label class="vis-row"><input type="checkbox" id="tl-dark" checked> Skip pictures that are completely black</label>
+    <div id="tl-note" style="font-size:11px;color:var(--muted);margin:8px 0"></div>
+    <div class="track" id="tl-bar" style="display:none;margin-bottom:8px"><div class="fill" id="tl-fill" style="width:0%"></div></div>
+    <video id="tl-video" controls playsinline loop style="display:none;width:100%;max-height:52vh;border-radius:10px;background:#000;margin-bottom:10px"></video>
+    <div class="log-btns">
+      <button class="mark-btn" onclick="closeTimelapse()" style="flex:1" id="tl-close">Close</button>
+      <button class="mark-btn" id="tl-save" onclick="tlDownload()" style="flex:1;display:none"><i data-ic="download"></i> Save video</button>
+      <button class="cal-btn" id="tl-go" onclick="makeTimelapse()" style="flex:2;margin:0"><i data-ic="film"></i> Make the video</button>
     </div>
   </div>
 </div>
@@ -859,11 +911,14 @@ button,select,input,textarea{font-family:inherit!important}
     <div style="font-size:10px;color:var(--muted);margin-top:6px;display:flex;gap:8px"><span id="cam-state" style="flex:1"></span><span id="cam-fw" style="opacity:.7"></span></div>
     <div style="font-size:10px;color:#a36bff;margin-top:3px" id="cam-vis-line"></div>
     <div id="cam-shots-box" style="display:none">
-      <div class="pa-sep" style="margin-top:10px">Saved every 10 minutes
-        <span id="cam-del-all" style="float:right;text-transform:none;letter-spacing:0;color:var(--red);cursor:pointer;display:none" onclick="deleteAllShots()">✕ delete all</span>
+      <div class="shots-head">
+        <span class="card-label" style="margin:0">Saved every 10 minutes</span>
+        <span style="flex:1"></span>
+        <button class="mark-btn" onclick="openTimelapse()" title="Make a short video of the dough growing"><i data-ic="film"></i> Stop-motion</button>
+        <button class="mark-btn" id="cam-del-all" style="display:none;color:var(--red)" onclick="deleteAllShots()" title="Delete all saved pictures"><i data-ic="trash"></i></button>
       </div>
-      <div id="cam-shots" style="display:flex;gap:4px;overflow-x:auto;padding-bottom:4px"></div>
-      <div style="font-size:10px;color:var(--muted);margin-top:4px" id="cam-shots-note"></div>
+      <div id="cam-shots" class="shots-grid"></div>
+      <div style="font-size:10px;color:var(--muted);margin-top:6px" id="cam-shots-note"></div>
     </div>
   </div>
 
@@ -4369,6 +4424,7 @@ Return clean semantic HTML for the report body: h1, h2, p, ul, table. No CSS, no
 // sistema y no siguen el color del tema. En el HTML van como <i data-ic="x">.
 const ICONS={
   sheet:'<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M4 9h16M4 15h16M10 9v12"/>',
+  film:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4"/>',
   cursor:'<path d="M5 3l14 7-6 2-2 6z"/>',
   zoomin:'<circle cx="11" cy="11" r="7"/><path d="M21 21l-5-5M11 8v6M8 11h6"/>',
   zoomout:'<circle cx="11" cy="11" r="7"/><path d="M21 21l-5-5M8 11h6"/>',
@@ -6565,7 +6621,7 @@ function setupSvg(W,H){
 // objetivo no se mueven; la masa sube: su borde de arriba se coloca a la altura
 // que la IA midió, a lo largo del eje del frasco dibujado.
 function setupDrawn(W,H,A){
-  if(!visSetup) return '';
+  if(!visSetup||!visSetup.jar||!visSetup.dough||!visSetup.target) return '';
   const P=p=>{ const q=fromCanon(p,A||4/3); return [q.x*W,q.y*H]; };
   const J=visSetup.jar.map(P), D=visSetup.dough.map(P), T=visSetup.target.map(P);
   const pts=a=>a.map(q=>q[0].toFixed(1)+','+q[1].toFixed(1)).join(' ');
@@ -6635,16 +6691,98 @@ function toggleShots(){
   document.getElementById('btn-shots').classList.toggle('on',!open);
   if(!open) loadCamShots();
 }
-let shotOpen=null;
+// ─── El visor de fotos ────────────────────────────────────────────────────
+// Se pasa de una a otra con las flechas, deslizando o con ← →. camShots va de
+// la más nueva a la más vieja: "siguiente" es más tarde, índice más bajo.
+let shotOpen=null, shotIdx=-1, shotContrast=false;
+const shotContrastCache=new Map();
 function openShot(name){
-  const o=camShots.find(x=>x.name===name); if(!o)return;
-  shotOpen=o;
-  document.getElementById('cs-img').src=shotUrl(o);
-  setTimeout(paintRot,50);
-  document.getElementById('cs-cap').textContent=new Date(o.t).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
+  const i=camShots.findIndex(x=>x.name===name); if(i<0)return;
   document.getElementById('cam-modal').classList.add('show');
+  showShot(i);
 }
-function closeShot(){ shotOpen=null; document.getElementById('cam-modal').classList.remove('show'); }
+function showShot(i){
+  if(i<0||i>=camShots.length) return;
+  shotIdx=i; shotOpen=camShots[i];
+  const o=shotOpen, img=document.getElementById('cs-img');
+  img.src=shotContrast&&shotContrastCache.has(o.name)?shotContrastCache.get(o.name):shotUrl(o);
+  img.onload=()=>paintRot();
+  document.querySelector('#cam-modal .shot-nav.prev').disabled=i>=camShots.length-1;
+  document.querySelector('#cam-modal .shot-nav.next').disabled=i<=0;
+  document.getElementById('cs-contrast').classList.toggle('on',shotContrast);
+  paintShotCap();
+  if(shotContrast&&!shotContrastCache.has(o.name)) loadShotContrast(o);
+  // Las vecinas, ya pedidas: pasar de una a otra es inmediato.
+  [i-1,i+1].forEach(k=>{ if(camShots[k]){ const p=new Image(); p.src=shotUrl(camShots[k]); } });
+}
+function paintShotCap(extra){
+  const o=shotOpen; if(!o) return;
+  const d=new Date(o.t).toLocaleString('en-GB',{weekday:'short',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
+  const n=camShots.length-shotIdx;
+  const g=shotGrowth(o.t);
+  document.getElementById('cs-cap').textContent=`${d}  ·  ${n} of ${camShots.length}`+(g?`  ·  ${g.x.toFixed(2)}×`:'')+(extra?'  ·  '+extra:'');
+}
+function stepShot(d){ if(shotIdx>=0) showShot(shotIdx-d); }
+function closeShot(){ shotOpen=null; shotIdx=-1; document.getElementById('cam-modal').classList.remove('show'); }
+// Alto contraste de una foto guardada: la misma lectura que la medida en vivo
+// (masa en ámbar) si hay recuadros puestos; si no, o si en esa foto no se
+// encuentra, un corte por brillo que igualmente deja ver el borde.
+async function contrastOf(blob){
+  const m=visSetup?await pixMeasure(blob,{}).catch(()=>null):null;
+  if(m&&m.ref) return makeContrast(m.px,m.W,m.H,m.ref);
+  const img=await createImageBitmap(blob);
+  const W=Math.min(480,img.width), H=Math.round(W*img.height/img.width);
+  const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
+  const g=cv.getContext('2d',{willReadFrequently:true}); g.drawImage(img,0,0,W,H);
+  const px=g.getImageData(0,0,W,H), L=[];
+  for(let k=0;k<px.data.length;k+=16){ const l=0.299*px.data[k]+0.587*px.data[k+1]+0.114*px.data[k+2]; if(l<235) L.push(l); }
+  L.sort((a,b)=>a-b);
+  const q=f=>L.length?L[Math.floor(L.length*f)]:0;
+  return makeContrast(px,W,H,{Lb:q(0.15),Ld:q(0.75),Wb:0,Wd:1,wL:1,wW:0});
+}
+async function loadShotContrast(o){
+  paintShotCap('reading…');
+  try{
+    const u=await contrastOf(await (await fetch(shotUrl(o))).blob());
+    shotContrastCache.set(o.name,u);
+    if(shotContrastCache.size>60) shotContrastCache.delete(shotContrastCache.keys().next().value);
+    if(shotOpen===o&&shotContrast) document.getElementById('cs-img').src=u;
+  }catch(e){ showToast('Could not read that picture'); }
+  if(shotOpen===o) paintShotCap();
+}
+function toggleShotContrast(){
+  shotContrast=!shotContrast;
+  if(shotIdx>=0) showShot(shotIdx);
+}
+// El × de los sensores a la hora de la foto (la lectura más cercana, a menos
+// de 15 min). Sin lecturas cerca, nada: mejor sin número que uno inventado.
+let growthRowsCache={n:-1,rows:[]};
+function shotGrowth(t){
+  if(growthRowsCache.n!==history.length||growthRowsCache.s!==sess){ growthRowsCache={n:history.length,s:sess,rows:rowsIn(null).map(r=>({t:new Date(r.logged_at).getTime(),x:+r.rise}))}; }
+  const R=growthRowsCache.rows; if(!R.length) return null;
+  let lo=0,hi=R.length-1;
+  while(lo<hi){ const m=(lo+hi)>>1; if(R[m].t<t) lo=m+1; else hi=m; }
+  const best=[R[lo],R[lo-1]].filter(Boolean).sort((a,b)=>Math.abs(a.t-t)-Math.abs(b.t-t))[0];
+  return best&&Math.abs(best.t-t)<15*60000&&best.x>0?best:null;
+}
+(function(){
+  const st=document.getElementById('cs-stage'); if(!st) return;
+  let x0=null,y0=0;
+  st.addEventListener('pointerdown',e=>{ if(e.target.closest('.shot-nav')) return; x0=e.clientX; y0=e.clientY; });
+  st.addEventListener('pointerup',e=>{
+    if(x0==null) return;
+    const dx=e.clientX-x0, dy=e.clientY-y0; x0=null;
+    if(Math.abs(dx)>40&&Math.abs(dx)>Math.abs(dy)*1.3) stepShot(dx<0?1:-1);
+  });
+  st.addEventListener('pointercancel',()=>{ x0=null; });
+  addEventListener('keydown',e=>{
+    if(!document.getElementById('cam-modal').classList.contains('show')||e.ctrlKey||e.metaKey||e.altKey) return;
+    if(e.key==='ArrowLeft'){ e.preventDefault(); stepShot(-1); }
+    else if(e.key==='ArrowRight'){ e.preventDefault(); stepShot(1); }
+    else if(e.key==='Escape'){ e.preventDefault(); closeShot(); }
+    else if(e.key.toLowerCase()==='c'){ e.preventDefault(); toggleShotContrast(); }
+  });
+})();
 async function shotToStep(){
   if(!shotOpen)return;
   const st=activeStage();
@@ -6707,8 +6845,10 @@ async function deleteShot(){
   const o=shotOpen;
   try{
     if(!await trashShots([o.name],'Delete a camera picture')) return;
+    const i=shotIdx;
     camShots=camShots.filter(x=>x.name!==o.name);
-    renderCamShots(); closeShot(); showToast('Picture deleted — ↶ brings it back');
+    renderCamShots(); showToast('Picture deleted — ↶ brings it back');
+    if(camShots.length) showShot(Math.min(i,camShots.length-1)); else closeShot();
   }catch(e){ showToast('Could not delete it: '+e.message); }
 }
 async function deleteAllShots(){
@@ -6722,20 +6862,214 @@ async function deleteAllShots(){
   }catch(e){ showToast('Could not delete them: '+e.message); loadCamShots(); }
 }
 function shotUrl(o){ return `${SUPA_URL}/storage/v1/object/public/proofbox-photos/cam/proofbox-cam01/shots/${o.name}`; }
+// Todas, en cuadrícula por días, de la más nueva a la más vieja. Las imágenes
+// se piden solo al acercarse a la vista (loading=lazy).
 function renderCamShots(){
   const box=document.getElementById('cam-shots'), note=document.getElementById('cam-shots-note');
   if(!box) return;
   const f=t=>new Date(t).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
-  box.innerHTML=camShots.slice(0,12).map(o=>
-    `<img src="${shotUrl(o)}" loading="lazy" title="${f(o.t)}" onclick="openShot('${o.name}')" style="width:52px;height:39px;object-fit:cover;border-radius:5px;border:1px solid var(--border);cursor:pointer;flex:none">`).join('');
+  const hm=t=>new Date(t).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+  let day='', html='';
+  camShots.forEach(o=>{
+    const d=new Date(o.t).toLocaleDateString('en-GB',{weekday:'short',day:'2-digit',month:'short'});
+    if(d!==day){ day=d; html+=`<div class="day">${d}</div>`; }
+    html+=`<button class="th" onclick="openShot('${o.name}')" title="${f(o.t)}" aria-label="Picture of ${f(o.t)}"><img src="${shotUrl(o)}" loading="lazy" alt=""><span>${hm(o.t)}</span></button>`;
+  });
+  box.innerHTML=html;
+  box.style.display=camShots.length?'':'none';
   const da=document.getElementById('cam-del-all');
-  if(da) da.style.display=camShots.length?'inline':'none';
+  if(da) da.style.display=camShots.length?'':'none';
   const n=document.getElementById('cam-shots-n');
   if(n) n.textContent=camShots.length;
   setTimeout(paintRot,50);   // las miniaturas acaban de nacer
+  box.querySelectorAll('img').forEach(i=>i.addEventListener('load',()=>{ if(camRot) i.style.transform=`rotate(${camRot}deg) scale(${rotCover(i.clientWidth,i.clientHeight,camRot).toFixed(3)})`; },{once:true}));
   note.textContent=camShots.length
-    ? `${camShots.length} saved · last ${f(camShots[0].t)}`
+    ? `${camShots.length} saved · last ${f(camShots[0].t)} · first ${f(camShots[camShots.length-1].t)}`
     : 'No pictures saved yet. The camera keeps one every 10 minutes.';
+}
+
+// ─── Stop-motion ──────────────────────────────────────────────────────────
+// Un vídeo corto con las fotos de archivo: se dibujan una a una en un lienzo
+// (derechas, con el giro de la cámara) y MediaRecorder graba el lienzo. Como
+// graba en tiempo real, cada fotograma se prepara mientras se ve el anterior.
+let tlBusy=false, tlCancel=false, tlBlob=null, tlExt='webm';
+function tlShots(){
+  const v=document.getElementById('tl-range').value, now=Date.now();
+  let a=0, b=Infinity;
+  if(v==='sheet'){ a=sheetFrom()||(sess?sess.startedAt:0)||0; if(sess&&sess.archivedAt) b=sess.archivedAt; }
+  else if(v==='step'){
+    const st=activeStage()||(sess?[...sess.stages].reverse().find(x=>x.startedAt):null);
+    if(!st) return [];
+    a=st.startedAt; b=st.endedAt||now;
+  }
+  else if(v!=='all') a=now-(+v)*3600e3;
+  return camShots.filter(o=>o.t>=a&&o.t<=b).sort((x,y)=>x.t-y.t);
+}
+function tlCount(){
+  if(tlBusy) return;
+  const n=tlShots().length, fps=+document.getElementById('tl-fps').value;
+  document.getElementById('tl-go').disabled=n<2;
+  document.getElementById('tl-note').textContent=n<2
+    ? (camShots.length?'Not enough pictures in that range — try a longer one.':'No saved pictures yet. The camera keeps one every 10 minutes.')
+    : `${n} pictures → a ${Math.max(1,Math.round(n/fps+1.5))} s video.`;
+}
+async function openTimelapse(){
+  document.getElementById('tl-modal').classList.add('show');
+  document.getElementById('tl-note').textContent='Looking for the pictures…';
+  const st=activeStage(); document.getElementById('tl-range').value=st?'step':'sheet';
+  if(!camShots.length) await loadCamShots();
+  if(!tlShots().length&&camShots.length) document.getElementById('tl-range').value='all';
+  tlCount();
+}
+function closeTimelapse(){
+  if(tlBusy){ tlCancel=true; return; }
+  const v=document.getElementById('tl-video'); v.pause();
+  document.getElementById('tl-modal').classList.remove('show');
+}
+function tlMime(){
+  if(typeof MediaRecorder==='undefined') return null;
+  return ['video/mp4;codecs=avc1','video/mp4','video/webm;codecs=vp9','video/webm'].find(m=>MediaRecorder.isTypeSupported(m))||'';
+}
+function tlSetBusy(on,pct){
+  tlBusy=on;
+  document.getElementById('tl-bar').style.display=on?'':'none';
+  if(pct!=null) document.getElementById('tl-fill').style.width=pct.toFixed(1)+'%';
+  document.getElementById('tl-go').disabled=on;
+  document.getElementById('tl-close').textContent=on?'Stop':'Close';
+  document.querySelectorAll('#tl-modal select, #tl-modal input').forEach(x=>x.disabled=on);
+}
+async function makeTimelapse(){
+  const list=tlShots(), fps=+document.getElementById('tl-fps').value;
+  const info=document.getElementById('tl-info').checked, contrast=document.getElementById('tl-contrast').checked, skipDark=document.getElementById('tl-dark').checked;
+  const bright=document.getElementById('tl-bright').checked&&!contrast;
+  const note=document.getElementById('tl-note'), video=document.getElementById('tl-video');
+  const mime=tlMime();
+  if(mime==null){ note.textContent='This browser cannot record video. Try Chrome or Safari.'; return; }
+  if(list.length<2) return;
+  tlCancel=false; tlBlob=null; tlSetBusy(true,0);
+  video.style.display='none'; document.getElementById('tl-save').style.display='none';
+  try{
+    // 1) Bajar y preparar: se miden los niveles de cada foto, se quitan las
+    //    negras del todo y, si se pide, se pasan a alto contraste. Se guardan
+    //    comprimidas; decodificar va al grabar.
+    const frames=[];
+    for(let i=0;i<list.length;i+=6){
+      if(tlCancel) throw new Error('stopped');
+      const part=await Promise.all(list.slice(i,i+6).map(async o=>{
+        try{
+          let blob=await (await fetch(shotUrl(o))).blob();
+          // Esta cámara saca casi todo muy oscuro (media 6-11 de 255 aun de
+          // día), pero la masa tiene señal: se aclara en vez de saltarla. Solo
+          // se quita la que no tiene nada (lo más claro, por debajo de 12).
+          const bm=await createImageBitmap(blob,{resizeWidth:64,resizeHeight:48});
+          const c=document.createElement('canvas'); c.width=64; c.height=48;
+          const cx=c.getContext('2d'); cx.drawImage(bm,0,0); bm.close();
+          const d=cx.getImageData(0,0,64,48).data, a=[];
+          for(let k=0;k<d.length;k+=4) a.push(0.299*d[k]+0.587*d[k+1]+0.114*d[k+2]);
+          a.sort((x,y)=>x-y);
+          const lo=a[Math.floor(a.length*0.02)], hi=a[Math.floor(a.length*0.995)];
+          if(skipDark&&a[Math.floor(a.length*0.98)]<12) return null;
+          if(contrast) blob=await (await fetch(await contrastOf(blob))).blob();
+          return {o,blob,lo,hi};
+        }catch(e){ return null; }      // una foto rota no para el vídeo
+      }));
+      part.forEach(x=>{ if(x) frames.push(x); });
+      tlSetBusy(true,(i+6)/list.length*55);
+      note.textContent=`Preparing pictures… ${Math.min(i+6,list.length)} / ${list.length}`;
+    }
+    if(frames.length<2) throw new Error(skipDark?'Almost every picture was black. Untick "skip black pictures" to use them anyway.':'Could not load the pictures.');
+    // Niveles suavizados entre fotos vecinas (mediana de 7): cada foto se
+    // aclara según su luz, pero sin que el vídeo parpadee de una a otra.
+    const mdn=a=>[...a].sort((x,y)=>x-y)[a.length>>1];
+    frames.forEach((f,i)=>{ const w=frames.slice(Math.max(0,i-3),i+4); f.L0=mdn(w.map(x=>x.lo)); f.L1=mdn(w.map(x=>x.hi)); });
+    // 2) Lienzo del tamaño de la primera foto (máx. 960 de ancho, par: los
+    //    codificadores lo piden).
+    const first=await createImageBitmap(frames[0].blob);
+    let W=Math.min(960,first.width), H=Math.round(W*first.height/first.width);
+    W-=W%2; H-=H%2; first.close();
+    const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
+    const g=cv.getContext('2d',{willReadFrequently:true});
+    try{ await document.fonts.load('600 40px Syne'); await document.fonts.load('500 20px Inter'); }catch(e){}
+    const t0=frames[0].o.t;
+    const draw=(bm,f)=>{ const o=f.o;
+      g.fillStyle='#000'; g.fillRect(0,0,W,H);
+      g.save(); g.translate(W/2,H/2);
+      if(camRot){ g.rotate(camRot*Math.PI/180); const k=rotCover(W,H,camRot); g.scale(k,k); }
+      g.drawImage(bm,-W/2,-H/2,W,H); g.restore();
+      if(bright&&f.L1<200){
+        // Niveles: lo más oscuro a negro, lo más claro casi a blanco, con un
+        // poco de gamma para abrir las sombras. Como mucho ×10, o es solo ruido.
+        const lo=f.L0, span=Math.max(25,f.L1-lo), lut=new Uint8ClampedArray(256);
+        for(let v=0;v<256;v++) lut[v]=255*Math.pow(Math.max(0,Math.min(1,(v-lo)/span)),0.85);
+        const im=g.getImageData(0,0,W,H), D=im.data;
+        for(let k=0;k<D.length;k+=4){ D[k]=lut[D[k]]; D[k+1]=lut[D[k+1]]; D[k+2]=lut[D[k+2]]; }
+        g.putImageData(im,0,0);
+      }
+      if(!info) return;
+      const u=H/360, pad=14*u;
+      const gr=g.createLinearGradient(0,H-90*u,0,H); gr.addColorStop(0,'rgba(0,0,0,0)'); gr.addColorStop(1,'rgba(0,0,0,.72)');
+      g.fillStyle=gr; g.fillRect(0,H-90*u,W,90*u);
+      g.textBaseline='alphabetic'; g.fillStyle='#fff';
+      g.font=`500 ${Math.round(15*u)}px Inter, system-ui, sans-serif`;
+      g.fillText(new Date(o.t).toLocaleString('en-GB',{weekday:'short',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}),pad,H-pad-20*u);
+      const el=o.t-t0, hh=Math.floor(el/3600e3), mm=Math.floor(el%3600e3/60000);
+      const st=stageOfTime(o.t);
+      g.fillStyle='rgba(255,255,255,.72)'; g.font=`400 ${Math.round(12*u)}px Inter, system-ui, sans-serif`;
+      g.fillText(`+${hh}h ${String(mm).padStart(2,'0')}m`+(st&&st.name?`  ·  ${st.name}`:''),pad,H-pad);
+      const gx=shotGrowth(o.t);
+      g.textAlign='right';
+      if(gx){ g.fillStyle='#f5b642'; g.font=`600 ${Math.round(34*u)}px Syne, Inter, sans-serif`; g.fillText(gx.x.toFixed(2)+'×',W-pad,H-pad); }
+      g.fillStyle='rgba(255,255,255,.55)'; g.font=`600 ${Math.round(10*u)}px Inter, sans-serif`;
+      g.fillText('PROOFBOX',W-pad,pad+10*u);
+      g.textAlign='left';
+    };
+    // 3) Grabar: un fotograma cada 1/fps. La primera se sostiene medio segundo
+    //    y la última uno, para que se vea dónde empieza y dónde acaba.
+    const stream=cv.captureStream(0), track=stream.getVideoTracks()[0];
+    const rec=new MediaRecorder(stream,mime?{mimeType:mime,videoBitsPerSecond:5e6}:{videoBitsPerSecond:5e6});
+    const chunks=[]; rec.ondataavailable=e=>{ if(e.data.size) chunks.push(e.data); };
+    const done=new Promise(res=>rec.onstop=res);
+    const dt=1000/fps, holdA=Math.ceil(0.5*fps), holdB=fps;
+    let bm=await createImageBitmap(frames[0].blob);
+    draw(bm,frames[0]); rec.start(); track.requestFrame&&track.requestFrame();
+    let next=performance.now()+dt;
+    const wait=async()=>{ const w=next-performance.now(); if(w>0) await new Promise(r=>setTimeout(r,w)); next+=dt; };
+    for(let k=1;k<holdA;k++){ await wait(); draw(bm,frames[0]); track.requestFrame&&track.requestFrame(); }
+    for(let i=1;i<frames.length;i++){
+      if(tlCancel) break;
+      const nb=await createImageBitmap(frames[i].blob);
+      await wait(); bm.close(); bm=nb;
+      draw(bm,frames[i]); track.requestFrame&&track.requestFrame();
+      tlSetBusy(true,55+45*i/frames.length);
+      note.textContent=`Recording… ${i+1} / ${frames.length}`;
+    }
+    for(let k=0;k<holdB&&!tlCancel;k++){ await wait(); draw(bm,frames[frames.length-1]); track.requestFrame&&track.requestFrame(); }
+    await wait(); rec.stop(); await done; bm.close(); track.stop();
+    if(tlCancel) throw new Error('stopped');
+    const type=(rec.mimeType||mime||'video/webm').split(';')[0];
+    tlExt=type.includes('mp4')?'mp4':'webm';
+    tlBlob=new Blob(chunks,{type});
+    if(video.src) URL.revokeObjectURL(video.src);
+    video.src=URL.createObjectURL(tlBlob); video.style.display=''; video.play().catch(()=>{});
+    document.getElementById('tl-save').style.display='';
+    const skipped=list.length-frames.length;
+    note.textContent=`${frames.length} pictures · ${(tlBlob.size/1048576).toFixed(1)} MB`+(skipped?` · ${skipped} skipped (black or broken)`:'');
+  }catch(e){
+    note.textContent=e.message==='stopped'?'Stopped.':('Could not make the video: '+e.message);
+  }finally{ tlSetBusy(false); tlCancel=false; }
+}
+async function tlDownload(){
+  if(!tlBlob) return;
+  const nm=((sess&&sess.name)||'proofbox').replace(/[^\w\- ]+/g,'').trim().replace(/\s+/g,'-')||'proofbox';
+  const file=`${nm}-stop-motion-${new Date().toISOString().slice(0,10)}.${tlExt}`;
+  // En el móvil, compartir es lo que lo deja en la galería o en WhatsApp.
+  const f=new File([tlBlob],file,{type:tlBlob.type});
+  if(matchMedia('(pointer:coarse)').matches&&navigator.canShare&&navigator.canShare({files:[f]})){
+    try{ await navigator.share({files:[f],title:'ProofBox stop-motion'}); return; }catch(e){ if(e.name==='AbortError') return; }
+  }
+  const a=document.createElement('a'); a.href=URL.createObjectURL(tlBlob); a.download=file;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),10000);
 }
 
 // ─── Métricas sobre la imagen ─────────────────────────────────────────────

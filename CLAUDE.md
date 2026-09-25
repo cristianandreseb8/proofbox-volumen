@@ -731,6 +731,18 @@ error, ventana encima de la masa 1/12 perdidas vs 11/12. Límite: un reflejo que
 tapa medio frasco con la masa ya cerca de la tapa — ahí no queda frasco vacío
 donde reconocerlo; lo frena la retención de 3 min.
 
+## Galería de la cámara y stop-motion (2026-09-25)
+
+- **Galería:** `renderCamShots` pinta TODAS las fotos de `camShots` (hasta 1000, de la más nueva a la más vieja) en una cuadrícula por días, con `loading=lazy`.
+- **Visor:** `showShot(i)` / `stepShot(±1)`. `+1` es más tarde, que en `camShots` es el índice más bajo. Se pasa con ‹ ›, deslizando (pointer events en `#cs-stage`) o con ← →; C activa el contraste y Esc cierra. Borrar deja el visor abierto en la foto de al lado.
+- **Contraste de una foto guardada:** `contrastOf(blob)` usa `pixMeasure` + `makeContrast` si hay recuadros. Sin recuadros, o si la masa no aparece en esa foto, hace un corte por brillo (p15/p75). Guarda en caché las últimas 60.
+- **× a la hora de una foto:** `shotGrowth(t)` toma la lectura del sensor más cercana (`rowsIn(null)`), siempre que esté a menos de 15 min.
+- **Stop-motion:** `makeTimelapse()`. Las fotos se dibujan en un lienzo con el giro `camRot` aplicado y `MediaRecorder` graba `captureStream(0)`, en mp4 avc1 si el navegador puede y si no en webm.
+  - La grabación va en tiempo real: cada fotograma se decodifica mientras se ve el anterior.
+  - La primera foto se sostiene 0,5 s y la última 1 s.
+- **Fotos oscuras:** esta cámara saca casi todo muy oscuro (media de luma 6-11 incluso de día). Por eso el vídeo NO salta las fotos oscuras: las aclara con niveles p2–p99.5, suavizados con una mediana de 7 fotos para que no parpadee, y con ganancia máxima ~×10. Solo salta las que tienen el p98 por debajo de 12, que son negro puro.
+- Si el preview da `Cannot read properties of undefined (reading 'map')` en `setupDrawn`, es un `pb-vis-setup` de prueba a medias en el localStorage. `setupDrawn` ya lo ignora.
+
 ## Pendiente
 
 - **Los electrodos nunca se han verificado en líquido.** Marcan 4.7 kΩ clavado,
