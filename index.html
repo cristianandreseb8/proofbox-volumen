@@ -457,6 +457,28 @@ button,select,input,textarea{font-family:inherit!important}
 .tl-grid label{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--muted)}
 .tl-grid select{padding:8px 10px;font-size:12px}
 @media (max-width:480px){ .tl-grid{grid-template-columns:1fr} }
+/* El celular como cámara: pantalla completa, lo justo encima del vídeo. */
+.pc{position:fixed;inset:0;z-index:2000;background:#000;display:none;color:#fff;font-family:Inter,system-ui,sans-serif}
+.pc.show{display:block}
+.pc video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000}
+.pc-top,.pc-bottom{position:absolute;left:0;right:0;padding:12px 16px;display:flex;gap:10px}
+.pc-top{top:0;align-items:center;background:linear-gradient(#000c,#0000);padding-top:max(12px,env(safe-area-inset-top))}
+.pc-bottom{bottom:0;flex-direction:column;background:linear-gradient(#0000,#000d);padding-bottom:max(14px,env(safe-area-inset-bottom))}
+.pc-sub{font-size:11px;opacity:.75;margin-top:2px}
+.pc-dot{width:10px;height:10px;border-radius:50%;background:#888;flex:none}
+.pc-dot.on{background:#3ecf6e;box-shadow:0 0 0 4px #3ecf6e33}.pc-dot.live{background:#ff4d4d;box-shadow:0 0 0 4px #ff4d4d33}.pc-dot.bad{background:#f5b642}
+.pc-info{font-size:12px;line-height:1.5;opacity:.9}
+.pc-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.pc button,.pc select{background:#ffffff1f;color:#fff;border:1px solid #ffffff40;border-radius:10px;padding:9px 12px;font:500 13px Inter,system-ui,sans-serif;display:inline-flex;align-items:center;gap:6px;min-height:40px}
+.pc select option{color:#000}
+.pc button.on{background:#f5b642;color:#1a1204;border-color:#f5b642}
+.pc-x{margin-left:auto}
+.pc label{display:flex;align-items:center;gap:6px;flex:1;min-width:140px}
+.pc label input{flex:1;accent-color:#f5b642}
+.pc-dark{position:absolute;inset:0;background:#000;display:none;align-items:flex-end;justify-content:center;padding-bottom:40px;font-size:12px;color:#ffffff30}
+.pc-dark.show{display:flex}
+.pc-tips{font-size:12px;line-height:1.5;padding-left:18px;margin:10px 0;color:var(--text)}
+.pc-tips li{margin-bottom:5px}
 .theme-btn{background:transparent;border:1px solid var(--border-strong);color:var(--muted);border-radius:9px;padding:6px 8px;cursor:pointer;line-height:0}
 .theme-btn:hover{color:var(--text);border-color:var(--amber)}
 </style>
@@ -545,6 +567,47 @@ button,select,input,textarea{font-family:inherit!important}
       <button class="mark-btn" style="color:var(--red);border-color:var(--red)" onclick="deleteShot()" title="Delete — ↶ brings it back"><i data-ic="trash"></i></button>
     </div>
   </div>
+</div>
+<div class="modal" id="pc-intro" onclick="if(event.target===this)this.classList.remove('show')">
+  <div class="modal-box" style="max-width:480px">
+    <div class="card-label" style="margin-bottom:6px">Use this phone as the camera</div>
+    <div style="font-size:12px;line-height:1.55;color:var(--text)">
+      This phone takes the place of the ProofBox camera. It saves a picture every 10 minutes, and when someone opens the app on another device it streams live to them. Measuring the dough, the gallery and the stop-motion all work as with the ProofBox camera.
+    </div>
+    <ul class="pc-tips">
+      <li><b>Plug it in.</b> The camera running for hours uses a lot of battery.</li>
+      <li><b>Keep this screen open.</b> If you leave the app or lock the phone, the browser stops the camera.</li>
+      <li><b>Point it at the jar from the side</b>, close, with the whole jar in the picture. A stand or a glass to lean it on is enough.</li>
+      <li><b>Dark screen</b> keeps it recording with the screen black, so its light doesn't reflect in the glass.</li>
+      <li>Once it's in place, mark the jar, the dough and your target again (<i data-ic="frame"></i>) on your other device.</li>
+    </ul>
+    <div class="warn show" id="pc-esp-warn" style="display:none;margin:8px 0">A ProofBox camera is online right now. If both run, both save pictures to the same place — unplug it first.</div>
+    <div class="log-btns">
+      <button class="mark-btn" style="flex:1" onclick="document.getElementById('pc-intro').classList.remove('show')">Cancel</button>
+      <button class="cal-btn" style="flex:2;margin:0" onclick="pcStart()"><i data-ic="camera"></i> Start the camera</button>
+    </div>
+  </div>
+</div>
+<div id="pc" class="pc" aria-label="Phone camera">
+  <video id="pc-video" playsinline muted autoplay></video>
+  <div class="pc-top">
+    <span class="pc-dot" id="pc-dot"></span>
+    <div style="flex:1;min-width:0"><b id="pc-status">Starting the camera…</b><div id="pc-sub" class="pc-sub"></div></div>
+    <button class="pc-x" onclick="pcStop()" aria-label="Stop the camera">Stop</button>
+  </div>
+  <div class="pc-bottom">
+    <div class="pc-info" id="pc-info"></div>
+    <div class="pc-row">
+      <select id="pc-lens" onchange="pcSetLens(this.value)" title="Which camera of the phone"></select>
+      <button id="pc-torch" onclick="pcCycleLight()" style="display:none" title="The phone's flashlight"><i data-ic="sun"></i><span id="pc-torch-t">Light off</span></button>
+      <label id="pc-zoom-box" style="display:none"><i data-ic="zoomin"></i><input type="range" id="pc-zoom" oninput="pcSetZoom(this.value)"></label>
+    </div>
+    <div class="pc-row">
+      <button onclick="pcShotNow()"><i data-ic="camera"></i> Picture now</button>
+      <button onclick="pcDark(true)"><i data-ic="moon"></i> Dark screen</button>
+    </div>
+  </div>
+  <div class="pc-dark" id="pc-dark" onclick="pcDark(false)"><div id="pc-dark-t">ProofBox camera on · tap to see it</div></div>
 </div>
 <div class="modal" id="tl-modal" onclick="if(event.target===this&&!tlBusy)closeTimelapse()">
   <div class="modal-box" style="max-width:560px">
@@ -855,7 +918,7 @@ button,select,input,textarea{font-family:inherit!important}
       <img id="cam-img" draggable="false" alt="" style="width:100%;height:100%;object-fit:contain;display:block;cursor:zoom-in" onclick="openCamFull()">
       <svg class="vis-layer" id="vis-card"></svg>
       <div class="setup-banner" id="setup-banner-card"><span class="st"></span><button onclick="cancelSetup()">Cancel</button></div>
-      <div id="cam-empty" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:11px;text-align:center;padding:12px">Waiting for the camera…</div>
+      <div id="cam-empty" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:11px;text-align:center;padding:12px">Waiting for the camera…<br><button class="mark-btn" style="margin-top:10px" onclick="openPhoneCam()"><i data-ic="phone"></i> No ProofBox camera? Use a phone</button></div>
     </div>
     <div class="warn" id="warn-cam" style="margin:10px 0 0">📷 No new picture for a while — is the camera plugged in and on WiFi?</div>
     <div class="cam-btns">
@@ -878,6 +941,7 @@ button,select,input,textarea{font-family:inherit!important}
         <option value="0">Light off</option><option value="1">Light · photos</option><option value="2">Light · always</option>
       </select>
       <span style="flex:1"></span>
+      <button id="btn-phonecam" onclick="openPhoneCam()" title="No ProofBox camera? Use a phone as the camera"><i data-ic="phone"></i></button>
       <button id="btn-shots" onclick="toggleShots()" title="Pictures saved every 10 minutes"><i data-ic="folder"></i><span id="cam-shots-n">0</span></button>
     </div>
     <div id="cam-vis-box" style="display:none;margin-top:8px">
@@ -4424,6 +4488,7 @@ Return clean semantic HTML for the report body: h1, h2, p, ul, table. No CSS, no
 // sistema y no siguen el color del tema. En el HTML van como <i data-ic="x">.
 const ICONS={
   sheet:'<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M4 9h16M4 15h16M10 9v12"/>',
+  phone:'<rect x="7" y="2" width="10" height="20" rx="2.5"/><path d="M11 18.5h2"/>',
   film:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4"/>',
   cursor:'<path d="M5 3l14 7-6 2-2 6z"/>',
   zoomin:'<circle cx="11" cy="11" r="7"/><path d="M21 21l-5-5M11 8v6M8 11h6"/>',
@@ -5306,7 +5371,7 @@ function paintCamAge(){
 // recibir y al volver se reanuda.
 // Los latidos siguen saliendo: si la placa vuelve al modo a demanda, basta.
 const CAM_TOPIC='proofboxcam/proofbox-cam01';
-let camStale=false;
+let camStale=false, camStateRaw='', camFwRaw='';
 let liveOn=false, liveSince=0, liveBeat=null, liveFrames=0, liveFpsAt=0, liveLastFrame=0;
 function livePaused(){ try{ return localStorage.getItem('pb-live-paused')==='1'; }catch(e){ return false; } }
 function setLivePaused(v){ try{ localStorage.setItem('pb-live-paused',v?'1':'0'); }catch(e){} }
@@ -5315,6 +5380,7 @@ function toggleLive(){
   else{ setLivePaused(false); startLive(); }
 }
 function autoLive(){
+  if(pc) return;   // este aparato ES la cámara: no se mira a sí mismo por el broker
   if(!liveOn&&!livePaused()&&document.visibilityState==='visible'&&mqttClient&&mqttClient.connected) startLive();
 }
 function startLive(){
@@ -7072,6 +7138,274 @@ async function tlDownload(){
   setTimeout(()=>URL.revokeObjectURL(a.href),10000);
 }
 
+// ═══ EL CELULAR COMO CÁMARA ═══════════════════════════════════════════════
+// Para quien no tiene la ESP32-cam: el celular hace EXACTAMENTE lo que hace la
+// placa, por los mismos canales. Foto de archivo cada 10 min a
+// cam/proofbox-cam01/shots/<epoch>.jpg y latest.jpg (las mismas reglas de
+// Storage que la placa, también tras el bloqueo), vivo por MQTT en …/live
+// cuando alguien late en …/viewer, órdenes por …/cmd (shot, q:N, light:N,
+// flip, mirror) y respuestas retenidas en state/quality/light/flip/fw. El resto
+// de la app —vivo, galería, medida, stop-motion— no sabe ni le importa quién
+// es la cámara. Un cliente MQTT propio, con testamento "offline" en …/state:
+// si el celular se apaga o pierde la red, los demás lo ven.
+const PC_Q=[{long:640,q:0.62,ms:160,name:'fluid'},{long:960,q:0.74,ms:320,name:'balanced'},{long:1280,q:0.84,ms:650,name:'sharp'}];
+const PC_SHOT_MS=10*60000, PC_VIEWER_TTL=15000;
+var pc=null;   // var: autoLive lo mira y puede correr antes de llegar aquí
+function pcSaved(){ try{ return JSON.parse(localStorage.getItem('pb-phonecam')||'{}'); }catch(e){ return {}; } }
+function pcRemember(o){ try{ localStorage.setItem('pb-phonecam',JSON.stringify({...pcSaved(),...o})); }catch(e){} }
+function openPhoneCam(){
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){ showToast('This browser cannot use the camera. Open the app in Chrome or Safari.',5000); return; }
+  if(!isSecureContext){ showToast('The camera needs the https:// address of the app',5000); return; }
+  // Otra cámara conectada: si la placa está en línea, las dos guardarían fotos.
+  const esp=camStateRaw&&camStateRaw!=='offline'&&!/phone/.test(camFwRaw);
+  document.getElementById('pc-esp-warn').style.display=esp?'':'none';
+  document.getElementById('pc-intro').classList.add('show');
+}
+async function pcOpenStream(deviceId){
+  const v={width:{ideal:1920},height:{ideal:1440},aspectRatio:{ideal:4/3}};
+  if(deviceId) v.deviceId={exact:deviceId}; else v.facingMode={ideal:'environment'};
+  return navigator.mediaDevices.getUserMedia({video:v,audio:false});
+}
+async function pcStart(){
+  document.getElementById('pc-intro').classList.remove('show');
+  if(pc) return;
+  const saved=pcSaved();
+  let stream;
+  try{ stream=await pcOpenStream(saved.lens).catch(()=>pcOpenStream()); }
+  catch(e){
+    showToast(e.name==='NotAllowedError'?'The camera was not allowed — allow it in the browser settings and try again':'Could not open the camera: '+e.message,6000);
+    return;
+  }
+  if(liveOn) stopLive();
+  pc={stream, track:stream.getVideoTracks()[0], client:null, q:+saved.q||0, light:+saved.light||0,
+      vflip:!!saved.vflip, mirror:!!saved.mirror, lastViewer:0, live:false, sending:false,
+      nextShot:Date.now()+4000, shotAsked:false, shooting:false, saved:0, lastShot:0, lastErr:'', frames:0, fpsAt:Date.now(), fps:0, wake:null, battery:null, tick:null};
+  pcRemember({on:true});
+  const vid=document.getElementById('pc-video'); vid.srcObject=stream; vid.play().catch(()=>{});
+  document.getElementById('pc').classList.add('show');
+  pcCaps(); pcLenses(); pcWake(); pcBattery(); pcConnect(); pcPaintFlip();
+  // El giro guardado es el de la placa, sujeta de lado; el celular se pone
+  // derecho. Si no, los demás verían su imagen torcida esos mismos grados.
+  if(camRot&&!saved.keptRot) setRot(0);
+  pcRemember({keptRot:true});
+  pc.tick=setInterval(pcTick,1000); pcTick();
+}
+// El vídeo de la cámara se va si la pestaña se oculta (el navegador lo corta):
+// al volver se reabre y se vuelve a pedir que la pantalla no se apague.
+async function pcRevive(){
+  if(!pc) return;
+  pcWake();
+  if(pc.track.readyState==='ended'){
+    try{
+      const st=await pcOpenStream(pcSaved().lens).catch(()=>pcOpenStream());
+      pc.stream=st; pc.track=st.getVideoTracks()[0];
+      const vid=document.getElementById('pc-video'); vid.srcObject=st; vid.play().catch(()=>{});
+      pcCaps(); pcApplyLight();
+    }catch(e){ pc.lastErr='The camera stopped — tap Stop and start it again'; }
+  }
+}
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') pcRevive(); });
+async function pcWake(){
+  try{ if(pc&&!pc.wake&&navigator.wakeLock){ pc.wake=await navigator.wakeLock.request('screen'); pc.wake.addEventListener('release',()=>{ if(pc) pc.wake=null; }); } }catch(e){}
+}
+async function pcBattery(){
+  try{ if(navigator.getBattery) pc.battery=await navigator.getBattery(); }catch(e){}
+}
+function pcCaps(){
+  const c=pc.track.getCapabilities?pc.track.getCapabilities():{};
+  document.getElementById('pc-torch').style.display=c.torch?'':'none';
+  const zb=document.getElementById('pc-zoom-box'), z=document.getElementById('pc-zoom');
+  if(c.zoom&&c.zoom.max>c.zoom.min){
+    zb.style.display=''; z.min=c.zoom.min; z.max=Math.min(c.zoom.max,c.zoom.min*8); z.step=c.zoom.step||0.1;
+    const zs=+pcSaved().zoom; z.value=zs>=c.zoom.min&&zs<=c.zoom.max?zs:c.zoom.min;
+    if(zs) pcSetZoom(z.value,true);
+  }else zb.style.display='none';
+  pcPaintLight();
+}
+async function pcLenses(){
+  try{
+    const all=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='videoinput');
+    const cur=pc.track.getSettings().deviceId, sel=document.getElementById('pc-lens');
+    sel.innerHTML=all.map((d,i)=>`<option value="${esc(d.deviceId)}"${d.deviceId===cur?' selected':''}>${esc(d.label||('Camera '+(i+1)))}</option>`).join('');
+    sel.style.display=all.length>1?'':'none';
+  }catch(e){}
+}
+async function pcSetLens(id){
+  if(!pc) return;
+  try{
+    const st=await pcOpenStream(id);
+    pc.stream.getTracks().forEach(t=>t.stop());
+    pc.stream=st; pc.track=st.getVideoTracks()[0];
+    document.getElementById('pc-video').srcObject=st;
+    pcRemember({lens:id,zoom:0}); pcCaps(); pcApplyLight();
+  }catch(e){ showToast('Could not switch to that camera'); }
+}
+function pcSetZoom(v,quiet){
+  if(!pc) return;
+  pc.track.applyConstraints({advanced:[{zoom:+v}]}).catch(()=>{});
+  if(!quiet) pcRemember({zoom:+v});
+}
+// La linterna hace de la luz de la placa: 0 nunca, 1 solo para la foto de
+// archivo, 2 también con el vivo. Sin linterna (casi todos los iPhone en el
+// navegador) el botón no aparece y la orden se contesta igual.
+async function pcTorch(on){
+  try{ const c=pc.track.getCapabilities?pc.track.getCapabilities():{}; if(c.torch) await pc.track.applyConstraints({advanced:[{torch:!!on}]}); }catch(e){}
+}
+function pcApplyLight(){ pcTorch(pc.light===2&&pc.live); }
+function pcPaintLight(){
+  const b=document.getElementById('pc-torch'); if(!b) return;
+  b.classList.toggle('on',pc.light>0);
+  document.getElementById('pc-torch-t').textContent=['Light off','Light · photos','Light · always'][pc.light];
+}
+function pcSetLight(n){ pc.light=n; pcRemember({light:n}); pcPaintLight(); pcApplyLight(); pcPub('light',String(n),true); }
+function pcCycleLight(){ pcSetLight((pc.light+1)%3); }
+function pcPub(sub,msg,retain){
+  if(SANDBOX||!pc||!pc.client||!pc.client.connected) return false;
+  pc.client.publish(CAM_TOPIC+'/'+sub,msg,{retain:!!retain});
+  return true;
+}
+function pcConnect(){
+  const opt={clientId:'pbcam-phone-'+Math.random().toString(16).slice(2,10),clean:true,reconnectPeriod:3000,keepalive:20};
+  // En el modo aislado no se deja testamento: diría "offline" de la cámara de verdad.
+  if(!SANDBOX) opt.will={topic:CAM_TOPIC+'/state',payload:'offline',retain:true,qos:0};
+  const c=mqtt.connect(BROKER_URL,opt); pc.client=c;
+  c.on('connect',()=>{
+    c.subscribe(CAM_TOPIC+'/viewer'); c.subscribe(CAM_TOPIC+'/cmd');
+    pcPub('state',pc.live?'live':'idle',true);
+    pcPub('flip',(pc.vflip?'1':'0')+','+(pc.mirror?'1':'0'),true);
+    pcPub('quality',PC_Q[pc.q].name,true);
+    pcPub('light',String(pc.light),true);
+    pcPub('fw','phone',true);
+  });
+  c.on('message',(t,m)=>{
+    if(!pc) return;
+    if(t===CAM_TOPIC+'/viewer'){ pc.lastViewer=Date.now(); return; }
+    if(t!==CAM_TOPIC+'/cmd') return;
+    const v=typeof m==='string'?m:new TextDecoder().decode(m);
+    if(v==='shot'){ pc.shotAsked=true; return; }
+    if(v.startsWith('q:')){ const n=+v.slice(2); if(PC_Q[n]){ pc.q=n; pcRemember({q:n}); } pcPub('quality',PC_Q[pc.q].name,true); return; }
+    if(v.startsWith('light:')){ const n=+v.slice(6); if(n>=0&&n<=2) pcSetLight(n); return; }
+    let ch=false;
+    if(v==='flip'){ pc.vflip=!pc.vflip; ch=true; }
+    else if(v==='mirror'){ pc.mirror=!pc.mirror; ch=true; }
+    else if(v.startsWith('flip:')){ pc.vflip=v.endsWith('1'); ch=true; }
+    else if(v.startsWith('mirror:')){ pc.mirror=v.endsWith('1'); ch=true; }
+    if(ch){ pcRemember({vflip:pc.vflip,mirror:pc.mirror}); pcPaintFlip(); pcPub('flip',(pc.vflip?'1':'0')+','+(pc.mirror?'1':'0'),true); }
+  });
+}
+// Un fotograma del vídeo como JPEG, con el lado largo a `long` px y volteado
+// si se pidió (lo que en la placa hace el sensor).
+function pcGrab(long,q){
+  const vid=document.getElementById('pc-video'), w=vid.videoWidth, h=vid.videoHeight;
+  if(!w||!h) return Promise.resolve(null);
+  const k=Math.min(1,long/Math.max(w,h)), W=Math.round(w*k), H=Math.round(h*k);
+  const cv=pcGrab.cv||(pcGrab.cv=document.createElement('canvas')); cv.width=W; cv.height=H;
+  const g=cv.getContext('2d');
+  g.setTransform(pc.mirror?-1:1,0,0,pc.vflip?-1:1,pc.mirror?W:0,pc.vflip?H:0);
+  g.drawImage(vid,0,0,W,H); g.setTransform(1,0,0,1,0,0);
+  return new Promise(res=>cv.toBlob(res,'image/jpeg',q));
+}
+async function pcSendFrame(){
+  if(!pc||!pc.live) return;
+  const t0=Date.now();
+  if(!pc.sending&&pc.client&&pc.client.connected){
+    pc.sending=true;
+    try{
+      const b=await pcGrab(PC_Q[pc.q].long,PC_Q[pc.q].q);
+      if(b&&pc&&!SANDBOX){
+        const buf=new Uint8Array(await b.arrayBuffer());
+        await new Promise(res=>pc.client.publish(CAM_TOPIC+'/live',buf,{qos:0},res));
+      }
+      if(b&&pc){ pc.frames++; pc.lastKB=Math.round(b.size/1024); }
+    }catch(e){}
+    if(pc) pc.sending=false;
+  }
+  if(pc&&pc.live) pc.liveT=setTimeout(pcSendFrame,Math.max(20,PC_Q[pc.q].ms-(Date.now()-t0)));
+}
+async function pcUpload(path,blob,upsert){
+  const h={apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY,'Content-Type':'image/jpeg','cache-control':'no-cache'};
+  if(upsert) h['x-upsert']='true';
+  const r=await fetch(`${SUPA_URL}/storage/v1/object/proofbox-photos/${path}`,{method:'POST',headers:h,body:blob});
+  if(!r.ok) throw new Error('HTTP '+r.status);
+}
+async function pcArchive(){
+  if(!pc||pc.shooting) return;
+  pc.shooting=true;
+  try{
+    // Con la linterna, antes de la foto: la exposición tiene que ajustarse a ella.
+    if(pc.light>=1&&!(pc.light===2&&pc.live)){ await pcTorch(true); await new Promise(r=>setTimeout(r,700)); }
+    const b=await pcGrab(1280,0.88);
+    if(pc.light===1||(pc.light===2&&!pc.live)) pcTorch(false);
+    if(!b) throw new Error('no picture from the camera yet');
+    if(SANDBOX){ pc.lastErr='Sandbox — the picture is not saved'; }
+    else{
+      await pcUpload(`cam/proofbox-cam01/shots/${Math.floor(Date.now()/1000)}.jpg`,b,false);
+      await pcUpload('cam/proofbox-cam01/latest.jpg',b,true).catch(()=>{});
+      pc.saved++; pc.lastErr='';
+    }
+    pc.lastShot=Date.now();
+  }catch(e){ if(pc) pc.lastErr='Could not save the picture: '+e.message; }
+  if(pc) pc.shooting=false;
+}
+function pcTick(){
+  if(!pc) return;
+  const now=Date.now();
+  // Vivo a demanda, como la placa: solo mientras alguien late.
+  const watching=now-pc.lastViewer<PC_VIEWER_TTL;
+  if(watching&&!pc.live){ pc.live=true; pc.frames=0; pc.fpsAt=now; pcPub('state','live',true); pcApplyLight(); pcSendFrame(); }
+  else if(!watching&&pc.live){ pc.live=false; clearTimeout(pc.liveT); pcPub('state','idle',true); pcApplyLight(); }
+  if(pc.shotAsked||now>=pc.nextShot){
+    if(!pc.shotAsked) pc.nextShot=now+PC_SHOT_MS;
+    pc.shotAsked=false; pcArchive();
+  }
+  if(now-pc.fpsAt>=3000){ pc.fps=pc.frames*1000/(now-pc.fpsAt); pc.frames=0; pc.fpsAt=now; }
+  // Lo que se ve en la pantalla del celular.
+  const up=pc.client&&pc.client.connected, ended=pc.track.readyState==='ended';
+  const dot=document.getElementById('pc-dot');
+  dot.className='pc-dot '+(ended||!up?'bad':(pc.live?'live':'on'));
+  document.getElementById('pc-status').textContent=ended?'The camera stopped':(!up?'Connecting…':(pc.live?'Live — someone is watching':'ProofBox camera on'));
+  const vid=document.getElementById('pc-video');
+  document.getElementById('pc-sub').textContent=(SANDBOX?'Sandbox — nothing is sent · ':'')+(vid.videoWidth?`${vid.videoWidth}×${vid.videoHeight}`:'')+(pc.live?` · ${pc.fps.toFixed(1)} fps · ${pc.lastKB||0} KB`:'');
+  const left=Math.max(0,pc.nextShot-now), mm=Math.floor(left/60000), ss=Math.floor(left%60000/1000);
+  const bat=pc.battery?` · battery ${Math.round(pc.battery.level*100)}%${pc.battery.charging?' ⚡':' — plug it in'}`:'';
+  const info=`Next picture in ${mm}:${String(ss).padStart(2,'0')} · ${pc.saved} saved${pc.lastShot?' · last '+new Date(pc.lastShot).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}):''}${bat}`;
+  document.getElementById('pc-info').innerHTML=esc(info)+(pc.lastErr?`<br><span style="color:#f5b642">${esc(pc.lastErr)}</span>`:'')+(pc.wake||!navigator.wakeLock?'':'<br><span style="color:#f5b642">The screen may turn off by itself — set the phone to never lock while it records</span>');
+  document.getElementById('pc-dark-t').textContent=(pc.live?'● Live':'ProofBox camera on')+` · next picture in ${mm}:${String(ss).padStart(2,'0')} · tap to see it`;
+}
+// La vista previa, volteada igual que lo que se envía.
+function pcPaintFlip(){ document.getElementById('pc-video').style.transform=`scale(${pc.mirror?-1:1},${pc.vflip?-1:1})`; }
+function pcShotNow(){ if(pc){ pc.shotAsked=true; showToast('📸 Taking a picture…'); } }
+function pcDark(on){
+  document.getElementById('pc-dark').classList.toggle('show',on);
+  if(on&&document.documentElement.requestFullscreen&&!document.fullscreenElement) document.documentElement.requestFullscreen().catch(()=>{});
+}
+function pcStop(){
+  if(!pc) return;
+  const p=pc; pc=null;
+  clearInterval(p.tick); clearTimeout(p.liveT);
+  try{ p.track.applyConstraints({advanced:[{torch:false}]}).catch(()=>{}); }catch(e){}
+  p.stream.getTracks().forEach(t=>t.stop());
+  if(p.client){
+    if(!SANDBOX&&p.client.connected) p.client.publish(CAM_TOPIC+'/state','offline',{retain:true},()=>p.client.end());
+    else p.client.end(true);
+  }
+  try{ if(p.wake) p.wake.release(); }catch(e){}
+  pcRemember({on:false});
+  document.getElementById('pc-video').srcObject=null;
+  document.getElementById('pc').classList.remove('show');
+  document.getElementById('pc-dark').classList.remove('show');
+  try{ if(document.fullscreenElement) document.exitFullscreen(); }catch(e){}
+  showToast('Phone camera stopped');
+  autoLive();
+}
+// Si la página se recarga (el navegador la tiró, se fue la red) con la cámara
+// puesta, vuelve sola: el celular está en su soporte y nadie lo va a tocar.
+// También con ?phonecam en la dirección, para dejarlo como acceso directo.
+setTimeout(()=>{
+  if(/[?&]phonecam\b/.test(location.search)) openPhoneCam();
+  else if(pcSaved().on) pcStart();
+},1500);
+
 // ─── Métricas sobre la imagen ─────────────────────────────────────────────
 // En pantalla completa se sigue viendo lo importante sin salir: pequeño, a un
 // lado, y solo lo que se elija. Cada cosa es independiente — nombre de la hoja
@@ -7846,6 +8180,8 @@ function connect(){
       // La placa dice su versión; "updating" mientras se instala una nueva por
       // el aire — durante ese minuto no hay vivo, y es mejor decirlo.
       const v=msg.toString(), el=document.getElementById('cam-fw');
+      camFwRaw=v;
+      if(/phone/.test(v)){ if(el) el.textContent='📱 phone camera'; return; }
       if(el) el.textContent=/updating/.test(v)?'⟳ updating the camera…':(/failed/.test(v)?'camera update failed — still on v'+parseInt(v):'camera v'+parseInt(v));
       if(/updating/.test(v)) showToast('📷 The camera is updating itself — back in about a minute',5000);
       return;
@@ -7868,6 +8204,7 @@ function connect(){
     }
     if(t===CAM_TOPIC+'/state'){
       const v=msg.toString(), el=document.getElementById('cam-state');
+      camStateRaw=v;
       if(el&&!liveOn) el.textContent=v==='offline'?'Camera offline':(v==='live'?'Camera streaming to someone':'Camera on · saving every 10 min');
       return;
     }

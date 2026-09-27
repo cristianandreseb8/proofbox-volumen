@@ -743,6 +743,30 @@ donde reconocerlo; lo frena la retención de 3 min.
 - **Fotos oscuras:** esta cámara saca casi todo muy oscuro (media de luma 6-11 incluso de día). Por eso el vídeo NO salta las fotos oscuras: las aclara con niveles p2–p99.5, suavizados con una mediana de 7 fotos para que no parpadee, y con ganancia máxima ~×10. Solo salta las que tienen el p98 por debajo de 12, que son negro puro.
 - Si el preview da `Cannot read properties of undefined (reading 'map')` en `setupDrawn`, es un `pb-vis-setup` de prueba a medias en el localStorage. `setupDrawn` ya lo ignora.
 
+## El celular como cámara (2026-09-27)
+
+Es para quien no tiene la ESP32-cam. Se activa con el botón 📱 de la tarjeta Camera, con "No ProofBox camera? Use a phone" en la imagen vacía, o con `?phonecam` en la dirección.
+
+**Cómo funciona.** El celular hace lo mismo que la placa y por los mismos canales, así que el resto de la app no cambia:
+- **Fotos:** guarda una cada 10 min en `cam/proofbox-cam01/shots/<epoch>.jpg` y en `latest.jpg`. Las sube directo con la clave pública, igual que la placa, y el bloqueo ya lo permite: no hace falta tocar `proofbox-write`.
+- **Vivo:** manda fotogramas en `…/live` mientras alguien late en `…/viewer` (TTL de 15 s).
+- **Órdenes:** atiende `…/cmd` (`shot`, `q:N`, `light:N`, `flip`, `mirror`, `flip:x`, `mirror:x`).
+- **Respuestas:** las publica retenidas en `state`, `quality`, `light`, `flip` y `fw`. El `fw` vale `phone` y la app lo muestra como "📱 phone camera".
+
+**Código.** La variable de estado es `pc`, un `var` a propósito, porque `autoLive` la lee. Las funciones son `pcStart`, `pcStop`, `pcTick` (cada segundo), `pcSendFrame`, `pcArchive`, `pcGrab` y `pcConnect`.
+
+**Cliente MQTT.** Tiene uno propio, con testamento `offline` retenido en `…/state`. En SANDBOX no deja testamento y `pcPub` no publica nada.
+
+**Linterna.** Hace de la luz de la placa (`light` 0/1/2) cuando el navegador expone `torch`. Chrome en Android sí lo expone; Safari en iPhone normalmente no. También hay zoom si la cámara lo ofrece, elección de lente y "Dark screen", una capa negra que evita el reflejo de la pantalla en el cristal. Pide wake lock propio en `pc.wake`, no el de la pantalla completa.
+
+**Preferencias.** Se guardan en localStorage `pb-phonecam` (`on`, `q`, `light`, `vflip`, `mirror`, `lens`, `zoom`, `keptRot`). Si la página se recarga con `on:true`, la cámara vuelve a arrancar sola.
+
+**Giro.** La primera vez que arranca pone el giro compartido a 0°: el de la placa (84°) torcería la imagen del celular. Después se respeta lo que elija el usuario.
+
+**Límite.** Si se sale de la app o se bloquea el celular, el navegador corta la cámara. Al volver, `pcRevive` la reabre. Los demás ven `offline` gracias al testamento.
+
+**Probarlo en el preview.** No hay cámara: se sustituye `navigator.mediaDevices.getUserMedia` por un `canvas.captureStream()`. Para simular a alguien mirando, se pone `pc.lastViewer` al momento actual. Las órdenes se prueban con `pc.client.emit('message', CAM_TOPIC+'/cmd', new TextEncoder().encode('q:2'))`.
+
 ## Pendiente
 
 - **Los electrodos nunca se han verificado en líquido.** Marcan 4.7 kΩ clavado,
