@@ -920,7 +920,7 @@ button,select,input,textarea{font-family:inherit!important}
       <div class="setup-banner" id="setup-banner-card"><span class="st"></span><button onclick="cancelSetup()">Cancel</button></div>
       <div id="cam-empty" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:11px;text-align:center;padding:12px">Waiting for the camera…<br><button class="mark-btn" style="margin-top:10px" onclick="openPhoneCam()"><i data-ic="phone"></i> No ProofBox camera? Use a phone</button></div>
     </div>
-    <div class="warn" id="warn-cam" style="margin:10px 0 0">📷 No new picture for a while — is the camera plugged in and on WiFi?</div>
+    <div class="warn" id="warn-cam" style="margin:10px 0 0">📷 No new picture for a while — is the camera plugged in and on WiFi? If your phone shows a WiFi network called <b>ProofBox-Cam</b>, the camera lost your WiFi: join it and pick your network again.</div>
     <div class="cam-btns">
       <button id="btn-live" onclick="toggleLive()" title="Live video"><i data-ic="play"></i>Live</button>
       <button id="btn-shot" onclick="askShot()" title="Take a picture now"><i data-ic="camera"></i></button>
@@ -5471,12 +5471,26 @@ try{ camSubject=localStorage.getItem('pb-cam-subject')||camSubject; }catch(e){}
 // torcida en el móvil no tiene sentido. Va como mensaje RETENIDO en el broker —
 // cualquier aparato que se conecte lo recibe al momento, sin tocar la base de
 // datos compartida. Localmente se guarda también, para arrancar ya girado.
+// Cada cámara tiene su giro: la placa va sujeta de lado (84°) y el celular
+// derecho. Se guardan los dos en el mismo mensaje retenido y, cuando cambia
+// quién es la cámara (lo dice su "fw": número = placa, "phone" = celular), se
+// pone el suyo. Antes el celular dejaba el de la placa en 0° y al volver la
+// placa se veía torcida.
+let camRotBy={};
+try{ camRotBy=JSON.parse(localStorage.getItem('pb-cam-rot-by')||'{}')||{}; }catch(e){}
+function camKind(){ return /phone/.test(camFwRaw)?'phone':(camFwRaw?'esp':null); }
 function publishRot(){
   if(SANDBOX||!mqttClient||!mqttClient.connected) return;
-  mqttClient.publish(CAM_TOPIC+'/rot',JSON.stringify({deg:camRot,subject:camSubject}),{retain:true});
+  mqttClient.publish(CAM_TOPIC+'/rot',JSON.stringify({deg:camRot,subject:camSubject,by:camRotBy}),{retain:true});
+}
+function applyCamRot(){
+  const k=camKind(); if(!k||camRotBy[k]==null) return;
+  if(Math.round(camRotBy[k])!==Math.round(camRot)) setRot(camRotBy[k],!!SANDBOX);
 }
 function setRot(v,fromRemote){
   camRot=((+v%360)+540)%360-180;   // se queda entre -180 y 180
+  const k=pc?'phone':camKind();
+  if(k&&!fromRemote){ camRotBy[k]=camRot; try{ localStorage.setItem('pb-cam-rot-by',JSON.stringify(camRotBy)); }catch(e){} }
   try{ localStorage.setItem('pb-cam-rot',String(camRot)); }catch(e){}
   paintRot();
   if(!fromRemote){ clearTimeout(setRot._t); setRot._t=setTimeout(publishRot,400); }   // el deslizador no inunda el broker
@@ -7186,8 +7200,8 @@ async function pcStart(){
   pcCaps(); pcLenses(); pcWake(); pcBattery(); pcConnect(); pcPaintFlip();
   // El giro guardado es el de la placa, sujeta de lado; el celular se pone
   // derecho. Si no, los demás verían su imagen torcida esos mismos grados.
-  if(camRot&&!saved.keptRot) setRot(0);
-  pcRemember({keptRot:true});
+  if(camRot&&camKind()!=='phone'&&camRotBy.esp==null){ camRotBy.esp=camRot; }
+  setRot(camRotBy.phone!=null?camRotBy.phone:0);
   pc.tick=setInterval(pcTick,1000); pcTick();
 }
 // El vídeo de la cámara se va si la pestaña se oculta (el navegador lo corta):
@@ -8155,7 +8169,9 @@ function connect(){
         const o=JSON.parse(msg.toString());
         if(o.subject){ camSubject=o.subject; try{localStorage.setItem('pb-cam-subject',camSubject);}catch(e){}
           const si=document.getElementById('cam-subject'); if(si&&document.activeElement!==si) si.value=camSubject; }
+        if(o.by&&typeof o.by==='object'){ camRotBy={...camRotBy,...o.by}; try{ localStorage.setItem('pb-cam-rot-by',JSON.stringify(camRotBy)); }catch(e){} }
         if(isFinite(+o.deg)&&+o.deg!==camRot) setRot(+o.deg,true);
+        applyCamRot();
       }catch(e){}
       return;
     }
@@ -8180,7 +8196,7 @@ function connect(){
       // La placa dice su versión; "updating" mientras se instala una nueva por
       // el aire — durante ese minuto no hay vivo, y es mejor decirlo.
       const v=msg.toString(), el=document.getElementById('cam-fw');
-      camFwRaw=v;
+      camFwRaw=v; applyCamRot();
       if(/phone/.test(v)){ if(el) el.textContent='📱 phone camera'; return; }
       if(el) el.textContent=/updating/.test(v)?'⟳ updating the camera…':(/failed/.test(v)?'camera update failed — still on v'+parseInt(v):'camera v'+parseInt(v));
       if(/updating/.test(v)) showToast('📷 The camera is updating itself — back in about a minute',5000);

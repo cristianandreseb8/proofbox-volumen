@@ -759,7 +759,7 @@ Es para quien no tiene la ESP32-cam. Se activa con el botón 📱 de la tarjeta 
 
 **Linterna.** Hace de la luz de la placa (`light` 0/1/2) cuando el navegador expone `torch`. Chrome en Android sí lo expone; Safari en iPhone normalmente no. También hay zoom si la cámara lo ofrece, elección de lente y "Dark screen", una capa negra que evita el reflejo de la pantalla en el cristal. Pide wake lock propio en `pc.wake`, no el de la pantalla completa.
 
-**Preferencias.** Se guardan en localStorage `pb-phonecam` (`on`, `q`, `light`, `vflip`, `mirror`, `lens`, `zoom`, `keptRot`). Si la página se recarga con `on:true`, la cámara vuelve a arrancar sola.
+**Preferencias.** Se guardan en localStorage `pb-phonecam` (`on`, `q`, `light`, `vflip`, `mirror`, `lens`, `zoom`). Si la página se recarga con `on:true`, la cámara vuelve a arrancar sola.
 
 **Giro.** La primera vez que arranca pone el giro compartido a 0°: el de la placa (84°) torcería la imagen del celular. Después se respeta lo que elija el usuario.
 
