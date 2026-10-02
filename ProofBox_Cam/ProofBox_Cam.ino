@@ -42,13 +42,14 @@ const char* TOPIC_FLIP   = "proofboxcam/proofbox-cam01/flip";
 const char* TOPIC_QUAL   = "proofboxcam/proofbox-cam01/quality";
 const char* TOPIC_FW     = "proofboxcam/proofbox-cam01/fw";
 const char* TOPIC_LIGHT  = "proofboxcam/proofbox-cam01/light";
+const char* TOPIC_EXPO   = "proofboxcam/proofbox-cam01/expo";
 
 // ── Actualización por el aire ────────────────────────────────────────────────
 // Sin cable: la placa mira un manifiesto en GitHub Pages y, si hay una versión
 // más nueva, se la descarga y se la instala. Solo de ESA dirección: quien puede
 // cambiar el firmware es quien puede hacer push al repositorio, no cualquiera
 // que escriba en el broker público. Subir FW_VERSION en cada publicación.
-const int   FW_VERSION  = 6;
+const int   FW_VERSION  = 7;
 const char* FW_MANIFEST = "https://cristianandreseb8.github.io/proofbox-volumen/fw/cam.json";
 const unsigned long FW_CHECK_MS = 6UL * 3600UL * 1000UL;   // cada 6 h, y al arrancar
 
@@ -102,6 +103,16 @@ void setLiveQ(int q) {
 // no pasa la noche iluminada), 2 siempre que el vivo está en marcha.
 #define LAMP_PIN        2
 int lampMode = 1;
+// Poca luz (firmware 7). La caja de levado cerrada es casi negra: la masa a 6 de
+// 255 y el fondo a 4, y con la ganancia limitada a 8× no hay nada que medir.
+// 0 normal (lo de siempre), 1 poca luz (ganancia hasta 32× y exposición +1),
+// 2 noche (hasta 128×, +2, y la foto de archivo con el modo nocturno del
+// sensor, que alarga la exposición bajando los fotogramas por segundo). El modo
+// nocturno solo se enciende para la foto de archivo y se apaga antes de volver
+// al vivo: con el vivo nunca se probó, y el firmware 2 ya rompió el escalado
+// tocando ajustes del sensor a ciegas. La app junta los fotogramas del vivo, así
+// que el grano de tanta ganancia se le va al promediar. Se guarda en NVS.
+int expoMode = 0;
 void lamp(bool on) { digitalWrite(LAMP_PIN, on ? HIGH : LOW); }
 
 WiFiClient   mqttNet;
@@ -173,7 +184,18 @@ void tuneSensor() {
   // el vivo — mandaba fotogramas de 1024x768 de 75 KB en modo "fluido" y el
   // broker cortaba la conexión en bucle. Solo se limita la ganancia, que es lo
   // que evita el grano sin tocar cómo escala el sensor.
-  s->set_gainceiling(s, GAINCEILING_8X);
+  // Con comprobación de que el driver lo tiene: llamar a un puntero vacío
+  // reiniciaría la placa en bucle, y sin USB no habría forma de arreglarla.
+  if (s->set_gainceiling) s->set_gainceiling(s, expoMode == 2 ? GAINCEILING_128X : (expoMode == 1 ? GAINCEILING_32X : GAINCEILING_8X));
+  // El nivel de exposición solo se toca si alguna vez se pidió poca luz: en
+  // modo normal la placa queda exactamente como con el firmware 6.
+  static bool aeTouched = false;
+  if (expoMode > 0) aeTouched = true;
+  if (aeTouched && s->set_ae_level) s->set_ae_level(s, expoMode);
+}
+void nightAec(bool on) {
+  sensor_t* s = esp_camera_sensor_get();
+  if (s && s->set_aec2) s->set_aec2(s, on ? 1 : 0);
 }
 
 void applyFlip() {
@@ -282,6 +304,14 @@ void archiveShot() {
   camStop();
   if (lampMode >= 1) { lamp(true); delay(300); }   // antes de arrancar: la exposición se ajusta con la luz puesta
   if (!camStart()) { if (lampMode < 2) lamp(false); return; }   // camStart arranca en SIZE_SHOT y tira 3 fotogramas
+  // Poca luz: la exposición automática tarda más en llegar con tanta ganancia,
+  // y el modo nocturno más todavía (cada fotograma dura más). Se tiran
+  // fotogramas hasta 3 s como mucho; el MQTT aguanta (keepalive 20 s).
+  if (expoMode >= 1) {
+    if (expoMode == 2) nightAec(true);
+    unsigned long t0 = millis();
+    for (int i = 0; i < 10 && millis() - t0 < 3000; i++) { camera_fb_t* f = esp_camera_fb_get(); if (f) esp_camera_fb_return(f); }
+  }
   camera_fb_t* fb = esp_camera_fb_get();
   if (fb && fb->width < 1000) {
     Serial.printf("⚠️ foto de archivo de %ux%u, se descarta\n", fb->width, fb->height);
@@ -302,8 +332,13 @@ void archiveShot() {
     digitalWrite(LED_PIN, HIGH);
   }
   if (!(lampMode == 2 && wasLive)) lamp(false);
+  if (expoMode == 2) nightAec(false);
   if (wasLive) camMode(SIZE_LIVE, QUAL_LIVE);
   else camStop();
+}
+void publishExpo() {
+  char b[4]; snprintf(b, sizeof(b), "%d", expoMode);
+  mqtt.publish(TOPIC_EXPO, b, true);
 }
 void publishLight() {
   char b[4]; snprintf(b, sizeof(b), "%d", lampMode);
@@ -369,6 +404,14 @@ void onMqtt(char* topic, byte* payload, unsigned int len) {
       Serial.printf("💡 luz: %d\n", lampMode);
       return;
     }
+    else if (c.startsWith("expo:")) {
+      expoMode = constrain(c.substring(5).toInt(), 0, 2);
+      prefs.putInt("expo", expoMode);
+      if (camOn) tuneSensor();
+      publishExpo();
+      Serial.printf("🌙 poca luz: %d\n", expoMode);
+      return;
+    }
     else if (c.startsWith("q:")) {
       setLiveQ(c.substring(2).toInt());
       prefs.putInt("liveq", liveQ);
@@ -408,6 +451,7 @@ void mqttEnsure() {
     publishFlip();
     publishQuality();
     publishLight();
+    publishExpo();
     publishFw("");
     Serial.println("MQTT ✅");
   } else {
@@ -427,6 +471,7 @@ void setup() {
   hmirror = prefs.getBool("hmirror", false);
   setLiveQ(prefs.getInt("liveq", 0));
   lampMode = prefs.getInt("lamp", 1);
+  expoMode = constrain(prefs.getInt("expo", 0), 0, 2);
   pinMode(LAMP_PIN, OUTPUT); lamp(false);
   Serial.printf("🔄 vflip=%d hmirror=%d\n", vflip, hmirror);
 
