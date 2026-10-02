@@ -678,7 +678,7 @@ contraseña (p. ej. HiveMQ Cloud), que tiene que crear el usuario.
 los tokens de `:root` y `:root[data-theme="light"]`; el tema se decide en un
 script del `<head>` antes de pintar (sin destello). Auto sigue al sistema. La
 cámara, su pantalla completa y las cajas encima de la imagen se quedan oscuras
-a propósito. Inter para la interfaz, Syne para marca y cifras grandes. Iconos
+a propósito. Letra del sistema y serif para marca y cifras (ver "Diseño simple"; antes Inter y Syne). Iconos
 de línea (`ICONS`, `<i data-ic>`, `hydrateIcons`) en lugar de emojis: cambian
 con el tema. El bloque "Acabado" va al final del `<style>` y pisa lo anterior.
 
@@ -722,7 +722,7 @@ Píxeles ≥235 fuera. Columnas de reflejo: parecen masa por ENCIMA de la cima
 reciente (`opt.prevTop`); se descartan si al menos ¼ de las columnas está limpia
 ahí, y entonces se repite la clasificación sin ellas (un reflejo ancho
 contaminaba la referencia de masa). En `measureDough`, un salto >8% del frasco
-no entra en la mediana hasta durar 3 min (`jumpBuf`). La vista ◐ pinta el mismo
+no entra en la mediana hasta durar 3 min (`jumpBuf`). El "Dough map" (antes ◐) pinta el mismo
 clasificador. Banco de pruebas: 99 fotos de archivo de una noche + reflejos y
 luces simulados (brillo ×3/×0,6, raya, mancha quemada, reflejo ancho, ventana,
 luz cálida/fría). Frente al método anterior: igual de estable en real (p90 de
@@ -766,6 +766,93 @@ Es para quien no tiene la ESP32-cam. Se activa con el botón 📱 de la tarjeta 
 **Límite.** Si se sale de la app o se bloquea el celular, el navegador corta la cámara. Al volver, `pcRevive` la reabre. Los demás ven `offline` gracias al testamento.
 
 **Probarlo en el preview.** No hay cámara: se sustituye `navigator.mediaDevices.getUserMedia` por un `canvas.captureStream()`. Para simular a alguien mirando, se pone `pc.lastViewer` al momento actual. Las órdenes se prueban con `pc.client.emit('message', CAM_TOPIC+'/cmd', new TextEncoder().encode('q:2'))`.
+
+## Revisión de la cámara y diseño simple (2026-10-02)
+
+**El problema de fondo era la luz.** Las fotos de archivo de finales de
+septiembre son casi negras: media de 4 a 6 sobre 255, y el punto más claro en 6-9
+incluso a mediodía. La medida respondía "no contrast" en todas. Hay tres arreglos,
+de más a menos importante:
+
+1. **La pila del vivo** (`stackFrame`, `stk`). Es una media móvil exponencial de
+   unos 24 fotogramas (4 s), guardada con decimales en `Float32Array`. Vuelve a
+   empezar si la escena cambia de golpe: más de un tercio de una rejilla de 16×12
+   cambió claramente, o el tamaño es otro. `measureDough` mide sobre la pila si
+   está fresca (`useStk`); si no, sobre la foto suelta.
+2. **El criterio por ruido, solo con la pila.** `pixMeasure` estima el ruido (σ)
+   a partir de la diferencia entre filas vecinas. Con la pila, el peso del brillo
+   es `max(viejo, wSnr)`, donde wSnr usa la separación entre masa y fondo dividida
+   por σ.
+   - **Con una foto suelta queda el criterio de siempre.** En el banco de pruebas
+     (75 fotos del 24-25/9, oscuras), el criterio por ruido añadía 20 lecturas que
+     bailaban entre 0,60 y 0,81 con la masa quieta.
+   - **Banco de la pila:** 8 fotos buenas oscurecidas a masa 6 / fondo 4, con
+     ruido σ 1 y JPEG 0,7. Una foto suelta leyó 0 de 8. La pila de 24 leyó 8 de 8,
+     a 0,05 o menos de la foto buena medida solo por brillo.
+   - **Ojo al comparar:** de noche el color no cuenta (`wW`=0). Esas fotos
+     medidas con color daban 0,39-0,41, y solo por brillo 0,70-0,77: la referencia
+     justa es la de solo brillo.
+   - **Sin verdad de terreno.** El ToF de esa noche marcaba 1-3 mm (estaba al
+     aire), así que no sirvió para comparar.
+3. **Firmware de la cámara v7: poca luz** (`cmd` `expo:0|1|2`, NVS `expo`,
+   retenido en `.../expo`).
+   - **Valores:** 0 es normal e igual que el v6; ni siquiera toca `ae_level`
+     hasta que se pide otro modo. 1 sube la ganancia a 32× y la exposición a +1.
+     2 sube la ganancia a 128× y la exposición a +2, y usa el modo nocturno del
+     sensor (`aec2`), que en el v7 solo se enciende para la foto de archivo.
+   - **Al disparar** tira fotogramas hasta 3 s para que la exposición se asiente.
+     Antes de volver al vivo apaga el modo nocturno.
+   - **Todas las llamadas al sensor comprueban el puntero.** Un puntero vacío
+     reiniciaría la placa en bucle, y sin USB no habría arreglo. **No se ha
+     probado en la placa**: estaba desconectada.
+
+**Modos de imagen** (`camView`, en localStorage `pb-cam-view`): Photo, Bright
+(`brightCanvas`) y Dough map (`makeContrast`).
+- **Bright:** niveles p2–p99,5, gamma 0,8, gris medio por canal (en la oscuridad
+  el sensor tiñe de verde), ganancia máxima ×12 y niveles suavizados en el vivo
+  (`lvlLive`).
+- **Un solo camino de pintado** (`showCam`) para el vivo y el archivo, que va a
+  la tarjeta, a la pantalla completa y al widget. Si llega otro fotograma mientras
+  se pinta el anterior, se salta.
+- **Los modos también valen en el visor** (`loadShotView`, caché de 60) y en el
+  stop-motion (`viewOfBlob`).
+- **Miniaturas:** en Bright y Dough map cada una se aclara con un filtro CSS según
+  su p97 (`liftThumb`, con `crossorigin`).
+- **"Add to step" guarda lo que se ve.**
+- **La IA recibe la foto aclarada** si el p98 está por debajo de 90; las
+  coordenadas son las mismas.
+
+**Fallo arreglado.** Había dos `contrastOf`. La de la galería (`blob`) tapaba la de
+la IA (`dataUrl, th`), y "Calibrate with AI" acababa en error desde el 25/9. Ahora
+la IA usa `contrastDataUrl(blob)` y `makeContrast(fr, ref)` admite cualquier
+stride.
+
+**La barra de la tarjeta** lleva Live, Picture, Add to step, la galería y ⋯. El
+selector de vista y la pantalla completa van encima de la imagen. Todo lo demás
+está en `camMenu`: marcas, calibrar, borrar, girar, volteo, espejo, calidad, luz,
+poca luz, actualizar la cámara, stop-motion y celular como cámara.
+- **`openPop`** acepta `{section}`, `{sep}`, `{note}`, `{title, seg}` e items con
+  `icon`, `check`, `hint` y `disabled`, y se maneja con el teclado.
+- **Toda orden a la cámara pasa por `camCmd()`**, que en SANDBOX no sale. Antes
+  calidad, luz y volteo se mandaban desde la vista de prueba.
+- **Estado de la placa** en `camQualityV`, `camLightV` y `camExpoV`; los
+  `<select>` ya no existen.
+- **Estado de la medida:** una línea con la cifra delante y, si no hay lectura,
+  qué hacer (`paintVisLine`).
+- **La nota de la IA** solo se ve un minuto tras calibrar desde este aparato.
+- **Los textos de la barra** se ocultan según el ancho de la tarjeta, con
+  `@container`.
+
+**Diseño simple**, al final del `<style>`. Los tokens son los de quaderno: claro
+como su "default" y oscuro como "slate". Letra del sistema (`--sans`), serif
+(`--serif`) para la marca, los títulos y las cifras grandes, y `--mono`. Sin
+fuentes de Google. El selector segmentado es el `Q-seg` de quaderno (`.seg`, y
+`.seg.dark` encima de la imagen); los menús son los `Q-menu`. `showToast` ya no se
+apaga con el temporizador del aviso anterior.
+
+**Probar la pila sin cámara.** Se pone `liveOn=true` a mano y se llama a
+`onLiveFrame()` con JPEG oscurecidos de una foto buena del archivo (luma·0,3 +
+ruido σ 1, `toBlob` 0,7) cada 160 ms. Sin `startLive`, no se publica nada.
 
 ## Pendiente
 
