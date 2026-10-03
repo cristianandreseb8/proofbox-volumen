@@ -843,12 +843,15 @@ poca luz, actualizar la cámara, stop-motion y celular como cámara.
 - **Los textos de la barra** se ocultan según el ancho de la tarjeta, con
   `@container`.
 
-**Diseño simple**, al final del `<style>`. Los tokens son los de quaderno: claro
-como su "default" y oscuro como "slate". Letra del sistema (`--sans`), serif
-(`--serif`) para la marca, los títulos y las cifras grandes, y `--mono`. Sin
-fuentes de Google. El selector segmentado es el `Q-seg` de quaderno (`.seg`, y
-`.seg.dark` encima de la imagen); los menús son los `Q-menu`. `showToast` ya no se
-apaga con el temporizador del aviso anterior.
+**Diseño simple**, al final del `<style>`. Las piezas nuevas (menús, `.seg`, la
+tarjeta de la cámara) llevan los colores y las letras de siempre: la paleta ámbar
+de los tokens de arriba, Inter, Syne y DM Mono (`--sans`, `--serif`, `--mono`).
+- **Probado y descartado:** el 2/10 se probó la paleta y la serif de quaderno; el
+  panadero pidió volver a lo de antes (3/10) y quedarse con todo lo demás. No
+  imponer el estilo de quaderno aquí.
+- **Variables añadidas** para las piezas nuevas, con valores de esta paleta:
+  `--hover`, `--faint`, `--red-soft`, `--overlay`, `--shadow-sm`, `--shadow-lg`.
+- **`showToast`** ya no se apaga con el temporizador del aviso anterior.
 
 **Probar la pila sin cámara.** Se pone `liveOn=true` a mano y se llama a
 `onLiveFrame()` con JPEG oscurecidos de una foto buena del archivo (luma·0,3 +
